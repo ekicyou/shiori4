@@ -81,7 +81,7 @@
   - 本 spec はソースを変えないので、`//!` と README の役割の説明が食い違っていないかだけを確かめる
   - 完了時: 食い違いが無いこと、または直した箇所を報告する
   - _Requirements: 3.3, 7.1_
-- [ ] 6.2 `shiori4_abi/include/shiori4_abi.h` - ABI の型・定数・規約の変更を Rust 側と揃える（該当する場合）
+- [x] 6.2 `shiori4_abi/include/shiori4_abi.h` - ABI の型・定数・規約の変更を Rust 側と揃える（該当する場合）
   - 本 spec は ABI を変えないので、ヘッダに差分が無いことを確かめる
   - 完了時: ヘッダの差分が 0
   - _Requirements: 7.1_
