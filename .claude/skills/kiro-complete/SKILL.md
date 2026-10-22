@@ -245,19 +245,12 @@ DoD ゲートより前に、**実装中に発生した未解決問題のうち�
 1. **workflow.md を読み込む**（未読の場合）
 2. **workflow.md の DoD に列挙された全ゲート**（例: Spec / Test / Doc / Steering）を順に検証する。ゲートの構成は workflow.md を正とし、ここで個数や内訳を固定しない。
 3. **Test Gate**:
-   - まず `session_store_sql` でセッション記録を確認し、直近のターンで `cargo test` が実行され全テスト成功していたか判定する
-     ```sql
-     SELECT t.content FROM turns t
-     JOIN sessions s ON t.session_id = s.id
-     WHERE s.id = (SELECT id FROM sessions ORDER BY start_time DESC LIMIT 1)
-       AND t.content LIKE '%cargo test%'
-       AND t.content LIKE '%test result%'
-     ORDER BY t.created_at DESC LIMIT 3
-     ```
-   - **スキップ可**: セッション記録に `test result: ok` が確認でき、その後にテスト対象コードの変更がない場合、Test Gate をスキップする。スキップ時は完了チェックリストに「(セッション記録により省略)」と注記する
-   - **スキップ不可**: セッション記録が見つからない、テスト結果が不明瞭、またはテスト後にコード変更がある場合は実行する:
+   - まずこの会話の記録を確認し、直近に `cargo test --all` と workflow.md の clippy が実行され、ともに成功していたか判定する
+   - **スキップ可**: 会話の記録に両方の成功（`test result: ok` と clippy の警告なしの完了）が確認でき、その後にコードの変更がない場合、Test Gate をスキップする。スキップ時は完了チェックリストに「(セッション記録により省略)」と注記する
+   - **スキップ不可**: 記録が見つからない、結果が不明瞭、またはその後にコード変更がある場合は実行する:
    ```powershell
    cargo test --all 2>&1 | Select-String "test result:|FAILED|error\["
+   cargo clippy --all-targets --workspace -- -D warnings
    ```
 4. **いずれかのゲートが失敗した場合**: ワークフローを中断し、開発者に報告
 
@@ -318,7 +311,7 @@ workflow.md の「実装完了時アクション」セクションおよび「�
 
 #### 6-1. ロードマップ更新
 
-`.kiro/steering/roadmap.md` を確認し、完了したSpecが「Specs (dependency order)」に記載されているか判定する。
+`.kiro/steering/roadmap.md` を確認し、完了したSpecが「Specs (dependency order)」に記載されているか判定する。roadmap.md が無ければこの 6-1 はスキップする。
 
 **スコープ判定（優先順位）**:
 1. `requirements.md` に明示的なロードマップ項目との紐付け記述がある場合
@@ -381,7 +374,7 @@ gh pr create --base {default-branch} --head $branch --title "<subject>" --body "
 gh pr merge --squash --delete-branch --subject "<subject>" --body "<body>"
 ```
 
-- **CI の完了を待たない。** PR を作ったらすぐ squash マージする。マージ前の関門はステップ1の Test Gate（ローカルの `cargo test --all`。clippy `-D warnings` も通しておく）であり、CI の緑を見張らない。main が CI で赤くなったら次の作業より先に追いかけの修正で直す。取り消せない公開の前の検査は、リリース CI がタグのコミットで行う（workflow.md「3. リモート同期」）。
+- **CI の完了を待たない。** PR を作ったらすぐ squash マージする。マージ前の関門はステップ1の Test Gate（ローカルの `cargo test --all` と clippy `-D warnings`）であり、CI の緑を見張らない（workflow.md「3. リモート同期」）。
 - **マージ成否はマージ API の結果のみで判定する。** `gh pr merge` の成否がマージ成否であり、それ以外の警告でマージ成功を覆さない。
 - **リモートブランチ削除**: `gh pr merge --delete-branch` が **PR マージ成功後に** API でリモート feature ブランチを削除する。
 - **ローカル後始末警告は非致命**: `--delete-branch` のローカル削除試行は、カレントワークツリーでブランチがチェックアウト中のため**ブロックされ警告を出す**ことがある。これは**非致命**でありマージ成功（API 結果）を覆さない。リモートブランチは API により削除済みである。
@@ -424,7 +417,7 @@ PR の**作成またはマージ（API）が失敗**した場合（コンフリ�
 - [ ] 前置きステップ: マージの机を申し込み（merge --wait）→ 番（last: を報告に添えた）→ ステップ8 の後に merged（PR 番号とマージ後のコミット）。机が使えずに飛ばしたときは、その訳（環境変数が無い・実行ファイルが無い・値が断られた・失敗の 1 行）を記録
 - [ ] 冒頭ステップ: 実装中の未解決問題のうち未起票のものを棚卸し済み——原則その場で解決（spec の外に手が届いても可・バグはテスト付き・1 件 1 コミット・Implementation Notes に記録）、手順 3 の例外に当たるものだけ、担当 spec があればその brief.md へ申し送り、担当が無ければ `/kiro-discovery` で起票（起票は 1 件ごとに当たった例外を添える。解決件数・申し送り件数・起票件数をそれぞれ記録。0 件なら「0 件」）。DoD ゲートより前
 - [ ] DoD 全ゲート通過（workflow.md 準拠）
-- [ ] cargo test --all 成功（またはセッション記録により省略）
+- [ ] cargo test --all・clippy 成功（またはセッション記録により省略）
 - [ ] 未コミットファイルをコミット済み（ステップ2）
 - [ ] completedフォルダへ移動済み（ステップ3）※繰り返し仕様はスキップ
 - [ ] spec.json の phase を "completed" に更新済み（ステップ4）※繰り返し仕様はスキップ
