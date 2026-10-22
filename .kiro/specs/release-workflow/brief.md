@@ -21,7 +21,7 @@
 - 初回セットアップ（environment・Trusted Publisher・初回の手動公開・`trustpub_only`）の手順書があり、開発者がその通りに一度だけ行えば、以後は `/release` だけで公開できる
 
 ## Approach
-pasta の仕組みを移植し、3 クレート用に縮める。落とすもの: build job（dll・nar・vsix）、publish-vsce と Azure 一式、release-setup-check.yml、manual.yml、版の出どころのうち package.json・book・Marketplace、見どころのクラウディア口調の検査。数え方は pasta の 7/7 から **3 クレート ＋ GitHub Release = 4/4** に変わる。版の更新が触るファイルは Cargo.toml・（方針しだいで）Cargo.lock・`doc/release-notes/vX.Y.Z.md`。
+pasta の仕組みを移植し、3 クレート用に縮める。落とすもの: build job（dll・nar・vsix）、publish-vsce と Azure 一式、release-setup-check.yml、manual.yml、版の出どころのうち package.json・book・Marketplace、見どころのクラウディア口調の検査。数え方は pasta の 7/7 から **3 クレート ＋ GitHub Release = 4/4** に変わる。版の更新が触るファイルは Cargo.toml（3 か所）・`doc/release-notes/vX.Y.Z.md`。`Cargo.lock` はコミットしない（crate-publish-ready の設計で確定）ので、公開に `--locked` を使わず、pasta の release.yml の `git diff --exit-code -- Cargo.lock` も移植しない。
 
 ## Scope
 - **In**:

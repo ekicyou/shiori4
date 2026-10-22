@@ -45,13 +45,14 @@ pub use shiori4;
 pub use shiori4::{host_protocol, HeaderWriter, Headers};
 ```
 
-クレート間はワークスペース内の `path` 依存で参照する。
+クレート間の参照は、ルートの `[workspace.dependencies]` に `path`（手元のソース）と `version`（公開時の版要求）の両方を書き、各クレートが `<dep>.workspace = true` で受け継ぐ。
 
 ## Code Organization Principles
 
 - 依存は下向きだけ（`shiori4_host` → `shiori4` → `shiori4_abi`）。`shiori4_abi` は何にも依存しない
 - 層をまたぐ語彙（メッセージ名など）は、両側が依存できる最下位の高水準層（`shiori4`）に置く
 - 規約・設計方針はクレート冒頭の `//!` に書き、README は使い方の入口だけにする
+- 各クレートの `README.md` は crates.io の顔（そのクレートの役割・利用者・使い方）。ルートの `README.md` はワークスペース全体の入口で、各クレートへ導く
 - テストは同じファイルの `mod tests` に置く
 
 ---

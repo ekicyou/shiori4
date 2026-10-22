@@ -20,7 +20,7 @@ pasta（`C:\home\maz\git\pasta`）のリリースの仕組みを下敷きにし�
 
 ## Constraints
 - 初版は **0.0.1**。3 クレートは**同じ版**（`[workspace.package] version`）で揃えて出す
-- ライセンスは **MIT だけ**（Cargo.toml の `MIT OR Apache-2.0` を `MIT` に直す。LICENSE ファイルは今のまま）
+- ライセンスは **MIT だけ**（`[workspace.package] license = "MIT"`。各クレートにルートの LICENSE の写しを同梱する）
 - PR の CI は **ubuntu / windows / macos** の 3 OS で test と clippy を通す（`shiori4_host` は .dll / .so / .dylib を読む前提のため）
 - 公開の順は依存の順: `shiori4_abi` → `shiori4` → `shiori4_host`
 - Trusted Publishing はクレートを新規に作れない。**初回の 1 回だけ、開発者が手元からトークンで公開する**（手順書に書く。スキルや CI は代行しない）
@@ -35,5 +35,5 @@ pasta（`C:\home\maz\git\pasta`）のリリースの仕組みを下敷きにし�
   - `.kiro/steering/workflow.md` の「前提: 完成の形」と DoD・リモート同期の節は ② が公開の運用に合わせて書き直す
 
 ## Specs (dependency order)
-- [ ] crate-publish-ready -- 3 クレートを crates.io に出せる形にし（版の一本化・path+version 依存・メタデータ・各クレートの README・ライセンス整合・`cargo package` の通過）、PR の CI（build.yml、3 OS・cargo-deny）で守る。Dependencies: none
+- [x] crate-publish-ready -- 3 クレートを crates.io に出せる形にし（版の一本化・path+version 依存・メタデータ・各クレートの README・ライセンス整合・`cargo package` の通過）、PR の CI（build.yml、3 OS・cargo-deny）で守る。Dependencies: none
 - [ ] release-workflow -- タグ push で検査・公開・GitHub Release を行う release.yml と公開スクリプト、初回セットアップの手順書、リリースノートの約束、`/release` スキル、workflow.md の更新。Dependencies: crate-publish-ready

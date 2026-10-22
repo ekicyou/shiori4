@@ -76,7 +76,7 @@ gh pr merge --squash --delete-branch --subject "<subject>" --body "<body>"
 ```
 
 - `{remote}`（`origin` → 単一リモート → none）と `{default-branch}`（`git symbolic-ref` → `main` → `master` → 現ブランチ）は決定的に解決し、ハードコードしない
-- **CI を待たない**: このリポジトリに CI は無い。マージ前の関門は DoD の Test Gate（ローカルの `cargo test --all` と clippy）だけである
+- **CI を待たない**: PR では CI（`.github/workflows/build.yml`）が走るが、その結果は待たない。マージ前の関門は DoD の Test Gate（ローカルの `cargo test --all` と clippy）だけである
 - **ブランチ削除**: リモートの feature ブランチは `--delete-branch` がマージ成功**後に** API で消す。ローカルブランチ・ワークツリーの後始末はハーネスに委ねる（ローカル削除の警告は非致命）
 - **フォールバック（PR 不可）**: デフォルトブランチ上 / `{remote}` が none / `gh` 未認証のときは、警告して PR・push をスキップし、ローカルコミットを保持する
 - **中断条件**: PR の作成またはマージ（API）が失敗したら、ブランチを消さずに中断して報告する
