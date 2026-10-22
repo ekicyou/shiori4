@@ -37,14 +37,14 @@
   - 実験は `.git` の無い写しで行った。実リポジトリでは cargo が git の追跡ファイルを基準にするため、未追跡の README を作ってコミットしないまま package すると入らない／dirty 扱いになる点に注意（CI は clean checkout なので問題ない）
 
 ### 依存検査（cargo-deny）
-- **Context**: 要件 5.4・5.5、OPEN QUESTION 10
+- **Context**: 要件 5.4・5.5
 - **Sources Consulted**: pasta の `deny.toml`、手元の `cargo-deny 0.20.2` でスクラッチに対して `cargo deny check`・`cargo deny list`
 - **Findings**:
   - 結果は全項目 ok。使われていない許可ライセンス 8 件について `license-not-encountered` の警告（失敗ではない）
   - 依存のライセンス: `cfg-if`・`windows-link` が MIT OR Apache-2.0、`libloading` が ISC、自クレートは MIT
   - pasta の `[bans] wildcards = "allow"` は path だけの依存を許すための設定。内部依存に version を付ければ `deny` にもできる
   - `Cargo.lock` が無い場合、cargo-deny はその場で lock を作って検査する（検査の時点の最新の依存で判定される）
-- **Implications**: 許可リストは「MIT・Apache-2.0・ISC」に絞れば警告ゼロ、pasta のままなら将来の依存追加に強いが警告が出る。どちらにするかは設計で決める（OPEN QUESTION 10）
+- **Implications**: 許可リストは「MIT・Apache-2.0・ISC」に絞れば警告ゼロ、pasta のままなら将来の依存追加に強いが警告が出る。要件ディスカッションで「MIT・Apache-2.0・ISC」に絞ると確定した（要件 5.4）
 
 ### pasta の build.yml からの縮小
 - **Context**: 要件 5・6
@@ -62,7 +62,7 @@
 | 1 版の一本化 | `[workspace.package]` あり（version なし）、各クレートに `0.1.0` 直書き | `version = "0.0.1"` の追加、各クレートの `version.workspace = true`、`[workspace.dependencies]` の新設と内部依存の移行 | Missing |
 | 1.6 版の食い違いの検出 | なし | caret 要求のため互換の範囲の食い違いは検出できない。厳密な一致の検査は release-workflow の verify に委ねるか、設計で `=0.0.1` 指定などを検討 | Constraint |
 | 2 メタデータ・ライセンス | `description`・`edition`・`rust-version`・`license`（`MIT OR Apache-2.0`） | `license = "MIT"` への修正、`authors`・`repository`・`homepage`・`documentation` の追加 | Missing |
-| 2.6 ライセンス文の同梱 | ルートの `LICENSE`（MIT） | パッケージに入らない（確認済み）。各クレートに写す、`license-file` で指す、など手段が要る | Missing / Unknown（OPEN Q3） |
+| 2.6 ライセンス文の同梱 | ルートの `LICENSE`（MIT） | パッケージに入らない（確認済み）。各クレートに写す、`license-file` で指す、など手段が要る | Missing（入れると確定。手段は設計） |
 | 3 各クレートの README | ルート `README.md` のみ、各 `lib.rs` 冒頭の `//!` | 3 本の新規作成。ルート README からのリンク | Missing |
 | 4 パッケージ化 | なし | `--workspace` でなら未公開のまま通ることを確認済み。C ヘッダは既定で入る | Constraint（単独 `-p` は不可） |
 | 5 CI | なし（`.github/` 無し） | `.github/workflows/build.yml` と `deny.toml` の新規。ubuntu / macOS でのテスト結果は未確認 | Missing / Unknown |
@@ -90,7 +90,7 @@
 - ✅ 要件 2.6・4.3 を既定の挙動に頼らず保証できる
 - ❌ LICENSE の写しが 3 つに増える（本文の同期が要る）。`license` と `license-file` を両方書くと cargo が警告する点に注意
 
-**推奨（参考）**: Option A を基本に、OPEN QUESTION 3・5 の結論しだいで Option C の部分を足す。
+**推奨（参考）**: Option C。要件ディスカッションで LICENSE の同梱（要件 2.6）と C ヘッダの CI 検査（要件 5.6）が確定したため、Option A に Option C の部分を足す。
 
 ## Implementation Complexity & Risk
 - **Effort**: S（1〜3 日）— 既存の pasta の形を写すだけで、Rust のソースに触れない。新しい技術要素なし
@@ -110,6 +110,11 @@
 - **Alternatives**: (1) 3 OS の matrix の各 job で回す (2) ubuntu の別 job で 1 回だけ回す
 - **Follow-up**: 要件 5.7（失敗の見分け）を満たす job / step 名にする
 
+### Decision: LICENSE の本文をパッケージに入れる方法
+- **Context**: 要件 2.6（入れると確定）。`license = "MIT"` だけではルートの LICENSE はパッケージに入らない
+- **Alternatives**: (1) 各クレートのディレクトリに LICENSE を写す（本文の同期が要る） (2) `license-file` でルートの LICENSE を指す（`license` との併記は警告） (3) `include` などでルートの LICENSE を取り込む
+- **Follow-up**: 要件 4.4 の「パッケージの中身」の確認に LICENSE を含める
+
 ### Decision: 内部依存の版要求の書き方
 - **Context**: 要件 1.6。`version = "0.0.1"`（caret）は 0.0.x では実質厳密一致になるが、0.1 以上では互換の範囲を受け入れる
 - **Alternatives**: (1) pasta と同じ caret (2) `=0.0.1` の厳密指定
@@ -122,8 +127,8 @@
 - 実リポジトリで未コミットの README を package すると dirty 扱いになる — 検証はコミット後に行う（CI は clean checkout）
 
 ## Research Needed（設計フェーズへ）
-- crates.io が `documentation` 未設定のときに docs.rs へのリンクを自動で出すか（OPEN QUESTION 2 の判断材料）
-- `license` と `license-file` を併記したときの cargo / crates.io の扱い、各クレートに LICENSE を置く場合の最小の書き方（OPEN QUESTION 3）
+- crates.io が `documentation` 未設定のときに docs.rs へのリンクを自動で出すか（要件 2.7 は自動リンクに任せると確定。設計で Cargo Book の記述を確かめる）
+- `license` と `license-file` を併記したときの cargo / crates.io の扱い、各クレートに LICENSE を置く場合の最小の書き方（要件 2.6）
 - `Swatinem/rust-cache@v2` と `EmbarkStudios/cargo-deny-action@v2` の、`Cargo.lock` が無いリポジトリでの挙動
 - ubuntu-latest / macos-latest での `cargo test --all` と clippy の結果（最初の CI 実行で確認）
 

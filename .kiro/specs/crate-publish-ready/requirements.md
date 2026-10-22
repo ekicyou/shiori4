@@ -20,11 +20,14 @@ shiori4 ワークスペースの 3 クレート（`shiori4_abi`・`shiori4`・`s
   - C ヘッダがパッケージに入ること、3 クレートの `cargo package` が通ることの確認（手元と CI）
   - PR / main への push で走る CI（3 OS の test・clippy、cargo-deny、パッケージ化の検証、他ワークフローからの呼び出し）と、その検査の設定
   - steering（`tech.md`・`structure.md`）の版・メタデータ・CI・`Cargo.lock` 方針の記述
+  - `workflow.md` の「このリポジトリに CI は無い」の 1 文を事実に合わせる修正だけ（運用は変えない）
 - **Out of scope**:
   - crates.io への実際の公開（初回の手動公開を含む）
   - タグで動くリリース CI・公開スクリプト・`/release` スキル・リリースノート
   - クレートの API・ABI・挙動の変更
-  - `.kiro/steering/workflow.md` の「前提: 完成の形」・DoD・リモート同期の節の書き直し（release-workflow が持つ。OPEN QUESTION 8 参照）
+  - `.kiro/steering/workflow.md` の「前提: 完成の形」・DoD・リモート同期の節の書き直し（release-workflow が持つ）
+  - MSRV（Rust 1.85）での CI 検査（`rust-version` の表明だけにする）
+  - crates.io の categories の指定
 - **Adjacent expectations**:
   - release-workflow は、本 spec の CI を入力なしで gate として呼び出し、その成否で公開を止める
   - release-workflow の `/release` は、本 spec が決めた版の置き場所（ワークスペースの版 1 か所＋内部依存の版要求）だけを書き換えれば版を上げられることを前提にする
@@ -48,11 +51,12 @@ shiori4 ワークスペースの 3 クレート（`shiori4_abi`・`shiori4`・`s
 
 #### Acceptance Criteria
 1. The 各クレート shall ライセンスの表明を `MIT` だけとし、`Apache-2.0` を含めない
-2. The 各クレート shall リポジトリ（`https://github.com/ekicyou/shiori4`）・ホームページ・ドキュメントの場所・作者を、ワークスペースの共通メタデータから受け継いで表明する（値は OPEN QUESTION 1・2 の前提に従う）
-3. The 各クレート shall 現在の `description`（クレートの役割の 1 文）を保つ
+2. The 各クレート shall リポジトリとホームページ（どちらも `https://github.com/ekicyou/shiori4`）と作者（`Dot-Station Master <dot.station@gmail.com>`、pasta と同じ）を、ワークスペースの共通メタデータから受け継いで表明する3. The 各クレート shall 現在の `description`（クレートの役割の 1 文）を保つ
 4. The shiori4 ワークスペース shall edition 2024・`rust-version = "1.85"` を変えない
 5. When 開発者が各クレートをパッケージ化する, the パッケージ化 shall メタデータの欠落（documentation・homepage・repository など）に関する警告を出さない
-6. **（前提・OPEN QUESTION 3）** The 各クレートのパッケージ shall MIT の著作権表示と許諾文（ルートの LICENSE と同じ本文）を含む。ルートの LICENSE の本文は変えない
+6. The 各クレートのパッケージ shall MIT の著作権表示と許諾文（ルートの LICENSE と同じ本文）を含む。ルートの LICENSE の本文は変えない
+7. The 各クレート shall ドキュメントの場所（`documentation`）を表明せず、crates.io が各クレートの docs.rs のページへ自動でリンクするに任せる
+8. The 各クレート shall crates.io の keywords として `shiori`・`ghost`・`ukagaka` を、ワークスペースの共通メタデータから受け継いで表明する
 
 ### Requirement 3: 各クレートの README
 **Objective:** As a クレートの利用者, I want crates.io のクレートのページで役割と使い始め方を知りたい, so that どのクレートを使えばよいか、何を実装すればよいかがすぐ分かる
@@ -63,7 +67,7 @@ shiori4 ワークスペースの 3 クレート（`shiori4_abi`・`shiori4`・`s
 3. The 各クレートの README shall 規約・設計方針の詳細を重複して書かず、クレート冒頭のドキュメント（docs.rs）へ誘導する（steering の「README は使い方の入口だけ」に従う）
 4. If README がリポジトリ内の他のファイルや他のクレートを参照する, then the README shall crates.io 上でも辿れる形（絶対 URL など）で参照する
 5. The ルート README shall ワークスペースの入口として残り、各クレートの README（または crates.io のページ）へ辿れる
-6. **（前提・OPEN QUESTION 4）** The 各クレートの README shall 日本語で書く
+6. The 各クレートの README shall 日本語だけで書く（英語は併記しない）
 
 ### Requirement 4: パッケージの内容と検証の通過
 **Objective:** As a 開発者, I want 公開の前に 3 クレートが公開できる形であることを確かめたい, so that 公開の当日に `cargo publish` に断られない
@@ -81,11 +85,11 @@ shiori4 ワークスペースの 3 クレート（`shiori4_abi`・`shiori4`・`s
 
 #### Acceptance Criteria
 1. When main に向けた PR が作成または更新される, the CI shall ubuntu-latest・windows-latest・macos-latest の 3 OS それぞれで、ワークスペース全体のビルドと全テスト（`cargo test --all`）と、警告をエラーとする lint（`cargo clippy --all-targets --workspace -- -D warnings`）を実行する
-2. When main に push される, the CI shall 受け入れ基準 5.1 と同じ検査を実行する
+2. When main に push される、または開発者が CI を手動で実行する, the CI shall 受け入れ基準 5.1 と同じ検査を実行する
 3. If いずれかの OS で検査が失敗する, then the CI shall 全体を失敗として PR に示し、他の OS の検査は途中で打ち切らずに最後まで結果を出す
-4. When CI が走る, the CI shall 依存クレートのライセンス・既知の脆弱性勧告・取得元を、リポジトリに置いた許可の設定に照らして検査する（cargo-deny）
+4. When CI が走る, the CI shall 依存クレートのライセンス・既知の脆弱性勧告・取得元を、リポジトリに置いた許可の設定に照らして検査する（cargo-deny）。許可するライセンスは、現在の依存が使う `MIT`・`Apache-2.0`・`ISC` だけとする
 5. If 依存に許可していないライセンス・脆弱性勧告・許可していない取得元が見つかる, then the CI shall 検査を失敗させ、該当する依存と理由を表示する
-6. When CI が走る, the CI shall 要件 4 のパッケージ化と検証を実行し、失敗すれば検査を失敗させる
+6. When CI が走る, the CI shall 要件 4 のパッケージ化と検証を実行し、`shiori4_abi` のパッケージに C ヘッダ `include/shiori4_abi.h` が含まれることを確かめ、どちらかが失敗すれば検査を失敗させる
 7. The CI shall 開発者が PR 上で、どの OS・どの検査（test・clippy・依存検査・パッケージ化）が失敗したかを見分けられる単位で結果を示す
 8. The CI shall crates.io への公開・タグの作成・GitHub Release の作成を行わず、秘密のトークンを必要としない
 
@@ -115,22 +119,23 @@ shiori4 ワークスペースの 3 クレート（`shiori4_abi`・`shiori4`・`s
 2. The `tech.md` shall `Cargo.lock` をコミットするかどうかの方針を、設計で決めた結果に合わせて記し、CI の実際の動きと矛盾させない
 3. The `tech.md` の Common Commands shall CI と同じ lint のコマンド（`--workspace` を含む）とパッケージ化の検証のコマンドを示す
 4. The `structure.md` shall クレート間の参照の仕方（ワークスペースの内部依存として、手元のソースと版要求の両方を持つこと）と、各クレートの README の位置づけ（crates.io の顔、ルート README は入口）を記す
+5. The `workflow.md` shall 「このリポジトリに CI は無い」の記述を、PR の CI（build.yml）が走ることに合わせて直す。マージの関門は DoD の Test Gate のままとし、CI の結果を待たない運用は変えない（運用の書き直しは release-workflow が持つ）
 
 ---
 
-## OPEN QUESTIONS（要件ディスカッションで決める）
-brief.md で決めきれなかった事項。上の要件は各「前提」で暫定的に書いてある。
+## 要件ディスカッションで確定した事項
+2026-10-22 の要件ディスカッションで、全議題を推奨案で確定した（議題 9 だけは開発者の指定で keywords を付ける）。
 
-1. **作者（authors）の値**: 前提は pasta と同じ `Dot-Station Master <dot.station@gmail.com>`。別の表記にするか、`authors` 自体を置かないか
-2. **homepage / documentation の向き先**: 前提は pasta と同じくワークスペース共通で GitHub リポジトリの URL。ライブラリなので documentation を各クレートの docs.rs にする（ワークスペース共通にできないので各クレートで書く）か、documentation を置かずに crates.io の既定に任せるか
-3. **ライセンス文をパッケージに入れるか（受け入れ基準 2.6）**: MIT は複製に許諾文を含めることを求めるが、`license = "MIT"` だけではルートの LICENSE はパッケージに入らない（現状の確認済み）。前提は「各パッケージに入れる」。入れない、という選択も可
-4. **README の言語と分量**: 前提は日本語（steering の「ドキュメントは日本語」に合わせる）で、使い方の入口だけ。英語を併記するか
-5. **C ヘッダが入っていることを CI で毎回検査するか**: 前提は CI のパッケージ化の検証の中で、パッケージの中身に C ヘッダがあることも確かめる。一度手元で確かめるだけにするか
-6. **手動実行（workflow_dispatch）を CI のきっかけに入れるか**: brief は PR・main への push・`workflow_call` だけを挙げる。pasta の build.yml には手動実行がある。前提は pasta に合わせて入れる
-7. **MSRV（Rust 1.85）での検査を CI に入れるか**: brief は stable の 3 OS だけを挙げる。前提は入れない（`rust-version` の表明だけ）
-8. **workflow.md の「このリポジトリに CI は無い」「CI を待たない」の記述**: 本 spec で CI ができると事実と食い違う。brief はリモート同期の節の書き直しを release-workflow に割り当てている。前提は本 spec では workflow.md に触れない（release-workflow が直す）。事実の 1 行だけ本 spec で直すか
-9. **keywords / categories**: brief に無い。前提は本 spec では付けない
-10. **依存検査の許可ライセンスの範囲**: brief は「pasta のものを MIT 系の許可リストに合わせて」。前提は MIT と両立する寛容なライセンスに限る（具体的な一覧は設計で決める。現在の依存は MIT・Apache-2.0・ISC だけ）
+1. **authors**: pasta と同じ `Dot-Station Master <dot.station@gmail.com>`（受け入れ基準 2.2）
+2. **homepage / documentation**: homepage は repository と同じ GitHub の URL。documentation は書かず、crates.io の docs.rs への自動リンクに任せる（受け入れ基準 2.2・2.7）
+3. **ライセンス文の同梱**: 各パッケージに入れる。入れ方は設計で決める（受け入れ基準 2.6）
+4. **README の言語**: 日本語だけ、使い方の入口だけ（受け入れ基準 3.6）
+5. **C ヘッダの検査**: CI のパッケージ化の検証で毎回確かめる（受け入れ基準 5.6）
+6. **手動実行**: `workflow_dispatch` を入れる（受け入れ基準 5.2）
+7. **MSRV の CI 検査**: 入れない（Out of scope）
+8. **workflow.md**: 「CI は無い」の 1 文だけ事実に合わせて直し、運用は変えない（受け入れ基準 8.5）
+9. **keywords / categories**: keywords は `shiori`・`ghost`・`ukagaka` を付ける。categories は付けない（受け入れ基準 2.8、Out of scope）
+10. **cargo-deny の許可ライセンス**: `MIT`・`Apache-2.0`・`ISC` だけ（受け入れ基準 5.4）
 
 ### 設計に持ち越す決定（質問ではない）
 - `Cargo.lock` をコミットするか（brief の Constraints により、本 spec の設計で決めて `tech.md` を直す。release-workflow が `--locked` で公開するかどうかと関わる）
