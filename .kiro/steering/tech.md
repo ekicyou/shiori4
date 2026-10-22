@@ -47,12 +47,23 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, post キュ�
 - 生ポインタを受ける関数は `shiori_slice_arg` / `shiori_str_arg` で検証してから使う
 
 ### Code Quality
-- `cargo clippy` を `-D warnings` で通す
+- `cargo clippy --all-targets --workspace` を `-D warnings` で通す
 - コメントとドキュメントは日本語。規約はクレート冒頭の `//!` に番号付きで書き、実装側から「規約 N」として参照する
 
 ### Testing
 - 各クレートの `lib.rs` 末尾の `#[cfg(test)] mod tests` に置く
 - ホスト側のテストは `GhostRuntime::from_static` でテスト用 `Ghost` を DLL なしに直結して、往復を検証する
+
+### 公開とバージョン
+- 版はルート `Cargo.toml` の **3 か所**だけに書く: `[workspace.package] version` と、`[workspace.dependencies]` の `shiori4_abi`・`shiori4` の `version`。3 つは常に同じ値にする（`0.0.x` の版要求は完全一致なので、直し忘れると依存解決で落ちる）
+- 共通メタデータ（`edition`・`rust-version`・`authors`・`license`・`repository`・`homepage`・`keywords`）も `[workspace.package]` に置き、各クレートは `<field>.workspace = true` で受け継ぐ。クレート固有なのは `name` と `description` だけ
+- ライセンスは **MIT だけ**。各クレートのディレクトリにルート `LICENSE` の写しを置く（`license-file` は使わない）
+
+### CI
+`.github/workflows/build.yml` が `main` への push・PR・手動（`workflow_dispatch`）で走り、`workflow_call` で他のワークフローからも呼べる。ジョブは 3 種:
+- **test**: ubuntu / windows / macos で `cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings`
+- **deny**: `cargo deny check`（設定はルートの `deny.toml`。ライセンスの許可・勧告・取得元）
+- **package**: `cargo package --workspace` と中身の検査（`shiori4_abi` に C ヘッダが入るか、各クレートの `LICENSE` がルートと同じか）
 
 ## Development Environment
 
@@ -63,15 +74,17 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, post キュ�
 ```bash
 # Build: cargo build
 # Test:  cargo test --all
-# Lint:  cargo clippy --all-targets -- -D warnings
+# Lint:  cargo clippy --all-targets --workspace -- -D warnings
+# Package: cargo package --workspace
 ```
+- 単独の `cargo package -p <crate>` は、下位クレートが crates.io に初めて公開されるまで依存を解決できず使えない。`--workspace` で検証する
 
 ## Key Technical Decisions
 
 - **ABI はバイト列の運搬だけ**: SHIORI/3.0 の解析・v3/v4 変換・プロパティは上位層の責務。ABI を小さく保ち、言語非依存にするため
 - **v3/v4 の差のうち透過にするのは文字列形式だけ**: ホストを呼べるか（`Option<ShioriHostHandle>`）は `Ghost` に見せる。v3 で同期プロパティ取得ができない事実を隠さない
 - **完了通知は通常のイベント**: post の結果は専用 API ではなく、`Tag` 付きの request / notify として後から届ける。届けるのは `pump` の中だけ（post 中や host.request 中には届けない）
-- **`Cargo.lock` はコミットしない**（ライブラリのワークスペースのため）
+- **`Cargo.lock` はコミットしない**（ライブラリのワークスペースのため）: ライブラリの lock は利用者のビルドでは使われない。lock が無いので CI は利用者と同じく毎回最新の依存で検査する。公開にも `--locked` を使わない
 
 ---
 _Document standards and patterns, not every dependency_

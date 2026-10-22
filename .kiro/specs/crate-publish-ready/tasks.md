@@ -49,7 +49,7 @@
   - _Depends: 1.2, 2.1, 2.2_
   - _Requirements: 1.6, 2.6, 4.1, 4.2, 4.3, 4.5, 4.6, 5.1, 5.2, 5.3, 5.6, 5.7, 5.8, 6.1, 6.2, 6.3, 6.4, 7.2, 7.4_
 
-- [ ] 4. steering に版・CI・lock・内部依存・README の方針を書く
+- [x] 4. steering に版・CI・lock・内部依存・README の方針を書く
   - tech.md に、版の置き場所の契約（3 か所）・共通メタデータ・MIT だけ・CI の 3 種のジョブと他ワークフローからの呼び出し・`Cargo.lock` をコミットしない理由（`--locked` を使わない）を書き、Common Commands に `--workspace` 付きの clippy と `cargo package --workspace`（単独の `-p` は初回公開まで使えない旨）を足す
   - structure.md の内部依存の書き方を「ワークスペースの依存に path と版要求を持ち、各クレートが受け継ぐ」に直し、各クレートの README は crates.io の顔・ルート README は入口と書く
   - workflow.md は「このリポジトリに CI は無い」の 1 文だけを、PR で build.yml が走るがマージの関門は Test Gate で CI を待たない、の趣旨に直す
