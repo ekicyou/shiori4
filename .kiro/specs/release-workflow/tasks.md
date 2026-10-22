@@ -1,7 +1,7 @@
 # Implementation Plan
 
 - [ ] 1. リリース CI の補助スクリプト
-- [ ] 1.1 (P) タグの検査スクリプトを作る
+- [x] 1.1 (P) タグの検査スクリプトを作る
   - タグの形（`vX.Y.Z`、ASCII 数字だけ）・タグのコミットのワークスペースの版との一致・main からの到達・見どころのファイルの中身の 4 条件を、すべて確かめてからまとめて報告する
   - 合格なら版を出力に書き、不合格なら失敗した条件の箇条書きと「どの公開先にも公開していない」を summary に書いて失敗で終わる
   - 手元（`GITHUB_OUTPUT` が無い環境）では結果を標準出力へ書く
@@ -202,3 +202,6 @@
   - 補助スクリプトのテスト、`cargo test --all`、`cargo clippy --all-targets --workspace -- -D warnings` を通す
   - 完了の状態: 上の 3 種の確かめがすべて通った出力がある
   - _Requirements: 14.6, 16.7, 2.3_
+
+## Implementation Notes
+- verify-tag.ps1 は版と見どころを `git show` ではなく作業ツリーから読む。release.yml の verify は必ずタグのコミットを checkout すること（2.1）
