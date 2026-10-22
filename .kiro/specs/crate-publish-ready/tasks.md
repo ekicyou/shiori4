@@ -31,7 +31,7 @@
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
 - [ ] 3. CI と依存検査の設定を置く
-- [ ] 3.1 (P) 依存検査の許可の設定を置く
+- [x] 3.1 (P) 依存検査の許可の設定を置く
   - 許可するライセンスを MIT・Apache-2.0・ISC だけにし、ワイルドカードの版要求・未知のレジストリ・未知の git を拒否し、取得元を crates.io の索引だけにする
   - 完了時: 手元の `cargo deny check` が advisories・bans・licenses・sources とも ok で、警告を出さない
   - 手元に cargo-deny が無ければ `cargo install cargo-deny` で入れる
