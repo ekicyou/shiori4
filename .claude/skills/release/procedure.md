@@ -509,3 +509,35 @@ gh run view {RUN} --log-failed | tail -n 60
 - B は、実行が `completed` になってから使う。
 - C は、`.github/scripts/release/verify-tag.ps1` と同じ 4 つの条件を、タグを付けるコミットの中身（`git show`）で確かめる。先に `git fetch origin main` を済ませる。
 - D は、作業ディレクトリの `doc/release-notes/v{V}.md` を、`.github/scripts/release/release-notes.ps1` の出力（材料）と、`.kiro/specs/`・`.kiro/specs/completed/` のフォルダの名前に照らして確かめる。タグの在る版を確かめるときは、`-Head origin/main` を省く。
+
+## 初版の経路【初版のみ】
+
+| Field | Detail |
+|-------|--------|
+| Intent | 手で公開した 0.0.1 に、リリースタグと GitHub Release をそろえる |
+| Requirements | 14.2, 14.4, 14.5, 14.6 |
+
+0.0.1 のためだけの経路である。v0.0.1 が 4/4 になった後、後続の spec `release-bootstrap-cleanup` がこの節と判定表 S の行 S2 を削る（14.6）。削った後は、同じ状態は S9 に当たって止まる。ほかの段は変わらない。
+
+段 2 の判定表 S の行 S2 から来たときだけ、次の順で進む。版の決定（段 3）・版の更新（段 4）・main への統合（段 5）を飛ばす（14.2）。
+
+1. **条件の確かめ**。段 2 の定型コマンド A の出力で、`V_MAIN` が `0.0.1` であることを確かめる。`VREQ` があって `V_MAIN` と違えば、`VREQ` を始めず、先に `V_MAIN` の初版を仕上げることを示して止まる（12.7）。`V` = `V_MAIN` とする。
+2. **`TARGET` の決定**。main の先頭をタグを付けるコミットにする。
+
+   ```bash
+   git fetch origin main
+   git rev-parse origin/main
+   ```
+
+   出力を `TARGET` とする。
+
+3. **タグを付ける前の検査**（10.2・14.2）。定型コマンド C を `-Version {V} -Target {TARGET}` で実行する。4 行とも `合格` であること。
+   - 4 行目（`見どころ`）だけが `不合格`: リリースタグを作らずに止まり、初版の見どころ `doc/release-notes/v0.0.1.md` が main に無いことを示す。見どころを書かず、見どころだけの PR も作らない（14.3）。
+   - ほかの行が `不合格`: タグを作らずに止まり、`不合格` の行を示す。
+4. **段 6 の手順 3（同名のタグ）から続ける**。段 6 の手順 3〜5、段 7・段 8 はふだんと同じに行う。段 7 の手順 4 の完了の判定もふだんと同じ規則で、結果表の 3 クレートが `skipped`（手で公開済み）、GitHub Release が `published` なら満たす（14.4）。
+5. **完了の報告**（14.5）。段 9 の報告の末尾に、次の 2 行を足す。
+
+   ```
+   - CI の認証: step `Auth crates.io` が成功した（トークンの交換が通った。交換はクレートを指定しないので、クレートごとの公開の権限は CI から公開する次の版で初めて確かめられる）
+   - 後片付け: `.github/release-ci-setup.md` の節「後片付け（必須）」（3 クレートの Trusted Publisher の照合・Trusted Publishing のみの有効化・API トークンの失効と手元からの削除）を開発者が行う。エージェントは行わない
+   ```
