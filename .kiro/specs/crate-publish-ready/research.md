@@ -127,10 +127,84 @@
 - 実リポジトリで未コミットの README を package すると dirty 扱いになる — 検証はコミット後に行う（CI は clean checkout）
 
 ## Research Needed（設計フェーズへ）
-- crates.io が `documentation` 未設定のときに docs.rs へのリンクを自動で出すか（要件 2.7 は自動リンクに任せると確定。設計で Cargo Book の記述を確かめる）
-- `license` と `license-file` を併記したときの cargo / crates.io の扱い、各クレートに LICENSE を置く場合の最小の書き方（要件 2.6）
-- `Swatinem/rust-cache@v2` と `EmbarkStudios/cargo-deny-action@v2` の、`Cargo.lock` が無いリポジトリでの挙動
-- ubuntu-latest / macos-latest での `cargo test --all` と clippy の結果（最初の CI 実行で確認）
+設計フェーズで解決した（下の「設計フェーズの調査」）。残るのは最後の 1 件だけ。
+- ~~crates.io が `documentation` 未設定のときに docs.rs へのリンクを自動で出すか~~ → 出す（Cargo Book）
+- ~~`license` と `license-file` の併記の扱い、LICENSE を置く最小の書き方~~ → 併記は警告。各クレートに写しを置く
+- ~~rust-cache と cargo-deny-action の、`Cargo.lock` が無いときの挙動~~ → lock をコミットするので論点でなくなった（記録は下）
+- ubuntu-latest / macos-latest での `cargo test --all` と clippy の結果（最初の CI 実行で確認。設計でも未確認のまま）
+
+---
+
+## 設計フェーズの調査（kiro-spec-design, 2026-10-22）
+
+- **Discovery Scope**: Extension（light discovery）。新しいライブラリ・Action は足さないので外部調査は Cargo Book と 4 つの Action の README・Cargo チームの指針に絞った
+- **使ったスキル・ガイド**: `kiro-spec-design`（rules: design-principles・design-discovery-light・design-synthesis・design-review-gate）、`kiro-validate-design`（rules: design-review）。ドメイン固有のスキルはこのリポジトリに無い
+- **実験の場所**: スクラッチに 3 クレートを写し（`git init` して追跡ファイルの挙動を再現）、design.md のマニフェストの契約どおりに書き換えた写し（`exp`）。cargo 1.99.1・cargo-deny 0.20.2・Windows
+
+### 実験 A: 設計どおりのマニフェスト＋各クレートの README・LICENSE の写し
+- `cargo package --workspace`: 3 クレートとも Packaging → Verifying で成功し、**warning は 0 件**（authors・homepage・repository・keywords あり、documentation なし）。要件 2.5 を満たす
+- `cargo package --list -p <crate>`: `.cargo_vcs_info.json`・`Cargo.lock`・`Cargo.toml`・`Cargo.toml.orig`・`LICENSE`・`README.md`・`src/lib.rs`（`shiori4_abi` はさらに `include/shiori4_abi.h`）。`readme`・`include` を書かなくても README とヘッダは入る
+- `cargo test --all --locked` と `cargo clippy --all-targets --workspace --locked -- -D warnings` が通る（Windows）
+
+### 実験 B / B2 / C: ルートの LICENSE を入れる別の方法
+- B（`license = "MIT"` ＋ `license-file = "../LICENSE"`）: パッケージには `LICENSE` が入るが、`cargo package` でも `cargo build` でも毎回 `warning: only one of license or license-file is necessary` が出る → 要件 2.5 の趣旨（警告を出さない）に反する
+- B2（`license-file = "../LICENSE"` だけ）: パッケージの `Cargo.toml` に `license` が無くなる → crates.io で MIT と表示されず要件 2.1 に反する
+- C（`include = ["../LICENSE", …]`）: パッケージの外のファイルは入らない（`LICENSE` が一覧に出ない）
+- **結論**: 各クレートのディレクトリに LICENSE を写す（実験 A）。写しのずれは CI で `cmp` する
+
+### 実験 E2: 版要求の食い違い
+- `[workspace.package] version = "0.0.2"`、版要求は `0.0.1` のまま → `cargo build` が `failed to select a version for the requirement shiori4_abi = "^0.0.1"`（`candidate versions found which didn't match: 0.0.2`）で終了コード 101。要件 1.6 は caret のままで満たせる
+
+### 実験 E3: `Cargo.lock` と `--locked`
+- a) lock なしで `cargo test --all --locked` → `cannot create the lock file … because --locked was passed` で失敗。lock をコミットしないと `--locked` は使えない（`cargo package --no-verify --locked` は lock なしでも通ったが、検証のビルドや `cargo publish --locked` はリポジトリの lock を前提にする）
+- b) lock が最新なら `cargo package --workspace --locked` は通る
+- c) 版を 3 か所とも上げて lock を直さない → `cargo package --workspace --locked` も `cargo clippy … --locked` も `cannot update the lock file … because --locked was passed` で失敗。CI で lock の直し忘れを検出できる
+- d) `cargo update --workspace` で lock の 3 クレートの版だけが更新される（外部依存は動かない）。release-workflow の `/release` はこれを使える
+- 補足: resolver 3 は `rust-version = "1.85"` を見て `libloading 0.8.9` を選ぶ（`available: v0.9.0, requires Rust 1.88.0`）
+
+### 実験 D: 絞った `deny.toml`
+- `allow = ["MIT", "Apache-2.0", "ISC"]`、`wildcards = "deny"`、`unknown-registry`・`unknown-git = "deny"` で `advisories ok, bans ok, licenses ok, sources ok`、警告なし。lock の依存は `cfg-if`・`libloading`・`windows-link` と自クレート 3 つ
+
+### 外部の資料
+- **Cargo Book（manifest、手元の rust-docs）**: documentation 未設定なら crates.io が docs.rs へ自動でリンクする（「If no URL is specified in the manifest file, crates.io will automatically link your crate…」）。`readme` 未設定でも package root の `README.md` を使う。keywords は 5 個まで・20 字まで・ASCII。`license-file` は非標準のライセンス用
+- **Swatinem/rust-cache**: キーに `Cargo.lock` / `Cargo.toml` のハッシュを含む（あれば）。lock の無いライブラリは効きが限られると明記
+- **EmbarkStudios/cargo-deny-action**: 既定は `check`・`--all-features`、既定の Rust は 1.85.0。lock の無い場合の挙動は書かれていない（「Cargo.lock files checked into your repository」を前提にする記述がある）
+- **Rust blog「Change in Guidance on Committing Lockfiles」（2023-08-29）**: ライブラリでも「プロジェクトに最善のことをする」。`cargo new` はライブラリでも lock を無視しなくなった。最新の依存での定期的な検査は勧める
+- **pasta**: `Cargo.lock` をコミットし、`publish-crate.ps1` は `cargo publish -p $Crate --locked`。release.yml は lock が書き換わっていないことを `git diff --exit-code -- Cargo.lock` で確かめる
+
+## 設計の決定（確定版）
+
+### Decision: `Cargo.lock` をコミットする
+- **Selected**: コミットする。`.gitignore` から外し、CI の `package` ジョブを `--locked` で回す。`test` ジョブの test・clippy には付けない（DoD の Test Gate と同じコマンドのまま）
+- **Rationale**: 実験 E3 のとおり `--locked` には lock が要る。release-workflow は pasta と同じ `cargo publish --locked` を移植する見込み。CI・deny・公開の再現性
+- **Trade-offs**: 版の更新で lock も変わる（`cargo update --workspace`。直し忘れは CI が検出）。最新の依存での検査は人が `cargo update` するときだけ
+- **Follow-up**: tech.md の Key Technical Decisions を改める。release-workflow の brief の「（方針しだいで）Cargo.lock」は「Cargo.lock も更新する」に確定したと申し送る
+
+### Decision: LICENSE は各クレートに写す
+- **Selected**: 実験 A。`license-file` は使わない
+- **Rationale**: 実験 B・B2・C のとおり、他の方法は警告か表示の誤りか不採用になる
+- **Trade-offs**: 写しが 3 つ。本文は年が変わるくらいしか変わらず、CI の `cmp` でずれを検出する
+
+### Decision: パッケージ化の検証は ubuntu の別ジョブで 1 回
+- **Selected**: `package` ジョブ（ubuntu）。ジョブ名で見分けられる（要件 5.7）
+- **Rationale**: 中身は OS に依らない。検証のビルドは `test` ジョブの 3 OS で済んでいる。CRLF の影響なく `cmp` できる
+
+### Decision: 内部依存の版要求は caret（pasta と同じ）
+- **Selected**: `version = "0.0.1"`。`=` の厳密指定はしない
+- **Rationale**: 0.0.x では caret が実質厳密一致で、実験 E2 のとおり直し忘れを検出する。0.1 以上の検出漏れは要件 1.6 の但し書きで受け入れ済み。`/release` が書き換える個数は変わらない
+
+### Decision: `libloading` は `[workspace.dependencies]` に移さない
+- **Selected**: `shiori4_host/Cargo.toml` に `libloading = "0.8"` のまま
+- **Rationale**: 要件 1.3 は内部依存だけを求める。外部依存は 1 つだけで、移しても版の管理は楽にならない（最小の差分）
+
+### Decision: `deny.toml` は pasta から絞って厳しくする
+- **Selected**: 許可ライセンス 3 つ、`wildcards = "deny"`、`unknown-registry`・`unknown-git = "deny"`、`db-path`・`db-urls` は既定に任せて省く
+- **Rationale**: 要件 5.4・5.5（許可していない取得元で失敗）。pasta の `warn` では失敗しない
+
+## Synthesis（design-synthesis）
+- **Generalization**: 「PR・push・手動・gate」の 4 つの入口は、トリガを 1 つのワークフローに束ね、`if:` で分岐しないことで 1 つの検査に一般化した（要件 6.4）。release-workflow はジョブを足すだけで済む
+- **Build vs. Adopt**: すべて既存のものを採用（cargo の既定の同梱・README 自動検出・`--workspace` の一時レジストリ、cargo-deny、pasta と同じ 4 つの Action）。自作するのは中身の検査の数行の bash だけ（cargo に「このファイルが入っているか」を検査する機能が無いため）
+- **Simplification**: `readme`・`include`・`exclude`・`license-file`・`documentation` を書かない。パッケージ化を 3 OS で回さない。`--locked` は 1 か所だけ。`libloading` を動かさない。MSRV の CI・Dependabot は入れない
 
 ## References
 - `C:\home\maz\git\pasta\Cargo.toml` — `[workspace.package]` と `[workspace.dependencies]`（path＋version）の流儀
