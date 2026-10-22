@@ -69,7 +69,7 @@
   - _Boundary: release-state.ps1_
   - _Requirements: 8.2, 8.5, 8.6, 12.1, 13.1_
 
-- [ ] 4.2 (P) CI の結果の定型コマンド（B）を作る
+- [x] 4.2 (P) CI の結果の定型コマンド（B）を作る
   - 指定の実行の run・job（gate の中を含む）・対象の step・status の行を、attempt ごとに決まった形の行で出す
   - 公開の step には、認証の step の完了からの経過で出した「期限まで」の秒を付ける
   - 読むだけで、何も変えない
@@ -206,3 +206,4 @@
 ## Implementation Notes
 - verify-tag.ps1 は版と見どころを `git show` ではなく作業ツリーから読む。release.yml の verify は必ずタグのコミットを checkout すること（2.1）
 - 定型 A は crates.io の最上位 404 と gh の「workflow release.yml not found」を `無し` として扱う（200・404 以外だけが `不明`）。release.yml が main に入る前でも `不明 0` になる
+- 定型 B は時刻が取れない publish の step に `期限まで - 秒` を出す。procedure.md（4.7）の定型 B の出力の説明に書くこと
