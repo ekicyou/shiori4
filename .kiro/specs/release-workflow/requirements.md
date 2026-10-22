@@ -73,7 +73,7 @@
 
 1. When タグの検査が通ったとき, the Release CI shall タグのコミットで、PR の CI（build.yml）と同じ検査をすべて行う。
 2. If 関門の検査のいずれかが失敗したとき, the Release CI shall どの公開先にも公開せずに止まる。
-3. The Release CI shall リリースの補助スクリプトのテストを、PR の CI の検査の 1 つとして行う（PR の CI と関門の両方で走る）。
+3. The Release CI shall 関門で、リリースの補助スクリプトのテストを行う（テストは build.yml の job として足すので、PR の CI でも同じ job が走る）。
 4. The Release CI shall 補助スクリプトのテストを、ネットワーク・GitHub の認証・crates.io を使わずに行い、リポジトリの作業ツリーを変えない。
 
 ### Requirement 3: crates.io への公開
