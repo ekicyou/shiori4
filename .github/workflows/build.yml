@@ -1,0 +1,67 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test-${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --all
+      - name: Clippy
+        run: cargo clippy --all-targets --workspace -- -D warnings
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: cargo deny check
+        uses: EmbarkStudios/cargo-deny-action@v2
+
+  package:
+    name: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Package
+        run: cargo package --workspace
+      - name: Check package contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          # capture first: grep -q closing the pipe early would trip pipefail
+          abi_list=$(cargo package --list -p shiori4_abi)
+          if ! grep -qx 'include/shiori4_abi.h' <<<"$abi_list"; then
+            echo "::error::shiori4_abi: include/shiori4_abi.h is missing from the package"
+            failed=1
+          fi
+          for crate in shiori4_abi shiori4 shiori4_host; do
+            if ! cmp -s LICENSE "$crate/LICENSE"; then
+              echo "::error::$crate: LICENSE is missing or differs from the root LICENSE"
+              failed=1
+            fi
+          done
+          exit "$failed"
