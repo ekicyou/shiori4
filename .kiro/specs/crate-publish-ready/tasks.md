@@ -94,3 +94,6 @@
   - ずれが見つかったら、steering はタスク 4 の持ち物なので、タスク 4 の範囲として直す
   - 完了時: steering の記述と実際のマニフェスト・ワークフローが一致する
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
+
+## Implementation Notes
+- 完了時にその場で解決: roadmap.md の Constraints に残っていた「`MIT OR Apache-2.0` を `MIT` に直す」という計画の文を、実装後の事実（`license = "MIT"`・各クレートに LICENSE の写し）に書き換えた
