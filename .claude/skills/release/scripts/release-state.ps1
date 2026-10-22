@@ -49,7 +49,7 @@ else {
     "tag | 最大 $(Max-Ver $names) | v$V $(if ($sha) { "あり $sha" } else { '無し' })"
 }
 # crates.io（User-Agent 必須。200 = あり、404 = 無し、それ以外 = 不明）
-$ua = 'shiori4-release-workflow (https://github.com/ekicyou/shiori4)'
+$ua = 'shiori4-release-ci (https://github.com/ekicyou/shiori4)'
 function Get-Http([string]$Url) {
     try { $r = Invoke-WebRequest -Uri $Url -UserAgent $ua -SkipHttpErrorCheck -TimeoutSec 30 -MaximumRetryCount 0; @{ Code = [int]$r.StatusCode; Body = [string]$r.Content } }
     catch { @{ Code = 0; Body = '' } }
