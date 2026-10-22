@@ -245,7 +245,7 @@ brief で確定できなかった点は要件ディスカッションで確定�
 2. When main のワークスペースの版の 3 クレートが crates.io に公開済みで、その版のリリースタグと GitHub Release がどちらも無く、その版の見どころのファイルが main にあるとき, the Release Skill shall 初版の状態と判定し、版の決定と版の更新を飛ばして、リリースタグの作成（Requirement 10）から続ける。
 3. The repository shall 初版の見どころのファイル `doc/release-notes/v0.0.1.md` を本仕様の実装の変更に含めて main に入れる。初版の `/release` は見どころのファイルを書かず、見どころだけのコミットも作らない。
 4. When 初版のリリースタグで実行が終わったとき, the Release Skill shall 3 クレートが `skipped`、GitHub Release が `published` であれば完了と判定する。
-5. When 初版の実行が完了したとき, the Release Skill shall 3 クレートの認証が CI から得られたこと（公開そのものは次の版で初めて CI から行われること）を報告に含め、手順書の初回の後片付け（Requirement 15.5）を開発者に案内する。自分では行わない。
+5. When 初版の実行が完了したとき, the Release Skill shall CI の認証の step（トークンの交換）が通ったこと、クレートごとの公開の権限は CI から公開する次の版で初めて確かめられることを報告に含め、手順書の初回の後片付け（Requirement 15.5）を開発者に案内する。自分では行わない。
 6. The Release Skill shall 初版の判定と経路を、ほかの判定・経路に触れずに取り除けるように 1 か所にまとめ、初版のためだけのものであることを明記する（撤去は後続の spec `release-bootstrap-cleanup` が行う）。
 
 ### Requirement 15: 一度だけの準備の手順書
@@ -258,7 +258,7 @@ brief で確定できなかった点は要件ディスカッションで確定�
 2. The Setup Guide shall GitHub の公開専用の environment（`release`）を作り、実行できる ref をリリースタグに限る手順を必須として定める。main のブランチ保護（PR 必須）は推奨として示し、タグの作成を制限するルールセットは求めない。
 3. The Setup Guide shall 3 クレートそれぞれに crates.io の Trusted Publisher（リポジトリ・ワークフローのファイル名 `release.yml`・environment `release`）を登録する手順を、初回の手動公開の後に行う順で定める。
 4. The Setup Guide shall 設定に入れる名前（リポジトリ・ワークフローのファイル名・environment・クレート名と公開の順）を 1 枚の対応表にまとめ、リリース CI の認証の失敗の案内がその表を指す。
-5. The Setup Guide shall 初版の確認の後に必ず行う後片付けとして、3 クレートの「Trusted Publishing のみ」の有効化と、手動公開に使った API トークンの失効・手元からの削除を定める。
+5. The Setup Guide shall 初版の確認の後に必ず行う後片付けとして、3 クレートの Trusted Publisher と名前の対応表との照合、「Trusted Publishing のみ」の有効化と、手動公開に使った API トークンの失効・手元からの削除を定める。
 6. The Setup Guide shall 緊急時（CI が長く使えないとき）に「Trusted Publishing のみ」を一時的に戻して手で公開し、元に戻す手順を定める。
 7. The Setup Guide shall 新しいクレートを公開対象に加えるときの手順（初回の手動公開・Trusted Publisher の登録・リリース CI とスキルのクレートの一覧の更新）を定める。
 8. If 2 つ目以降のクレートの認証だけが失敗したとき, the Setup Guide shall それが認証の取り直しの問題か Trusted Publisher の設定の問題かを見分け、落とし先を示す。

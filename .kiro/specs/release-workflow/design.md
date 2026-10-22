@@ -188,10 +188,10 @@ build.yml（job release-scripts）→ release-scripts-test.ps1 → CI の補助�
 | 1 | 認証を 1 回か、クレートごとか | **job の先頭で 1 回だけ取り、3 つの publish step に渡す** | トークンは設定が一致するすべてのクレートに効く。同じ job での複数回の呼び出しは文書に無い（UNVERIFIED）。3 クレートは小さく 30 分に収まる見込み。期限切れは「失敗した job の再実行」で新しいトークンを取り直して続く |
 | 2 | publish-crates の runs-on | **`ubuntu-latest`**（verify・github-release・report も同じ） | windows である理由（pasta の配布物のビルド）が無い。pwsh は ubuntu にもある |
 | 3 | 添付を持たない形での「公開済み」の判定 | **GitHub Release が在り、下書きでないこと**だけ。定型 A は `あり（公開） <URL>`・`下書き`・`無し`・`不明`。github-release.ps1 は「無い → `gh release create --verify-tag`（公開で作る）／下書き → `gh release edit --draft=false`（題名と本文も入れ直す）／公開済み → skipped」。F5（immutable）は欠番 | 確定事項 4（添付を持たない）。下書きを経由する理由（添付をそろえてから公開する）が無くなる |
-| 4 | 判定表への初版の行の入れ方 | **`S2【初版のみ】`**（pasta で初回の確認の行が使った欠番の位置）。条件と経路の本体は `procedure.md` の節「初版の経路【初版のみ】」に置き、判定表と SKILL.md には入口の 1 行だけを置く。見どころだけの PR の経路は持たない（確定事項 2） | 14.6。タグが無い行（S7〜S9）とは条件が重ならず、S9 より前で当たる。撤去すると S9 が受け持つ（12.6） |
+| 4 | 判定表への初版の行の入れ方 | **`S2【初版のみ】`**（pasta で初回の確認の行が使った欠番の位置）。条件に `V_MAIN` = `0.0.1` を含め、緊急時の手動公開（15.6）の後の版は S9 に落とす。条件と経路の本体は `procedure.md` の節「初版の経路【初版のみ】」に置き、判定表と SKILL.md には入口の 1 行だけを置く。見どころだけの PR の経路は持たない（確定事項 2） | 14.6。タグが無い行（S7〜S9）とは条件が重ならず、S9 より前で当たる。撤去すると S9 が受け持つ（12.6） |
 | 5 | 補助スクリプトのテストの項目 | pasta の 1〜9 を縮め、初版（前のタグが無い）・`kiro` スコープ・spec 名のスコープ（載る／`release-workflow` は載らない）・本文の新しい形・verify-tag の不合格（版の不一致・main から到達できない）を足して 12 項目 | 要件 2.3・2.4・6.5・4.3〜4.5。公開スクリプト（`publish-crate`・`github-release`）はネットワークが要るのでテストに入れず、実装時の dry-run で確かめる |
 | 6 | pasta 固有の語の残りの検出 | 実装の完了条件として、移したファイルに `pasta`・`vsce`・`vsix`・`Claudia`・`Marketplace`・`Azure`・`package.json`・`npm`・`book/`・`--locked`・`ekicyou/pasta` が 0 件であることを `git grep` で確かめる（CI のテストには入れない） | 初回の CI で初めて気づく写し漏れを、統合の前に止める。テストに入れるとテスト自身が語を含み、除外の規則が要る |
-| 7 | settings.json の範囲 | リリースの許可（16.6）と、pasta と同じく `kiro-complete` の統合の説明（`gh pr merge` の許可は同じ規則を共有する）を入れる。タグの付け直し（`git tag -f`・`git push -f`）・`cargo publish`・`gh release create` は入れない | 16.6。許可の規則 `Bash(gh pr merge:*)` は 2 つのスキルで同じなので、分けても許可の範囲は変わらない（**仮定**: OPEN QUESTION 4） |
+| 7 | settings.json の範囲 | リリースの許可（16.6）と、pasta と同じく `kiro-complete` の統合の説明（`gh pr merge` の許可は同じ規則を共有する）を入れる。タグの付け直し（`git tag -f`・`git push -f`）・`cargo publish`・`gh release create` は入れない | 16.6。許可の規則 `Bash(gh pr merge:*)` は 2 つのスキルで同じなので、分けても許可の範囲は変わらない |
 
 ## File Structure Plan
 
@@ -613,7 +613,7 @@ param(
 |---|-------|----------|-------|------------|------|--------|
 | S0 | — | — | — | `不明` が 1 以上、または `main` の行が `不明`（3 か所の版が食い違う） | 判定できない | 止まる（12.6） |
 | S1 | あり | 4/4 | — | `VREQ` = `V_MAIN` | 指定の版はリリース済み | エラー、別の版を求める（12.2） |
-| S2【初版のみ】 | 無し | crates.io の 3 行が `あり`、`GitHub Release` が `無し` | — | — | 初版の状態（14.2） | 節「初版の経路【初版のみ】」へ |
+| S2【初版のみ】 | 無し | crates.io の 3 行が `あり`、`GitHub Release` が `無し` | — | `V_MAIN` が `0.0.1` | 初版の状態（14.2） | 節「初版の経路【初版のみ】」へ |
 | S3 | あり | 4/4 | — | 上のどれでもない | リリース済み | 段 3 から（12.2） |
 | S4 | あり | 3/4 以下 | 実行中 | — | CI が実行中 | 段 7 の手順 2 から（12.3） |
 | S5 | あり | 3/4 以下 | `completed` | — | CI が未完了で終わった | 段 7 の手順 3 から（12.3） |
@@ -669,7 +669,7 @@ param(
 2. `git fetch origin main` → `TARGET` = `git rev-parse origin/main`
 3. 定型 C（`-Version {V} -Target {TARGET}`）の 4 行が合格（タグの形・版・到達・見どころが main にある）。見どころだけ不合格なら、初版の見どころが main に無いことを示して止まる（14.2・14.3。見どころだけの PR の経路は持たない）
 4. 段 6 の手順 3（同名のタグ）から続ける。段 7・8 はふだんと同じ。完了の判定もふだんと同じ規則で、3 クレートが `skipped`・GitHub Release が `published` なら満たす（14.4）
-5. 段 9 の報告に 2 行を足す（14.5）: 「CI の認証: step `Auth crates.io` が成功した（トークンの交換が通った）。CI からの公開そのものは次の版で初めて行われる」「後片付け: 手順書の『後片付け』（3 クレートの Trusted Publishing のみの有効化・API トークンの失効と手元からの削除）を開発者が行う。エージェントは行わない」
+5. 段 9 の報告に 2 行を足す（14.5）: 「CI の認証: step `Auth crates.io` が成功した（トークンの交換が通った。交換はクレートを指定しないので、クレートごとの公開の権限は CI から公開する次の版で初めて確かめられる）」「後片付け: 手順書の『後片付け』（3 クレートの Trusted Publisher の照合・Trusted Publishing のみの有効化・API トークンの失効と手元からの削除）を開発者が行う。エージェントは行わない」
 
 **撤去の後（release-bootstrap-cleanup）**: S2 の行と節と SKILL.md の 1 行を消すと、同じ状態は S9 に当たって止まる（12.6）。ほかの段は変わらない。
 
@@ -707,10 +707,10 @@ param(
 |----|------|------|
 | 位置づけと全体の流れ | 1 度だけ行う設定であること。全体の流れ（environment → 本仕様の PR の統合 → 初版の手動公開 → Trusted Publisher → 初版のリリース → 後片付け）。ID・トークンの値をリポジトリ・Issue・PR・コミットに書かない。secrets を使わない | 15.1, 15.9 |
 | GitHub: environment `release` | 必須: environment `release` を作り、Deployment branches and tags を「Selected」→ タグ `v*` に限る。推奨: main のブランチ保護（PR 必須）。タグのルールセットは求めない | 15.2 |
-| 【初版のみ】初版 0.0.1 の手動公開 | 前提: 本仕様の PR が main に統合済み（`doc/release-notes/v0.0.1.md` を含む）。main の先頭を手元に取り、「新しいクレートの初回公開」の手順 1〜2 で 3 クレートを依存の順に公開する（cargo 1.90 以上なら `cargo publish --workspace` 1 回、そうでなければ `-p shiori4_abi` → `-p shiori4` → `-p shiori4_host` を、下位が索引に現れてから）。`--locked` を付けない。トークンは後片付けまで失効させない（確定事項 3）。公開から初版のリリースまで、クレートを変える PR を main に入れない | 14.1 |
+| 【初版のみ】初版 0.0.1 の手動公開 | 前提: 本仕様の PR が main に統合済み（`doc/release-notes/v0.0.1.md` を含む）。main の先頭を手元に取り、「新しいクレートの初回公開」の手順 1〜2 のトークンで `cargo publish --workspace`（cargo 1.90 以上）を 1 回実行し、3 クレートを依存の順に公開する。途中で失敗したら、残りを `-p` で依存の順に（下位が索引に現れてから）出す。`--locked` を付けない。トークンは後片付けまで失効させない（確定事項 3）。公開から初版のリリースまで、クレートを変える PR を main に入れない（手で公開した直後に初版のリリースへ進む） | 14.1 |
 | crates.io: Trusted Publisher | 3 クレートそれぞれに、owner `ekicyou`・name `shiori4`・workflow `release.yml`・environment `release` を登録する。手動公開の後でないと登録できない | 15.3 |
 | 【初版のみ】初版 0.0.1 のリリース | `/release` を実行する（S2【初版のみ】の経路）。report で 3 クレートが `skipped`・GitHub Release が `published` を確かめる | 14.4 |
-| 後片付け（必須） | 3 クレートの「Trusted Publishing のみ」（Require trusted publishing for all new versions）を有効にし、API トークンを crates.io で失効させ、手元の `CARGO_REGISTRY_TOKEN`・`cargo login` の保存を消す。CI の認証が通ったのを確かめた後に行う | 15.5 |
+| 後片付け（必須） | まず crates.io の画面で 3 クレートそれぞれの Trusted Publisher を「名前の対応表」と照合する（初版の CI は交換が通ったことしか確かめられないため）。そのうえで 3 クレートの「Trusted Publishing のみ」（Require trusted publishing for all new versions）を有効にし、API トークンを crates.io で失効させ、手元の `CARGO_REGISTRY_TOKEN`・`cargo login` の保存を消す。CI の認証が通ったのを確かめた後に行う | 15.5 |
 | 緊急時の手動公開 | owner が「Trusted Publishing のみ」を一時的に無効に戻し、新しいトークンで手で公開し、トークンを失効させて元に戻す | 15.6 |
 | 新しいクレートの初回公開 | スコープ `publish-new` の一時トークン → 手で公開 → トークンを失効 → Trusted Publisher を登録 → Trusted Publishing のみ → `release.yml`（publish step・集約 step・report の一覧）・定型 A のクレートの一覧・名前の対応表・`tech.md` を更新 | 15.7, 3.6 |
 | 2 つ目以降のクレートの認証だけが失敗したとき | 定型 B の `Publish <クレート>` の「期限まで」が 0 以下（auth から 30 分を超えた）→ トークンの期限切れ。失敗した job を再実行すれば新しいトークンで続く。0 より大きい → そのクレートの Trusted Publisher の値を名前の対応表と照合する | 15.8 |
@@ -734,7 +734,7 @@ param(
 | Requirements | 16.6 |
 
 - `permissions.allow`: `mcp__github__merge_pull_request`、`Bash(git fetch:*)`、`Bash(git merge --no-edit origin/main)`、`Bash(git merge origin/main:*)`、`Bash(git merge --abort)`、`Bash(git push -u origin HEAD)`、`Bash(git push origin v*)`、`Bash(git push origin v*:*)`、`Bash(gh pr create:*)`、`Bash(gh pr merge:*)`、`Bash(gh run list:*)`、`Bash(gh run view:*)`、`Bash(gh run rerun:*)`
-- `autoMode.allow`: `$defaults`、リリーススキルの説明 1 文（PR の作成と squash、タグの push、CI の閲覧と失敗した job の再実行。手元からの `cargo publish`・`gh release create` は行わない）、`kiro-complete` の squash の説明 1 文（pasta と同じ。仮定: OPEN QUESTION 4）
+- `autoMode.allow`: `$defaults`、リリーススキルの説明 1 文（PR の作成と squash、タグの push、CI の閲覧と失敗した job の再実行。手元からの `cargo publish`・`gh release create` は行わない）、`kiro-complete` の squash の説明 1 文（pasta と同じ）
 - 入れないもの: `git tag -f`・`git push -f`・`git push --force`・`cargo publish`・`gh release create`・`gh release delete`・`cargo yank`・main への push
 - pasta からの差: `procedure.md` が実行する `git merge --no-edit origin/main` は pasta の `git merge origin/main:*` に前方一致しないので、その規則を足す
 
@@ -840,6 +840,6 @@ param(
 
 ## Open Questions / Risks
 
-- **OPEN QUESTION**（設計ディスカッションで確定する。番号は報告と同じ）は research.md の「設計フェーズ: 未決事項」に一覧する。設計はそれぞれの「仮定」で書いてある
+- 設計ディスカッションで確定した論点は research.md の「設計フェーズ: 確定事項」に一覧する
 - Risk: `release.yml` と公開スクリプトの経路（auth の後の `cargo publish`）が初めて走るのは 0.0.2。失敗しても `failed` → 再実行・緊急時の手順で戻せ、取り消しの要る事故にはなりにくい
 - Risk: 同じ job での auth の複数回の呼び出しを避けたので、その UNVERIFIED は消える。代わりに「1 回のトークンで 3 クレート」は crates.io のソースの読みに基づく（UNVERIFIED。0.0.2 で確かめる）
