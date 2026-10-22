@@ -150,3 +150,104 @@
   - 同じ job での crates-io-auth-action の複数回の呼び出し（UNVERIFIED。1 回にするなら不要）
   - environment の名前の大文字小文字の照合（GitHub の経路は完全一致の見込み。手順書では小文字の `release` に統一すれば足りる）
   - 定型 D の「PR の番号」の検査が、PR を通らなかった変更（`feat(host): …`・`Initial commit`）だけを材料にする初版で、どう判定されるか
+
+---
+
+# 設計フェーズの記録（kiro-spec-design、2026-10-22）
+
+## 設計の調査の範囲
+
+- **Discovery の種類**: Extension（統合中心の軽い調査）。外部の調査（crates.io・Trusted Publishing・`cargo publish --workspace`）は要件フェーズで済んでいるので繰り返さず、pasta の実物のファイル（release.yml・6 本の補助スクリプト・SKILL.md・procedure.md・定型コマンド 4 本・手順書・見どころの約束・settings.json）を読み直して、縮める箇所を行単位で確かめた
+- **読んだ steering**: `tech.md`・`structure.md`・`workflow.md`・`roadmap.md`（`product.md` はクレートの中身に触れないので読まない）
+- **参照したスキル**: ドメインのスキルは無い（`.claude/skills/` は kiro-* だけ）。kiro-spec-design の rules（design-principles・design-synthesis・design-review-gate・design-discovery-light）と、セッションの方針（最小の変更で全体を解く。新しい抽象・オプションを足さない）を使った
+
+## 追加で分かったこと
+
+- **pasta の `settings.json` の許可の取りこぼし**: procedure.md が実行するのは `git merge --no-edit origin/main` だが、許可は `Bash(git merge origin/main:*)` で前方一致しない。shiori4 では `Bash(git merge --no-edit origin/main)` を足す
+- **pasta の段 4 の取り消しが steering と食い違う**: pasta は `git restore -- …`・`git clean -f -- …` で戻すが、shiori4 の `workflow.md` は `git checkout -- <file>`・`git clean -fd` を危険な操作として禁じている。版の更新は `Cargo.toml` の 3 か所の置換だけなので、Edit の逆の置換と、見どころのファイルのパス指定の削除で戻せる
+- **1 回の auth にすると、2 つ目以降のクレートの設定の不一致は `cargo publish` の 401・403 として現れる**: pasta でも auth の step はクレートを指定しない（トークンの交換は設定の一致するクレートすべてに効く）ので、クレートごとに auth を呼んでも「そのクレートの設定が合っているか」は確かめられない。pasta の手順書 9 節も「auth は通ったのに 403」を設定の見直しとして扱っている。shiori4 では 401・403 を `reason=auth` に分類し、判定表 F7（「再実行では直らない → 版を上げる」）に落ちないようにする
+- **トークンの期限切れの見分け**: 定型 B は step の開始・完了の時刻を持っているので、「期限まで」を `Auth crates.io` の完了からの経過で出せる（pasta は step 自身の所要だけ）。0 以下なら期限切れとして F6（自動の再実行）に回せる
+- **初版の見どころの PR の番号**（Research Needed の 3 つ目は解消）: 定型 D の「PR の番号」は「見どころに書いた番号が材料にあるか」だけを見る（番号の無い見出しを不合格にしない）。v0.0.1 の材料は `feat(crate-publish-ready): … (#3)`・`feat(host): …`（番号なし）・`Initial commit`（そのほか）で、`docs(steering)`・`chore(kiro)`・`*(release-workflow)`・`docs(discovery)` は内部の作業として出ない。番号の無い見どころは README の「PR を通らなかった変更には付けない」で許される
+- **Research Needed の 1 つ目（複数回の auth）は不要になった**: 認証を 1 回にしたため（Decision 1）
+- **前のタグが無いときのリリースノート**: `release-notes.ps1` は全履歴を使い Full Changelog の行を出さない。初版の `/release` は段 4（材料の H1 の確認）を通らないので、procedure.md に初版の特別扱いは要らない。テストの項目に「前のタグが無い」を足すのは、ふつうの挙動の確認として
+- **完了の判定は初版でもふつうの規則で足りる**: 「4 つがすべて published か skipped、定型 A で 4/4」は、3 skipped＋Release published で満たされる。要件 14.4 のための特別な判定は要らない
+
+## Synthesis
+
+### Generalization
+- 公開先ごとの結果（crates.io の 3 クレートと GitHub Release）は、すべて同じ status 契約（`status`・`reason`・`url`・終了コード・summary の行）で表す。集約 step・report・定型 B・結果表の作り方は、この 1 つの契約だけを読む（pasta と同じ）
+- 「初版」は一般化しない。0.0.1 の 1 回だけのための経路なので、判定表の 1 行と 1 つの節に閉じ込め、ほかの段・スクリプト・テストに初版を知らせない（14.6）
+
+### Build vs. Adopt
+- **採る**: pasta の一式（実地で公開できている）、`rust-lang/crates-io-auth-action@v1`、`gh release create --verify-tag`、build.yml の `workflow_call`
+- **採らない**: `cargo publish --workspace` を CI で使うこと（公開済みの版が 1 つでもあると全体が失敗し、skip しない。要件 3.4 を満たせない。ただし手順書の初版の手動公開では、全部が未公開なので使う）、release-plz・cargo-release（ロードマップで却下済み）
+- **作る**: 初版の経路、401・403 の分類、「期限まで」の計算。いずれも数行
+
+### Simplification
+- 認証を 1 回にする（step 3 つ → 1 つ、集約の規則も短くなる。UNVERIFIED の「同じ job での複数回の呼び出し」を避ける）
+- GitHub Release を下書き経由にしない（添付が無いので、そろえてから公開する理由が無い）。下書きが残っていたときだけ公開する（要件 4.7）
+- `-OutFile`（添付の詳しいリリースノート）を CI から外し、本文に全文を置く。artifact の受け渡しが無くなる
+- 判定表 F の F5（immutable）を欠番に。添付が無いので起きない
+- 版の更新の確認を 5 つから 4 つへ（`Cargo.lock`・`cargo metadata --locked`・マニュアルの検証を持たない）
+
+## 設計で決めたこと（要件フェーズの「設計で決めること」1〜7 への答えと、その他）
+
+### Decision 1: 認証は job の先頭で 1 回だけ
+- **Context**: brief の Constraint（同じ job での複数回の呼び出しは文書に無い）と、トークンの期限 30 分
+- **Alternatives**: (1) pasta どおりクレートごとに auth を呼ぶ、(2) 先頭で 1 回だけ
+- **Selected**: (2)。トークンは publish step の `CARGO_REGISTRY_TOKEN` にだけ渡す
+- **Rationale**: トークンは設定の一致するすべてのクレートに効く。(1) にしても、交換はクレートを指定しないので、クレートごとの設定を確かめる効果は無い。3 クレートは小さい
+- **Trade-offs**: 合計が 30 分を超えると、残りのクレートが 401・403 になる。定型 B の「期限まで」で見分け、失敗した job の再実行で続く
+- **Follow-up**: 0.0.2 で、1 つのトークンで 3 クレートを公開できることを確かめる（報告の「手順との食い違い」）
+
+### Decision 2: publish-crates は ubuntu-latest
+- pasta の windows は配布物のビルドの都合。shiori4 では理由が無い。pwsh は ubuntu にある
+
+### Decision 3: GitHub Release は「在って下書きでない」だけを公開済みとする
+- 無い → `gh release create --verify-tag`（公開で作る）、下書き → `gh release edit --draft=false --title --notes-file`、公開済み → skipped。定型 A は `あり（公開）`・`下書き`・`無し`・`不明`。F5 は欠番
+
+### Decision 4: 初版の行は `S2【初版のみ】`、経路の本体は procedure.md の 1 節
+- 条件: `tag` 無し・crates.io の 3 行が `あり`・`GitHub Release` 無し（`不明` 0 は S0 が先に見る）。`VREQ` が `V_MAIN` と違えば止まる
+- 経路: `TARGET` = `origin/main` の先頭 → 定型 C の 4 行が合格（見どころが main にあることを含む）→ 段 6 の手順 3 から。完了の判定はふつうの規則。段 9 の報告に「CI の認証が通った」「後片付けは開発者が行う」の 2 行を足す
+- 印: `【初版のみ】`。置き場所は SKILL.md の 1 行・procedure.md の判定表の 1 行と 1 節・手順書の 2 つの節の見出し。`git grep '【初版のみ】'` で撤去の対象がすべて出る
+- 撤去の後は S9 が同じ状態を受けて止まる（12.6）
+
+### Decision 5: 補助スクリプトのテストは 12 項目
+- pasta の 1〜9 から Claudia・`package.json` を外し、`kiro` スコープ・spec 名のスコープ・前のタグが無い版・本文の新しい形・verify-tag の不合格（版・到達・形）を足す。公開スクリプトはネットワークが要るので、実装時の dry-run で確かめる
+
+### Decision 6: pasta 固有の語の検出は実装の完了条件
+- `git grep -n -I -E 'pasta|vsce|vsix|Claudia|Marketplace|Azure|package\.json|npm|book/|--locked|ekicyou/pasta' -- .github .claude doc` が 0 件。CI のテストには入れない（テスト自身が語を含み、除外の規則が要るため）
+
+### Decision 7: settings.json はリリースの許可と kiro-complete の squash の説明
+- 許可の規則 `Bash(gh pr merge:*)` は 2 つのスキルで同じ。pasta と同じく autoMode の説明に kiro-complete の 1 文を入れる（仮定。未決事項 4）
+- 入れない: タグの付け直し・強制 push・手元からの公開・Release の作成と削除・yank・main への push
+
+### Decision 8: 401・403 を `reason=auth` に分類する（pasta からの差）
+- pasta どおり `publish` だと、F7 の切り分けの後「再実行では直らない → 版を上げて出し直す」に落ち、設定を直せば済む失敗で版を捨てる。`auth` にすると F3 で止まり、手順書で期限切れか設定かを見分ける
+
+### Decision 9: 本文は「見どころ ＋ `---` ＋ 詳しいリリースノートの全文」
+- 詳しいリリースノートの 1 行目を `# shiori4 vX.Y.Z の詳しいリリースノート（N 件）` にして、版と件数を CI が足す（要件 6.3）。見出しの深さはずらさない（材料の出力・定型 D・テストと同じ形のまま）
+
+### Decision 10: 手順書の節は名前で参照する
+- CI の案内・スキル・ほかの節は、手順書の節を番号でなく見出しの名前で指す。`【初版のみ】` の節を撤去して番号が動いても、参照を直さずに済む
+
+## 設計フェーズ: 未決事項（設計ディスカッションで確定する）
+
+1. **14.5 の「3 クレートの認証が CI から得られた」の確かめ方**: トークンの交換はクレートを指定しないので、初版の実行で確かめられるのは「交換が通った（少なくとも 1 つの設定が一致した）」ことまで。設計は「step `Auth crates.io` が成功した。各クレートの公開の権限は 0.0.2 で初めて確かめる」と報告する（仮定）。別案: 要件 14.5 の文言を「CI のトークンの交換が通ったこと」に直す
+2. **認証は 1 回か、クレートごとか**: 設計は 1 回（Decision 1）。別案: pasta どおりクレートごと（30 分の期限には強いが、UNVERIFIED の複数回の呼び出しに頼る）
+3. **401・403 の `reason=auth` への分類**: 設計は分類する（Decision 8）。別案: pasta どおり `publish`
+4. **settings.json に kiro-complete の説明（と `mcp__github__merge_pull_request`）を入れるか**: 設計は入れる（pasta と同じ）。別案: リリースの許可だけ（16.6 の字義どおり）
+5. **GitHub Release を下書き経由にするか**: 設計は直接公開で作り、残った下書きだけを公開する（Decision 3）。別案: pasta どおり下書き → 公開
+6. **本文の形**: 設計は「見どころ ＋ `---` ＋ 詳しいリリースノートの全文（H1 に版と件数）」（Decision 9）。別案: 見出しを 1 段下げて埋め込む／件数を持たない
+7. **段 4 の取り消しの方法**: 設計は Edit の逆の置換とパス指定の削除（workflow.md に合わせる）。別案: pasta どおり `git restore`・`git clean -f -- <path>`
+8. **初版のタグの付け先**: 設計は `/release` の時点の `origin/main` の先頭で、手順書が「手動公開から初版のリリースまで、クレートを変える PR を main に入れない」と求める（仮定）。別案: 手動公開したコミットの SHA を開発者が `/release` に渡し、そこへ付ける
+9. **初版の手動公開のコマンド**: 設計は cargo 1.90 以上なら `cargo publish --workspace`、そうでなければ `-p` を順に。別案: `-p` の順だけを書く
+10. **判定表の番号**: 設計は pasta にそろえ、初版の行を `S2【初版のみ】`、F2・F5 を欠番にする。別案: 詰めて振り直す
+11. **workflow.md の「スキルドキュメント更新検討」への表の追加**: 16.4 はドキュメント保守の表だけを求めるが、workflow.md 自身が「ドメイン固有のスキルを足したら表を足す」と書いているので、設計は 1 行の表を足す（仮定）。別案: ドキュメント保守の表だけ
+
+## 設計フェーズのリスク
+
+- release.yml・公開の経路は 0.0.2 まで実地で走らない — 失敗しても `failed` → 再実行・緊急時の手順で戻せる。報告の「手順との食い違い」で拾う
+- cargo の 401・403 のメッセージの形が変わる — 外れても `publish` に落ちるだけで、誤って公開しない
+- 再実行の後の定型 B の読み方は pasta でも未確認 — SKILL.md の「まだ実地で確かめていない読み方」を引き継ぐ
+- `concurrency` は待ちの実行が 2 つ以上だと古い待ちを置き換える — 走っている実行は取り消さないので 1.5 を満たす。タグの push は 1 回なので実害は小さい
