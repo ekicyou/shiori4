@@ -34,7 +34,7 @@
   - _Boundary: github-release.ps1_
   - _Requirements: 4.6, 4.7, 4.8_
 
-- [ ] 2. リリース CI のワークフロー
+- [x] 2. リリース CI のワークフロー
 - [x] 2.1 タグの検査・関門・crates.io への公開の job を組む
   - リリースタグの形の push だけで起動し、同じタグの実行を取り消さずに直列にする。トップの権限は読み取りだけ
   - verify の job がタグの検査スクリプトを呼んで版を出し、gate の job が PR の CI（build.yml）をそのまま呼ぶ
@@ -44,7 +44,7 @@
   - _Depends: 1.1, 1.3_
   - _Requirements: 1.1, 1.2, 1.4, 1.5, 2.1, 2.2, 3.1, 3.2, 3.3, 3.9, 3.11, 5.4_
 
-- [ ] 2.2 GitHub Release と報告の job を組む
+- [x] 2.2 GitHub Release と報告の job を組む
   - github-release の job は、3 クレートがそろったときだけ走り、書き込みの権限をこの job にだけ持ち、本文を作ってから Release のスクリプトを呼び、結果を集約して出力にする
   - report の job は、どの段で止まっても走り、4 つの公開先の status・reason と Release の URL（無ければ「なし」）を 1 枚の表にし、走らなかった段だけを `not-run` にし、ほかは推測せず summary を参照させる
   - 公開前の段で止まったときは、止まった job と「どの公開先にも公開していない」を表の前に書く。report 自体は成功で終わる
