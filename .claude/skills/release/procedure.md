@@ -153,6 +153,167 @@
    - `PR` が `無し`（`未統合` の行があれば、新しい PR を作らず、その PR を示して開発者に扱いを確かめる。8.7）
 5. 候補を `V` に確定し、開発者に示す。
 
+## 段 4: 版の更新
+
+| Field | Detail |
+|-------|--------|
+| Intent | 版の表記の 3 か所をそろえ、見どころを書き、2 ファイルだけの 1 つのコミットにする |
+| Requirements | 9.1, 9.2, 9.3, 9.4, 9.5, 9.6 |
+
+`V_OLD` は更新の前の版（= `V_MAIN`）である。変えてよいのは、ルートの `Cargo.toml` と見どころのファイル `doc/release-notes/v{V}.md` の 2 ファイルだけである（9.4）。`Cargo.lock` は `.gitignore` の対象で、コミットしない。手元で `cargo` のコマンドを実行しない。
+
+1. **事前の確認**（まだ何も変えない）。出力が `3` であること。違えば、何も変えずに止まり、出力を示す。
+
+   ```bash
+   grep -cF 'version = "{V_OLD}"' Cargo.toml
+   ```
+
+   3 か所は、`[workspace.package]` の `version` と、`[workspace.dependencies]` の `shiori4_abi`・`shiori4` の `version` である。
+
+2. **版の表記**（9.1）。`Cargo.toml` の `version = "{V_OLD}"` を `version = "{V}"` に、Edit の全置換で置き換える（3 か所）。
+
+3. **見どころを書く**（9.2・9.3）。リリースの本文の先頭になる見どころのファイル `doc/release-notes/v{V}.md` を書く。書き方の決まりは `doc/release-notes/README.md` である。
+
+   - **H1 材料の一覧**。出力の最後の行が `**Full Changelog**: https://github.com/ekicyou/shiori4/compare/v{V_OLD}...v{V}` であること。違えば、前のタグを読めていないので、手順 5（戻し方）を行って止まる。
+
+     ```powershell
+     & "$PWD/.github/scripts/release/release-notes.ps1" -Tag v{V} -Repo ekicyou/shiori4 -Head origin/main
+     ```
+
+   - **H2 見どころのファイルを書く**。README の「書き方」に従い、H1 の一覧から見どころを選んで、`doc/release-notes/v{V}.md` を Write で作る。「動きが変わる変更」の見出しの下の項目は、すべて動きが変わる点として載せる。版・件数・リンクを書かない。一覧の件名だけで足りないときは、`gh pr view {番号} --json title,body` を読んでよい。読むだけである。
+   - **H3 確認**。定型コマンド D を `-Version {V} -Head origin/main` で実行する。4 行とも `合格` であること。合格なら、手順 4 へ進む。
+   - **H4 不合格のとき**。`不合格` の行の値（材料に無い番号・載っていない番号・見つかった spec 名など）を直して、H3 をやり直す。直すのは 3 回までである。3 回直しても `合格` にならなければ、手順 5（戻し方）を行い、`不合格` の行を示して止まる（9.3）。H3 が合格するまで、手順 6（コミット）を行わない。
+
+4. **確認**（9.4・9.5）。次の 4 つをすべて満たすこと。
+
+   ```bash
+   grep -cF 'version = "{V}"' Cargo.toml
+   git diff --numstat
+   git status --porcelain
+   ```
+
+   | # | 確認 | 合格の基準 |
+   |---|------|------------|
+   | (1) | 3 か所が同じ版 | 1 つ目の出力が `3` |
+   | (2) | 版の行だけを変えた | 2 つ目の出力が `Cargo.toml` の 1 行だけで、追加と削除がどちらも `3` |
+   | (3) | ほかのファイルを変えていない | 3 つ目の出力が ` M Cargo.toml` と `?? doc/release-notes/v{V}.md` の 2 行だけ |
+   | (4) | 見どころが約束に合う | 定型コマンド D（`-Version {V} -Head origin/main`）の 4 行とも `合格` |
+
+   どれかが不合格なら、手順 5 を行い、不合格の確認（番号と出力）を示して止まる（9.5）。
+
+5. **戻し方**（不合格のとき。9.3・9.5）。変えたものだけを、変えたときの逆の操作で戻す。
+   - `Cargo.toml` を変えた後なら、`version = "{V}"` を `version = "{V_OLD}"` に、Edit の全置換で戻す（3 か所）。
+   - `doc/release-notes/v{V}.md` を作った後なら、パスを指定して消す。
+
+     ```bash
+     rm -- doc/release-notes/v{V}.md
+     git status --porcelain
+     ```
+
+   最後の出力が空であることを確かめてから止まる。空でなければ、その出力を示して止まる。`git restore`・`git checkout --`・`git clean` は使わない（危険な Git 操作の禁止に合わせる）。
+
+6. **コミット**（9.6）
+
+   ```bash
+   git add Cargo.toml doc/release-notes/v{V}.md
+   git commit -m "chore(release): v{V}"
+   git show --stat --format=%s HEAD
+   ```
+
+   最後の出力が、件名 `chore(release): v{V}` と 2 ファイル（`Cargo.toml`・`doc/release-notes/v{V}.md`）であること。違えば止まり、出力を示す。その後、`doc/release-notes/v{V}.md` の全文を開発者に示す。承認を求めない。開発者の答えを待たずに、段 5 へ進む。
+
+## 段 5: main への統合
+
+| Field | Detail |
+|-------|--------|
+| Intent | 版の更新を、ほかの変更と同じ PR の流れ（squash）で main に入れる |
+| Requirements | 9.7, 9.8 |
+
+main へ直接 push しない（9.7）。
+
+1. PR に入る変更が、段 4 の 2 ファイルだけであることを確かめてから、作業ブランチを push する（main ではない）。1 つ目の出力が `Cargo.toml` と `doc/release-notes/v{V}.md` の 2 行だけでなければ、push せずに止まる（ほかのファイルがコミットに混ざっている）。
+
+   ```bash
+   git diff --name-only origin/main...HEAD
+   git push -u origin HEAD
+   ```
+
+2. PR を作る。
+
+   ```bash
+   gh pr create --base main --head {BRANCH} --title "chore(release): v{V}" --body "v{V} へ版を更新する。統合の後にリリースタグ v{V} を push し、リリース CI が公開する。"
+   gh pr view {BRANCH} --json number -q .number
+   ```
+
+   2 つ目の出力を `PR` とする。
+
+3. PR の CI を待たずに、squash で統合する（9.7）。
+
+   ```bash
+   gh pr merge {PR} --squash --delete-branch --subject "chore(release): v{V}" --body "v{V} へ版を更新する。"
+   gh pr view {PR} --json state,mergeCommit -q '.state + " " + (.mergeCommit.oid // "")'
+   ```
+
+   統合の成否は、2 つ目の出力だけで判定する。`MERGED <SHA>` なら成功で、`<SHA>`（統合の結果のコミット）を `TARGET` とする。`gh pr merge` の出すローカルブランチの削除の警告（`'main' already used by worktree` など）は、失敗ではない。
+
+   2 つ目のコマンドを実行できなかったとき（出力が得られなかったとき）だけ、代わりに次で判定する。2 つ目の出力が 1 行なら統合は成功で、その SHA を `TARGET` とする。空なら、統合を確かめられないので止まる。
+
+   ```bash
+   git fetch origin main
+   git log origin/main -1 --format=%H -F --grep="chore(release): v{V}"
+   ```
+
+   `--subject` を指定するので、squash でできたコミットの件名は `chore(release): v{V}` になる。段 6 の手順 1 の検索も、この件名に合う。
+
+4. **失敗のとき**（9.8）。手順 1〜3 のどれかが失敗した、または手順 3 の出力が `MERGED` で始まらない（代わりの判定では、出力が空の）ときは、止まる。リリースタグを作らない。`git push --force`・履歴の書き換え・統合前のブランチの削除を行わない。PR の URL（PR を作る前なら、失敗したコマンド）と失敗の内容を示し、開発者に解消を求める。
+
+5. **main の確認**（10.2）。`git fetch origin main` の後、定型コマンド C を `-Version {V} -Target {TARGET}` で実行する。4 行とも `合格` であること。不合格なら、`不合格` の行を示して止まる。リリースタグを作らない。合格なら段 6 へ進む。
+
+## 段 6: リリースタグの作成と push
+
+| Field | Detail |
+|-------|--------|
+| Intent | 版を上げた main のコミットに注釈付きのタグを付け、タグだけを push する |
+| Requirements | 10.1, 10.2, 10.3, 10.4, 10.5 |
+
+1. **`TARGET` の決定**（10.1）。段 5 から来たときは、段 5 の手順 3 の `TARGET`（統合の結果のコミット）を使う。段 2 の S7 から来たとき（再開）は、次で求める。
+
+   ```bash
+   git fetch origin main
+   git log origin/main -1 --format=%H -F --grep="chore(release): v{V}"
+   ```
+
+   出力が 1 行ならそれを `TARGET` とする。空なら止まり、版の更新のコミットが見つからないことと、`git log origin/main -5 --oneline -- Cargo.toml` の出力を示して、開発者にコミットを確かめる。
+
+   **S7 で見どころだけが不合格のとき**。S7 から来て、手順 2 で定型コマンド C の 4 行目（`見どころ`）だけが `不合格` のときは、`git rev-parse origin/main` の出力を `TARGET` にして、定型コマンド C をやり直す。4 行とも `合格` なら、その `TARGET` で続ける（見どころのファイルが、版の更新より後のコミットで main に入っている）。なお `不合格` なら、リリースタグを作らずに止まり、`doc/release-notes/v{V}.md` が main に無いことを示す。
+
+2. **タグを付ける前の検査**（10.2）。定型コマンド C を `-Version {V} -Target {TARGET}` で実行する。4 行とも `合格` であること。不合格なら、タグを作らずに止まり、`不合格` の行を示す（S7 の見どころだけの不合格は、手順 1 の扱い）。
+
+3. **同名のタグ**（10.3）。2 つとも出力が空であること。
+
+   ```bash
+   git ls-remote --tags origin refs/tags/v{V}
+   git tag -l v{V}
+   ```
+
+   - リモートにある（1 つ目が空でない）: エラーを示して止まり、開発者に扱いを確かめる。既存のタグを自動で削除・付け替えしない（承認を得た付け直し（11.8）だけは、段 8 で扱う）。
+   - ローカルにだけある: `git rev-parse 'v{V}^{commit}'` が `TARGET` と同じなら、手順 4 を飛ばして手順 5 へ進む（前回の push の失敗の続き）。違えば、止まって開発者に確かめる。
+
+4. **タグの作成**（10.1）。注釈付きのタグを `TARGET` に作る。
+
+   ```bash
+   git tag -a v{V} -m "Release v{V}" {TARGET}
+   ```
+
+5. **タグだけを push**（10.4）。ブランチは push しない。
+
+   ```bash
+   git push origin v{V}
+   git ls-remote --tags origin refs/tags/v{V}
+   ```
+
+   2 つ目の出力が空でなければ成功で、段 7 へ進む。push が失敗したら（10.5）、失敗の内容と「main には版の更新が入っていて、タグだけが無い」状態であることを示して止まる。再実行すると、段 2 の S7 から続く。
+
 ## 定型コマンド A の出力（状態の照会）
 
 1 行に 1 つの事実を、` | ` で区切って出す。値の語は固定である。
