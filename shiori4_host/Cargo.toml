@@ -1,0 +1,11 @@
+[package]
+name = "shiori4_host"
+version = "0.1.0"
+description = "High-level host (baseware) side for shiori4: load SHIORI, serve host requests, queue posts and deliver events"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+shiori4 = { path = "../shiori4" }
+libloading = "0.8"

@@ -1,0 +1,9 @@
+[package]
+name = "shiori4_abi"
+version = "0.1.0"
+description = "SHIORI next-generation ABI (C ABI function tables and byte-buffer messages)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
