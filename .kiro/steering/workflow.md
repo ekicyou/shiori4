@@ -7,7 +7,8 @@ Kiro 仕様駆動開発における作業フローと完了基準。`kiro-comple
 ## 前提: このリポジトリの完成の形
 
 完成形は、ワークスペースの 3 クレート（`shiori4_abi`・`shiori4`・`shiori4_host`）を **crates.io の公開クレートとして CI から公開すること**である（[roadmap.md](roadmap.md)）。
-公開の仕組み（release.yml・`/release`）ができるまでは、各 spec の完成は「3 クレートがビルドでき、テストと clippy が通ること」で判定する。公開の運用の節は release-workflow spec がこのファイルに足す。
+公開は**リリースタグ（`vX.Y.Z`）の push** を合図に CI（`.github/workflows/release.yml`）が行う。開発者は `/release`（`.claude/skills/release/`）で、版の決定と更新・版の更新の PR・タグの作成と push・CI の結果の見届けまでを行う。手元から `cargo publish` しない（初回の手動公開と緊急時の手順は `.github/release-ci-setup.md`）。
+各 spec の完成は、公開とは切り離して「3 クレートがビルドでき、テストと clippy が通ること」（下の DoD）で判定する。
 
 ---
 
@@ -39,6 +40,10 @@ requirements → design → tasks → implementation → implementation-complete
    cargo test --all                                    # ビルド＋全テスト
    cargo clippy --all-targets --workspace -- -D warnings
    ```
+   リリースの補助スクリプト（`.github/scripts/release/`・`.claude/skills/release/scripts/`）を変えたときは、次も成功すること
+   ```powershell
+   pwsh -NoProfile -File .github/scripts/release/release-scripts-test.ps1
+   ```
 3. **Doc Gate**: 仕様差分を下の「ドキュメント保守」の該当ドキュメントに反映した
 4. **Steering Gate**: 変更が既存ステアリング（`product.md`・`tech.md`・`structure.md`・本ファイル）と矛盾しない。矛盾するなら、ステアリングを直すか実装を直す
 
@@ -58,10 +63,14 @@ git add -A; git commit -m "<type>(<scope>): <summary>"
 
 ### 2. スキルドキュメント更新検討
 
-このリポジトリには、実装内容に追従させるドメイン固有のスキル（ゴースト作成ガイドなど）は**まだ無い**。`.claude/skills/` にあるのは Kiro ワークフローのスキルだけなので、通常はこの手順を**スキップ**する。
+当該 spec の変更領域が下の表に当たるときは、対象スキルの記述と食い違いが無いかを確かめて直す。当たらなければこの手順はスキップする。
 
-- **実施する場合**: 当該 spec が開発フロー（本ファイル・`CLAUDE.md`）を変えたときだけ、影響を受ける `kiro-*` スキルの記述と食い違いが無いかを確かめて直す
-- ドメイン固有のスキルを足したら、ここに「変更領域 → 対象スキル」の表を足す
+| 変更領域 | 対象スキル |
+| -------- | ---------- |
+| リリースの仕組みの変更（release.yml・補助スクリプト・公開対象のクレート・版の置き場所・見どころの約束） | `.claude/skills/release/`（SKILL.md・procedure.md・scripts） |
+| 開発フローの変更（本ファイル・`CLAUDE.md`） | 影響を受ける `kiro-*` スキル |
+
+- ドメイン固有のスキルを足したら、この表に行を足す
 
 ### 3. リモート同期（ブランチ戦略）
 
@@ -76,7 +85,9 @@ gh pr merge --squash --delete-branch --subject "<subject>" --body "<body>"
 ```
 
 - `{remote}`（`origin` → 単一リモート → none）と `{default-branch}`（`git symbolic-ref` → `main` → `master` → 現ブランチ）は決定的に解決し、ハードコードしない
-- **CI を待たない**: PR では CI（`.github/workflows/build.yml`）が走るが、その結果は待たない。マージ前の関門は DoD の Test Gate（ローカルの `cargo test --all` と clippy）だけである
+- **CI を待たない**: PR では CI（`.github/workflows/build.yml`）が走るが、その結果は待たない。マージ前の関門は DoD の Test Gate（ローカルの `cargo test --all` と clippy、補助スクリプトを変えたときはそのテスト）である
+- **版の更新の PR**: `/release` が作る版の更新の PR（`chore(release): vX.Y.Z`）も、同じ流れ（PR・squash・CI を待たない）で統合する
+- **直接 push の禁止の例外**: リリースタグの ref の push（`git push origin vX.Y.Z`）だけである。`.claude/settings.json` の allow にあるのはリリースタグの push（`git push origin v*`）と作業ブランチの push（`git push -u origin HEAD`）だけで、main への push・強制 push・タグの付け直しの項目は無い。ただし deny の規則は無く、タグの push の glob は後ろのオプションや refspec を縛らないので、`--force` / `-f` / `v*:<ref>` を使わないことは手順で守る
 - **ブランチ削除**: リモートの feature ブランチは `--delete-branch` がマージ成功**後に** API で消す。ローカルブランチ・ワークツリーの後始末はハーネスに委ねる（ローカル削除の警告は非致命）
 - **フォールバック（PR 不可）**: デフォルトブランチ上 / `{remote}` が none / `gh` 未認証のときは、警告して PR・push をスキップし、ローカルコミットを保持する
 - **中断条件**: PR の作成またはマージ（API）が失敗したら、ブランチを消さずに中断して報告する
@@ -159,6 +170,7 @@ spec ディレクトリを `.kiro/specs/completed/` へ移し、**移した後�
 | クレートの追加・層の変更     | README.md（クレート表）、steering/structure.md、steering/tech.md |
 | 依存関係の変更               | steering/tech.md |
 | 開発フローの変更             | steering/workflow.md、CLAUDE.md |
+| リリースの仕組みの変更（release.yml・補助スクリプト・公開対象のクレート・版の置き場所・見どころの約束） | `.claude/skills/release/`（SKILL.md・procedure.md・scripts）、`.github/release-ci-setup.md`、`doc/release-notes/README.md`（見どころの約束）、steering/tech.md（公開とバージョン・CI） |
 
 ### 保守ルール
 

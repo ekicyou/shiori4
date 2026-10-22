@@ -168,7 +168,7 @@
   - _Boundary: settings.json_
   - _Requirements: 16.6_
 
-- [ ] 7.2 (P) workflow.md を公開の運用に合わせる
+- [x] 7.2 (P) workflow.md を公開の運用に合わせる
   - 「前提: 完成の形」・DoD の Test Gate（補助スクリプトを変えたときのテスト）・スキルドキュメント更新検討の表・リモート同期（版の更新の PR とタグ push の例外）・ドキュメント保守の表を直す。CLAUDE.md は変えない
   - 完了の状態: workflow.md に「公開・タグ・CI は持たない」旨の古い記述が残らず、要件 16.1〜16.4 の各点が書かれている
   - _Boundary: workflow.md_
