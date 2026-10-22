@@ -35,5 +35,5 @@ pasta（`C:\home\maz\git\pasta`）のリリースの仕組みを下敷きにし�
   - `.kiro/steering/workflow.md` の「前提: 完成の形」と DoD・リモート同期の節は ② が公開の運用に合わせて書き直す
 
 ## Specs (dependency order)
-- [ ] crate-publish-ready -- 3 クレートを crates.io に出せる形にし（版の一本化・path+version 依存・メタデータ・各クレートの README・ライセンス整合・`cargo package` の通過）、PR の CI（build.yml、3 OS・cargo-deny）で守る。Dependencies: none
+- [x] crate-publish-ready -- 3 クレートを crates.io に出せる形にし（版の一本化・path+version 依存・メタデータ・各クレートの README・ライセンス整合・`cargo package` の通過）、PR の CI（build.yml、3 OS・cargo-deny）で守る。Dependencies: none
 - [ ] release-workflow -- タグ push で検査・公開・GitHub Release を行う release.yml と公開スクリプト、初回セットアップの手順書、リリースノートの約束、`/release` スキル、workflow.md の更新。Dependencies: crate-publish-ready
