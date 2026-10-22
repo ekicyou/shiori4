@@ -3,11 +3,11 @@
 ## Overview
 **Purpose**: 3 クレート（`shiori4_abi`・`shiori4`・`shiori4_host`）を crates.io に出せる形（公開の直前まで）に整え、その形を PR ごとの CI で守る。
 **Users**: 開発者（ekicyou）は手元と CI で「公開すれば通る」ことを確かめる。クレートの利用者（SHIORI 作者・ベースウェア作者・ABI を直接使う実装者）は crates.io / docs.rs で役割と入口を知る。後続の release-workflow spec は、本 spec の CI を gate として呼び、本 spec が決めた版の置き場所を書き換えて公開する。
-**Impact**: Rust のソースには触れない。変わるのはマニフェスト 4 本・`.gitignore`・`Cargo.lock`（新たにコミット）・LICENSE の写し 3 本・README 4 本・CI 1 本・`deny.toml`・steering 3 本だけである。
+**Impact**: Rust のソースには触れない。変わるのはマニフェスト 4 本・LICENSE の写し 3 本・README 4 本・CI 1 本・`deny.toml`・steering 3 本だけである。
 
 ### Goals
 - 版を `[workspace.package] version = "0.0.1"` 1 か所と内部依存の版要求 2 か所に一本化する
-- `cargo package --workspace --locked` が、3 クレートとも未公開のまま依存の順に警告なしで通る
+- `cargo package --workspace` が、3 クレートとも未公開のまま依存の順に警告なしで通る
 - PR・main への push・手動実行・`workflow_call` のいずれでも、同じ検査（3 OS の test・clippy、cargo-deny、パッケージ化）が走る
 
 ### Non-Goals
@@ -18,11 +18,11 @@
 ## Boundary Commitments
 
 ### This Spec Owns
-- **版の置き場所の契約**: ワークスペースの版 1 か所と、`[workspace.dependencies]` の内部依存 2 項目の `version`。`Cargo.lock` はそこから cargo が導出する（手で書かない）
+- **版の置き場所の契約**: ワークスペースの版 1 か所と、`[workspace.dependencies]` の内部依存 2 項目の `version`。`Cargo.lock` はコミットしないので、版の置き場所に含まれない
 - 共通メタデータ（authors・license・repository・homepage・keywords・edition・rust-version）の置き場所と値
 - 各クレートのパッケージの中身（ソース・マニフェスト・README・LICENSE・`shiori4_abi` の C ヘッダ）
 - `.github/workflows/build.yml` の検査項目・トリガ・合否の基準と、`deny.toml` の許可の設定
-- `Cargo.lock` をコミットする方針と、それを steering に書くこと
+- `Cargo.lock` をコミットしない方針を保ち、その理由を steering に書くこと
 - steering の記述: `tech.md`（版・メタデータ・ライセンス・CI・lock・Common Commands）、`structure.md`（内部依存の書き方・README の位置づけ）、`workflow.md` の「CI は無い」の 1 文
 
 ### Out of Boundary
@@ -39,7 +39,7 @@
 
 ### Revalidation Triggers
 - 版の置き場所・個数の変更（release-workflow の `/release` が前提にしている）
-- `Cargo.lock` の方針の変更（release-workflow の `cargo publish --locked` と版の更新の手順が前提にしている）
+- `Cargo.lock` の方針の変更（release-workflow は lock が無く、`--locked` を使わずに公開することを前提にする）
 - `build.yml` のトリガ（特に `workflow_call: {}`）・ジョブ名・入力の有無の変更（release.yml の gate が前提にしている）
 - クレートの追加・改名、内部依存の向きの変更（公開の順 `shiori4_abi` → `shiori4` → `shiori4_host` が変わる）
 
@@ -59,7 +59,6 @@ graph TB
         AbiToml[shiori4_abi Cargo toml]
         CoreToml[shiori4 Cargo toml]
         HostToml[shiori4_host Cargo toml]
-        Lock[Cargo lock]
     end
     subgraph PackageContents
         Readmes[Crate READMEs]
@@ -73,8 +72,6 @@ graph TB
     RootToml --> AbiToml
     RootToml --> CoreToml
     RootToml --> HostToml
-    RootToml --> Lock
-    BuildYml --> Lock
     BuildYml --> DenyToml
     BuildYml --> PackageContents
     ReleaseYml[release yml in release-workflow] --> BuildYml
@@ -91,7 +88,7 @@ graph TB
 
 | Layer | Choice / Version | Role in Feature | Notes |
 |-------|------------------|-----------------|-------|
-| Build / Package | cargo stable（resolver 3、Cargo.lock v4） | パッケージ化と検証（`cargo package --workspace --locked`） | resolver 3 は `rust-version` を見て `libloading 0.8.9` を選ぶ（0.9 は Rust 1.88 が要る） |
+| Build / Package | cargo stable（resolver 3） | パッケージ化と検証（`cargo package --workspace`） | resolver 3 は `rust-version` を見て `libloading 0.8.9` を選ぶ（0.9 は Rust 1.88 が要る） |
 | CI | GitHub Actions（ubuntu-latest・windows-latest・macos-latest） | test・clippy・deny・package | Action は pasta と同じ 4 つだけ |
 | 依存検査 | cargo-deny（`EmbarkStudios/cargo-deny-action@v2`、既定の `check --all-features`） | ライセンス・勧告・取得元 | Action の既定の Rust は 1.85.0。edition 2024・lock v4 を読める |
 
@@ -101,8 +98,6 @@ graph TB
 ```
 /
 ├── Cargo.toml                   # 変更: 版・共通メタデータ・[workspace.dependencies]
-├── Cargo.lock                   # 新規（コミット）: cargo が生成。手で書かない
-├── .gitignore                   # 変更: Cargo.lock の行を消す
 ├── README.md                    # 変更: 各クレートの README / crates.io への導線
 ├── deny.toml                    # 新規: cargo-deny の許可の設定
 ├── .github/
@@ -123,7 +118,7 @@ graph TB
 ```
 
 ### Modified Files
-- `.kiro/steering/tech.md` — 版の置き場所・共通メタデータ・MIT だけ・CI の検査内容・`Cargo.lock` をコミットする方針・Common Commands（lint に `--workspace`、パッケージ化の検証）
+- `.kiro/steering/tech.md` — 版の置き場所・共通メタデータ・MIT だけ・CI の検査内容・`Cargo.lock` をコミットしない理由・Common Commands（lint に `--workspace`、パッケージ化の検証）
 - `.kiro/steering/structure.md` — 「クレート間はワークスペース内の `path` 依存で参照する」を「`[workspace.dependencies]` に path と version を持ち、各クレートは `.workspace = true` で受ける」に。各クレートの README（crates.io の顔）とルート README（入口）の位置づけ
 - `.kiro/steering/workflow.md` — 「**CI を待たない**: このリポジトリに CI は無い。…」の 1 文だけを「PR では build.yml が走るが、マージ前の関門は DoD の Test Gate であり、CI の結果は待たない」の趣旨に直す
 
@@ -142,7 +137,7 @@ graph LR
         T3[macos test then clippy]
     end
     Deny[deny on ubuntu]
-    Package[package on ubuntu: cargo package locked then content check]
+    Package[package on ubuntu: cargo package then content check]
     Test --> Result[workflow result]
     Deny --> Result
     Package --> Result
@@ -160,7 +155,7 @@ graph LR
 | 1.2 | 各クレートは版を受け継ぐ | CrateManifests | `version.workspace = true` | — |
 | 1.3 | 内部依存の版要求は workspace にだけ | WorkspaceManifest, CrateManifests | `[workspace.dependencies]`、`<dep>.workspace = true` | — |
 | 1.4 | 手元は path、公開は crates.io の版 | WorkspaceManifest | `{ path, version }` | Package |
-| 1.5 | 版の更新は 3 か所だけ | WorkspaceManifest, LockPolicy | 版の置き場所の契約 | — |
+| 1.5 | 版の更新は 3 か所だけ | WorkspaceManifest | 版の置き場所の契約 | — |
 | 1.6 | 食い違いで失敗する | WorkspaceManifest, BuildWorkflow | caret 要求の解決失敗 | Test, Package |
 | 2.1 | MIT だけ | WorkspaceManifest | `license = "MIT"` | — |
 | 2.2 | repository・homepage・authors | WorkspaceManifest, CrateManifests | `.workspace = true` | — |
@@ -176,7 +171,7 @@ graph LR
 | 3.4 | 絶対 URL で参照 | CrateReadmes | 絶対 URL の規則 | — |
 | 3.5 | ルート README は入口 | RootReadme | 各クレートへのリンク | — |
 | 3.6 | 日本語だけ | CrateReadmes | — | — |
-| 4.1 | 依存の順にパッケージ化と検証 | BuildWorkflow, WorkspaceManifest | `cargo package --workspace --locked` | Package |
+| 4.1 | 依存の順にパッケージ化と検証 | BuildWorkflow, WorkspaceManifest | `cargo package --workspace` | Package |
 | 4.2 | 未公開のまま通る | BuildWorkflow | `--workspace`（一時のローカルレジストリ） | Package |
 | 4.3 | C ヘッダを含む | BuildWorkflow | 既定の同梱＋中身の検査 | Package |
 | 4.4 | 中身にソース・README・LICENSE、開発用ファイルなし | CrateManifests, LicenseCopies, CrateReadmes | 既定の同梱（クレートのディレクトリの追跡ファイル） | Package |
@@ -210,10 +205,10 @@ graph LR
 |-----------|--------|--------|--------------|------------------|-----------|
 | WorkspaceManifest | マニフェスト | 版・共通メタデータ・内部依存の唯一の置き場所 | 1.1, 1.3–1.6, 2.1, 2.2, 2.4, 2.5, 2.7, 2.8, 4.1 | cargo (P0) | State |
 | CrateManifests | マニフェスト | 各クレートが workspace の値を受け継ぐ | 1.2, 1.3, 2.2, 2.3, 2.8, 4.4, 7.3 | WorkspaceManifest (P0) | State |
-| LockPolicy | マニフェスト | `Cargo.lock` をコミットし、CI の `--locked` で古さを検出する | 1.5, 8.2 | WorkspaceManifest (P0) | State |
+| LockPolicy | マニフェスト | `Cargo.lock` をコミットしない方針 | 8.2 | — | State |
 | LicenseCopies | パッケージの中身 | 各パッケージに MIT の本文を入れる | 2.5, 2.6, 4.4 | ルート LICENSE (P0) | State |
 | CrateReadmes / RootReadme | パッケージの中身 | crates.io の顔と、ワークスペースの入口 | 3.1–3.6, 4.4 | docs.rs・crates.io の URL (P2) | — |
-| BuildWorkflow | CI | 3 OS の test・clippy、deny、package を 1 つのワークフローで | 1.6, 2.6, 4.1–4.6, 5.1–5.8, 6.1–6.4, 7.2, 7.4 | Actions 4 種 (P0), DenyConfig (P0), LockPolicy (P0) | Batch |
+| BuildWorkflow | CI | 3 OS の test・clippy、deny、package を 1 つのワークフローで | 1.6, 2.6, 4.1–4.6, 5.1–5.8, 6.1–6.4, 7.2, 7.4 | Actions 4 種 (P0), DenyConfig (P0) | Batch |
 | DenyConfig | CI | 依存の許可の設定 | 5.4, 5.5, 7.3 | cargo-deny (P0) | State |
 | SteeringDocs | ドキュメント | 版・CI・lock・内部依存・README の方針を steering に | 8.1–8.5 | 上の全コンポーネント (P1) | — |
 
@@ -248,12 +243,12 @@ keywords = ["shiori", "ghost", "ukagaka"]
 shiori4_abi = { path = "shiori4_abi", version = "0.0.1" }
 shiori4 = { path = "shiori4", version = "0.0.1" }
 ```
-- **版の置き場所の契約（release-workflow へ渡す）**: 手で書き換えるのは `[workspace.package] version` と、`[workspace.dependencies]` の `shiori4_abi`・`shiori4` の `version` の 3 か所だけ。その後に `cargo update --workspace`（または任意の cargo コマンド）で `Cargo.lock` の 3 クレートの版が導出される
+- **版の置き場所の契約（release-workflow へ渡す）**: 手で書き換えるのは `[workspace.package] version` と、`[workspace.dependencies]` の `shiori4_abi`・`shiori4` の `version` の 3 か所だけ。`Cargo.lock` はコミットしないので、ほかに直すファイルは無い
 - 版要求は pasta と同じ caret（`"0.0.1"`）。0.0.x の caret は実質厳密一致なので、版だけ上げて版要求を直し忘れると、ビルドもパッケージ化も `failed to select a version for the requirement` で失敗する（1.6、research.md の実験 E2 で確認）。0.1 以上で互換の範囲に収まる直し忘れは検出しない（1.6 の但し書きどおり）
 - 外部依存 `libloading` は `[workspace.dependencies]` に移さず `shiori4_host` に残す（要件は内部依存だけを求める。移す価値は外部依存が 1 つの今は無い）
 
 **Implementation Notes**
-- Validation: `cargo package --workspace --locked` が警告なしで通ること、`cargo package --list -p <crate>` の中身
+- Validation: `cargo package --workspace` が警告なしで通ること、`cargo package --list -p <crate>` の中身
 - Risks: keywords は crates.io の制限（5 個以内・20 字以内・ASCII）に収まる
 
 #### CrateManifests（`shiori4_abi/Cargo.toml`・`shiori4/Cargo.toml`・`shiori4_host/Cargo.toml`）
@@ -261,22 +256,22 @@ shiori4 = { path = "shiori4", version = "0.0.1" }
 - 内部依存は `shiori4_abi.workspace = true`（`shiori4`）、`shiori4.workspace = true`（`shiori4_host`）。`libloading = "0.8"` はそのまま（1.3, 7.3）
 - `readme`・`include`・`exclude` は書かない。README.md はクレートのディレクトリにあれば既定で検出され、パッケージにはクレートのディレクトリの git 追跡ファイルだけが入る（C ヘッダもこれで入る。4.3, 4.4）
 
-#### LockPolicy（`/Cargo.lock`・`/.gitignore`）
+#### LockPolicy（`/.gitignore`）
 
 | Field | Detail |
 |-------|--------|
-| Intent | `Cargo.lock` をコミットし、CI のパッケージ化を `--locked` で回す |
-| Requirements | 1.5, 8.2 |
+| Intent | `Cargo.lock` をコミットしない今の方針を保つ |
+| Requirements | 8.2 |
 
-**決定**: `Cargo.lock` を**コミットする**（tech.md の「コミットしない」を改める）。
-- 理由 1: release-workflow は pasta と同じく `cargo publish -p <crate> --locked` で公開する見込み。`--locked` は lock がリポジトリに無いと意味を持たない（lock が無いと `cargo test --locked` は `cannot create the lock file … because --locked was passed` で失敗する。research.md の実験 E3）
-- 理由 2: CI・cargo-deny・公開が同じ依存の解決で再現する。cargo-deny-action は lock のコミットを前提に書かれ、rust-cache は lock が無いと効きが悪い
-- 理由 3: Cargo チームの 2023 年の指針は「ライブラリでも、プロジェクトに合うなら lock をコミットしてよい」で、`cargo new` はライブラリでも lock を無視しなくなった
-- 代償: 版を上げると `Cargo.lock` の 3 クレートの版も変わる。CI の `package` ジョブが `--locked` で走るので、lock を直し忘れた版の更新は CI で失敗する（research.md の実験 E3-c）。利用者が使う依存は lock に縛られないので、最新の依存での検査は `cargo update` を人が行うときだけになる（受け入れる）
-- `test` ジョブの `cargo test --all`・clippy には `--locked` を付けない（要件 5.1 と DoD の Test Gate のコマンドをそのまま使う）。lock の検査は `package` ジョブ 1 か所で行う
+**決定**: `Cargo.lock` を**コミットしない**（tech.md の今の方針のまま。`.gitignore` も変えない）。設計ディスカッションで確定。
+- 理由 1: ライブラリの lock は、そのクレートを依存に加えた利用者のビルドでは使われない。lock が効くのはこのリポジトリの CI と開発のビルドだけで、外部依存が `libloading` 1 つの今は再現性の利点が小さい
+- 理由 2: lock が無ければ、CI は毎回その時点の最新の依存で検査する。これは利用者が実際に引く依存と同じで、ライブラリの検査に向く
+- 理由 3: 版の更新が 3 か所の書き換えだけで済み（要件 1.5 の文言どおり）、lock の更新と古さの検査が要らない
+- 代償: CI の結果は依存の新しい版の公開で変わり得る（再現性が無い）。pasta の `cargo publish --locked` は使えない（pasta は DLL を配るので lock に意味があるが、shiori4 は純粋なライブラリなので要らない）
+- `--locked` はどのジョブにも付けない。cargo-deny はその場で依存を解決して検査する（research.md の Research Log「依存検査」）
 
 **Contracts**: State [x]
-- `.gitignore` から `Cargo.lock` の行を消し、cargo が生成した `Cargo.lock`（version 4）をコミットする。手で編集しない
+- `.gitignore` の `Cargo.lock` の行を残す。release-workflow は lock が無いこと、`--locked` を使わずに公開することを前提にする
 
 ### パッケージの中身
 
@@ -325,7 +320,7 @@ shiori4 = { path = "shiori4", version = "0.0.1" }
 |---|---|---|---|---|
 | `test` | `test-${{ matrix.os }}` | matrix `os: [ubuntu-latest, windows-latest, macos-latest]`、`fail-fast: false` | checkout → toolchain（clippy 入り）→ rust-cache → `Test`: `cargo test --all` → `Clippy`: `cargo clippy --all-targets --workspace -- -D warnings` | 5.1–5.3, 5.7, 7.2 |
 | `deny` | `cargo-deny` | ubuntu-latest | checkout → `cargo deny check`: cargo-deny-action（既定の入力のまま） | 5.4, 5.5 |
-| `package` | `package` | ubuntu-latest | checkout → toolchain → rust-cache → `Package`: `cargo package --workspace --locked` → `Check package contents`: 下記 | 1.6, 2.6, 4.1–4.6, 5.6 |
+| `package` | `package` | ubuntu-latest | checkout → toolchain → rust-cache → `Package`: `cargo package --workspace` → `Check package contents`: 下記 | 1.6, 2.6, 4.1–4.6, 5.6 |
 
 - **`Check package contents` の検査**（bash、`set -euo pipefail`）:
   1. `cargo package --list -p shiori4_abi` の出力に `include/shiori4_abi.h` の行があること（4.3, 5.6）
@@ -369,8 +364,8 @@ allow-git = []
 - `tech.md`（8.1–8.3）:
   - Core Technologies か新しい節「公開とバージョン」に、版の置き場所の契約（3 か所＋導出される lock）、共通メタデータ、ライセンスは MIT だけ、を書く
   - 新しい節「CI」に、build.yml の 3 ジョブ（3 OS の test・clippy、cargo-deny、パッケージ化＋中身の検査）と `workflow_call` による呼び出しを書く
-  - Key Technical Decisions の「`Cargo.lock` はコミットしない」を「コミットする（`--locked` での公開と CI の再現のため。版を上げたら lock も更新する）」に改める
-  - Common Commands に `cargo clippy --all-targets --workspace -- -D warnings` と `cargo package --workspace --locked` を書く（単独の `-p` は初回公開まで使えない旨を添える）
+  - Key Technical Decisions の「`Cargo.lock` はコミットしない」は保ち、理由（ライブラリの lock は利用者のビルドで使われない。CI は利用者と同じく最新の依存で検査する。公開に `--locked` は使わない）を添える
+  - Common Commands に `cargo clippy --all-targets --workspace -- -D warnings` と `cargo package --workspace` を書く（単独の `-p` は初回公開まで使えない旨を添える）
 - `structure.md`（8.4）: Import Organization の「path 依存で参照する」を、`[workspace.dependencies]`（path＋version）と `.workspace = true` の書き方に直す。各クレートの README は crates.io の顔、ルート README は入口、と書く
 - `workflow.md`（8.5）: 「**CI を待たない**」の箇条書きの「このリポジトリに CI は無い」だけを直す。マージの関門が Test Gate であること、CI の結果を待たないことは変えない
 
@@ -379,7 +374,6 @@ allow-git = []
 | 失敗 | 検出する場所 | 表示 | 要件 |
 |---|---|---|---|
 | 版要求の直し忘れ（0.0.x） | すべてのジョブの cargo の依存解決 | `failed to select a version for the requirement` と対象クレート | 1.6 |
-| lock の直し忘れ | `package` ジョブの `--locked` | `cannot update the lock file … because --locked was passed` | 8.2 |
 | パッケージ化・検証の失敗 | `package` ジョブ | cargo が `Packaging` / `Verifying <crate>` の後にエラーを出し非ゼロ | 4.5 |
 | C ヘッダ・LICENSE の欠落やずれ | `Check package contents` | `::error::` でクレート名と欠けたもの | 4.3, 2.6, 4.5 |
 | 依存のライセンス・勧告・取得元 | `deny` ジョブ | cargo-deny の診断（クレート名・理由） | 5.5 |
@@ -392,7 +386,7 @@ allow-git = []
 本 spec はソースを変えないので、新しい単体テストは作らない。検証はコマンドと CI の実行で行う。
 
 - **手元の検証（実装の完了条件）**
-  1. コミット後に `cargo package --workspace --locked` が 3 クレートとも `Packaging` → `Verifying` で通り、`warning:` を 1 行も出さない（1.1–1.4, 2.5, 4.1, 4.2）
+  1. コミット後に `cargo package --workspace` が 3 クレートとも `Packaging` → `Verifying` で通り、`warning:` を 1 行も出さない（1.1–1.4, 2.5, 4.1, 4.2）
   2. `cargo package --list -p <crate>` に `Cargo.toml`・`README.md`・`LICENSE`・`src/lib.rs` があり、`shiori4_abi` には `include/shiori4_abi.h` があり、`.kiro`・`.claude`・`.github`・`target` が無い（2.6, 3.1, 4.3, 4.4）
   3. 解凍した `.crate` の `Cargo.toml` に `version = "0.0.1"`・`license = "MIT"`・repository・homepage・authors・keywords があり、`documentation` が無い（1.1, 2.1, 2.2, 2.7, 2.8）
   4. 一時的に `[workspace.package] version` だけを `0.0.2` にすると `cargo build` が失敗する（1.6）。確認後に戻す
@@ -409,7 +403,5 @@ allow-git = []
 - 依存の取得元を crates.io だけに絞る（`[sources]` の `deny`）
 
 ## Open Questions / Risks
-- **前提（要確認）**: `Cargo.lock` をコミットする決定は、release-workflow が `--locked` で公開することを前提にしている。release-workflow が `--locked` を使わない場合も、CI の再現性のためにコミットは維持できる
-- **前提（要確認）**: 版の更新の契約は「手で 3 か所＋cargo が lock を導出」。要件 1.5 の「3 か所を書き換えるだけ」に lock の更新（コマンド 1 つ）が加わる
 - **リスク**: ubuntu / macOS でのテスト・clippy は未確認。落ちたら本 spec の中で直す（ソースの修正が要るなら要件 7.1 に触れないかを開発者に確かめる）
 - **リスク**: docs.rs と crates.io のリンクは公開までは 404 になる（公開後に解消する。想定どおり）

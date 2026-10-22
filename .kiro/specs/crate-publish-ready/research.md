@@ -130,7 +130,7 @@
 設計フェーズで解決した（下の「設計フェーズの調査」）。残るのは最後の 1 件だけ。
 - ~~crates.io が `documentation` 未設定のときに docs.rs へのリンクを自動で出すか~~ → 出す（Cargo Book）
 - ~~`license` と `license-file` の併記の扱い、LICENSE を置く最小の書き方~~ → 併記は警告。各クレートに写しを置く
-- ~~rust-cache と cargo-deny-action の、`Cargo.lock` が無いときの挙動~~ → lock をコミットするので論点でなくなった（記録は下）
+- ~~rust-cache と cargo-deny-action の、`Cargo.lock` が無いときの挙動~~ → lock をコミットしないので、どちらも lock なしで動かす（記録は下）
 - ubuntu-latest / macos-latest での `cargo test --all` と clippy の結果（最初の CI 実行で確認。設計でも未確認のまま）
 
 ---
@@ -174,11 +174,12 @@
 
 ## 設計の決定（確定版）
 
-### Decision: `Cargo.lock` をコミットする
-- **Selected**: コミットする。`.gitignore` から外し、CI の `package` ジョブを `--locked` で回す。`test` ジョブの test・clippy には付けない（DoD の Test Gate と同じコマンドのまま）
-- **Rationale**: 実験 E3 のとおり `--locked` には lock が要る。release-workflow は pasta と同じ `cargo publish --locked` を移植する見込み。CI・deny・公開の再現性
-- **Trade-offs**: 版の更新で lock も変わる（`cargo update --workspace`。直し忘れは CI が検出）。最新の依存での検査は人が `cargo update` するときだけ
-- **Follow-up**: tech.md の Key Technical Decisions を改める。release-workflow の brief の「（方針しだいで）Cargo.lock」は「Cargo.lock も更新する」に確定したと申し送る
+### Decision: `Cargo.lock` をコミットしない（設計ディスカッションで改めた）
+- **Selected**: コミットしない（tech.md の今の方針のまま）。どのジョブにも `--locked` を付けない
+- **Rationale**: ライブラリの lock は利用者のビルドで使われず、効くのはこのリポジトリの CI だけ。外部依存は `libloading` 1 つで再現性の利点が小さい。lock が無ければ CI は利用者と同じく最新の依存で検査する。版の更新が 3 か所だけで済む。pasta が `--locked` で公開するのは DLL を配るためで、純粋なライブラリの shiori4 には当てはまらない
+- **Trade-offs**: CI の結果に再現性が無い（依存の新しい版で変わり得る）。実験 E3 の lock の直し忘れの検出は使わない
+- **History**: 設計の初稿は実験 E3 と pasta に合わせて「コミットする」を選んだが、開発者の指摘（ライブラリの lock は利用者に効かない）を受けて改めた
+- **Follow-up**: tech.md の「コミットしない」に理由を添える。release-workflow の brief に「lock は無く、`--locked` を使わずに公開する」と申し送る（pasta の release.yml の `git diff --exit-code -- Cargo.lock` も移植しない）
 
 ### Decision: LICENSE は各クレートに写す
 - **Selected**: 実験 A。`license-file` は使わない
@@ -204,7 +205,7 @@
 ## Synthesis（design-synthesis）
 - **Generalization**: 「PR・push・手動・gate」の 4 つの入口は、トリガを 1 つのワークフローに束ね、`if:` で分岐しないことで 1 つの検査に一般化した（要件 6.4）。release-workflow はジョブを足すだけで済む
 - **Build vs. Adopt**: すべて既存のものを採用（cargo の既定の同梱・README 自動検出・`--workspace` の一時レジストリ、cargo-deny、pasta と同じ 4 つの Action）。自作するのは中身の検査の数行の bash だけ（cargo に「このファイルが入っているか」を検査する機能が無いため）
-- **Simplification**: `readme`・`include`・`exclude`・`license-file`・`documentation` を書かない。パッケージ化を 3 OS で回さない。`--locked` は 1 か所だけ。`libloading` を動かさない。MSRV の CI・Dependabot は入れない
+- **Simplification**: `readme`・`include`・`exclude`・`license-file`・`documentation` を書かない。パッケージ化を 3 OS で回さない。`--locked` を使わない。`libloading` を動かさない。MSRV の CI・Dependabot は入れない
 
 ## References
 - `C:\home\maz\git\pasta\Cargo.toml` — `[workspace.package]` と `[workspace.dependencies]`（path＋version）の流儀
