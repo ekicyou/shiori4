@@ -35,13 +35,14 @@
 - **In scope**:
   - リリースタグの push で動くリリース CI（`.github/workflows/release.yml`）と、その補助スクリプト（`.github/scripts/release/`）。補助スクリプトのテストを build.yml の job として足すこと。
   - 一度だけの準備の手順書（`.github/release-ci-setup.md`）。初回の手動公開と、初版 0.0.1 のリリースの手順を含む。
-  - 見どころの約束（`doc/release-notes/README.md`）と、見どころのファイルの書き方。
+  - 見どころの約束（`doc/release-notes/README.md`）と、見どころのファイルの書き方。初版の見どころのファイル `doc/release-notes/v0.0.1.md`。
   - リリーススキル（`.claude/skills/release/`）と、エージェントの操作の許可（`.claude/settings.json`）のうちリリースに使うもの。
   - steering `workflow.md`（前提: 完成の形・DoD・リモート同期・ドキュメント保守）と `tech.md`（公開とバージョン・CI）の更新。
 - **Out of scope**:
   - Cargo.toml のメタデータ・各クレートの README・build.yml の既存の検査（crate-publish-ready が持つ）。build.yml には補助スクリプトのテストの job を足すだけで、既存の job・トリガ・入力を変えない。
   - 初回セットアップと初回の手動公開の**実行**（開発者が手順書に従って行う。スキルも CI も代行しない）。
   - リリースの自動化（定期実行・main への push での自動リリース）。タグの push は人が `/release` で起こす。
+  - 初版 0.0.1 のリリースが済んだ後の、初版の経路の撤去（後続の spec `release-bootstrap-cleanup` が持つ）。
   - pasta 固有の部分: 配布物のビルド（dll・nar・vsix）、VSCode Marketplace と Azure の認証一式、セットアップの確認ワークフロー、マニュアルの CI、版の出どころのうち package.json・マニュアル・Marketplace、見どころの口調の検査。
   - プレリリースの版、クレートごとに異なる版、crates.io 以外のレジストリ、バイナリの配布。
   - クレートの API と中身。
@@ -243,10 +244,11 @@
 #### Acceptance Criteria
 
 1. The Setup Guide shall 初版 0.0.1 の 3 クレートを、開発者が API トークンで依存の順に手動で公開する手順を定める（Trusted Publishing は新しいクレートを作れないため）。
-2. 【仮定】When main のワークスペースの版の 3 クレートが crates.io に公開済みで、その版のリリースタグと GitHub Release がどちらも無いとき, the Release Skill shall 初版の状態と判定し、版の決定と版の表記の更新を飛ばす。
-3. 【仮定】While 初版の状態のとき, the Release Skill shall 見どころのファイルが main に無ければ、見どころのファイルだけを含むコミットを Requirement 9.6〜9.8 と同じ流れで main へ統合してから、リリースタグの作成（Requirement 10）へ進む。
+2. When main のワークスペースの版の 3 クレートが crates.io に公開済みで、その版のリリースタグと GitHub Release がどちらも無く、その版の見どころのファイルが main にあるとき, the Release Skill shall 初版の状態と判定し、版の決定と版の更新を飛ばして、リリースタグの作成（Requirement 10）から続ける。
+3. The repository shall 初版の見どころのファイル `doc/release-notes/v0.0.1.md` を本仕様の実装の変更に含めて main に入れる。初版の `/release` は見どころのファイルを書かず、見どころだけのコミットも作らない。
 4. When 初版のリリースタグで実行が終わったとき, the Release Skill shall 3 クレートが `skipped`、GitHub Release が `published` であれば完了と判定する。
 5. 【仮定】When 初版の実行が完了したとき, the Release Skill shall 3 クレートの認証が CI から得られたこと（公開そのものは次の版で初めて CI から行われること）を報告に含め、手順書の初回の後片付け（Requirement 15.5）を開発者に案内する。自分では行わない。
+6. The Release Skill shall 初版の判定と経路を、ほかの判定・経路に触れずに取り除けるように 1 か所にまとめ、初版のためだけのものであることを明記する（撤去は後続の spec `release-bootstrap-cleanup` が行う）。
 
 ### Requirement 15: 一度だけの準備の手順書
 
@@ -280,8 +282,8 @@
 
 ## 未決事項（要件ディスカッションへの申し送り）
 
-1. **初版 0.0.1 の扱い**（14.2〜14.4）: 3 クレートは手動で公開済み・タグも Release も無い状態は、pasta の判定表では「タグが無いのに公開済みがある → 止まる」にあたる。【仮定】`/release` に「初版の状態」の判定を足し、版の更新を飛ばしてタグの push へ進み、CI の最初の実行は 3 クレート `skipped`・GitHub Release `published` で完了とする。代案: `/release` を使わず、手順書の手順で開発者がタグを push する。
-2. **`v0.0.1.md` を誰がいつ書くか**（14.3）: brief は「初版 `v0.0.1.md` の書き方」を In に置くが、ファイル自体を本仕様の実装で作るかは書いていない。【仮定】本仕様は書き方だけを定め、ファイルは初版の `/release` が見どころだけのコミットとして PR で入れる。代案: 本仕様の実装の PR に `v0.0.1.md` を含め、初版の `/release` はタグの push から始める。
+1. **（確定）初版 0.0.1 の扱い**（14.2・14.4・14.6）: `/release` に「初版の状態」の判定を足し、版の決定と更新を飛ばしてタグの作成から続ける。初版の経路は 1 か所にまとめ、0.0.1 の完了後に後続の spec `release-bootstrap-cleanup` が撤去する。
+2. **（確定）`v0.0.1.md` を誰がいつ書くか**（14.3）: 本仕様の実装の PR に含める。見どころだけのコミットの経路は持たない。
 3. **「Trusted Publishing のみ」の有効化の時期**（14.5・15.5）: 初版の CI の実行では 3 クレートとも `skipped` になり、CI からの公開そのものは 0.0.2 まで確かめられない。【仮定】初版の実行で認証が通ったことを確かめた後に有効化し、トークンを失効させる（CI からの公開は次の版で初めて確かめる）。代案: 0.0.2 を CI で公開できたことを確かめてから有効化する（それまでトークンを手元に残す）。
 4. **GitHub Release の添付**（4.5）: 配布物が無いので、添付は詳しいリリースノートの 1 つだけになる。【仮定】pasta と同じく詳しいリリースノートを添付し、本文にはリンクと件数だけを足す。代案: 添付を持たず、詳しいリリースノートを本文の見どころの後に直接置く（「添付がそろう」の判定が要らなくなる）。
 5. **内部の作業のスコープ**（6.5）: 【仮定】pasta の一覧に、このリポジトリで使われているスコープ `kiro`（例 `chore(kiro): …`）を足したもの。spec 名をスコープにしたコミット（例 `feat(crate-publish-ready): …`）は載せる（利用者に見える変更のため）。
