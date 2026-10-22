@@ -314,6 +314,152 @@ main へ直接 push しない（9.7）。
 
    2 つ目の出力が空でなければ成功で、段 7 へ進む。push が失敗したら（10.5）、失敗の内容と「main には版の更新が入っていて、タグだけが無い」状態であることを示して止まる。再実行すると、段 2 の S7 から続く。
 
+## 段 7: リリース CI の結果の確認
+
+| Field | Detail |
+|-------|--------|
+| Intent | タグで起動したリリース CI を最後まで追い、公開先ごとの結果を読む |
+| Requirements | 11.1, 11.2, 11.3, 13.1 |
+
+1. **実行の特定**（11.1）。タグの名前とタグのコミットの両方が一致する実行を、最大 3 分待って探す。
+
+   ```powershell
+   $V = '{V}'; $sha = git rev-parse "v$V^{commit}"
+   foreach ($i in 1..18) {
+       $run = @((gh run list --workflow release.yml --limit 30 --json databaseId,headBranch,headSha,status,attempt,url,createdAt) -join "`n" | ConvertFrom-Json |
+           Where-Object { $_.headBranch -eq "v$V" -and $_.headSha -eq $sha } | Sort-Object createdAt -Descending)
+       if ($run.Count) { break }
+       Start-Sleep -Seconds 10
+   }
+   if ($run.Count) { "run | $($run[0].databaseId) | $($run[0].status) | attempt $($run[0].attempt) | $($run[0].url)" } else { 'run | 無し' }
+   ```
+
+   `run | 無し` なら、完了と報告せず、リリース CI が起動していないことを示して止まる。それ以外は、ID を `RUN`、attempt を `ATTEMPT` とする。
+
+2. **待機**（11.2）。次のコマンドを、ツールのタイムアウトを 10 分にして実行する。`{ATTEMPT}` は、待つ対象の試行の番号（新しい実行は 1。再実行のたびに 1 増える）。出力が `completed` になるまで繰り返す。終わるまでは完了と報告しない。20 回（約 3 時間）繰り返しても `completed` にならなければ、「リリース CI が実行中」として止まる。
+
+   ```powershell
+   $RUN = '{RUN}'; $ATTEMPT = {ATTEMPT}
+   foreach ($i in 1..17) {
+       $s = (gh run view $RUN --json status,attempt) -join "`n" | ConvertFrom-Json
+       if ($s.attempt -ge $ATTEMPT -and $s.status -eq 'completed') { break }
+       Start-Sleep -Seconds 30
+   }
+   "run | $RUN | $(if ($s.attempt -ge $ATTEMPT) { $s.status } else { 'waiting' }) | attempt $($s.attempt)"
+   ```
+
+3. **読み取り**（11.3）。定型コマンド B を `-Run {RUN}` で実行し、下の「結果表の作り方」で、4 つの公開先（crates.io の 3 クレートと GitHub Release）の `status`・`reason` と、GitHub Release の URL（`url=` の値）を決める。
+
+4. **完了の判定**（13.1）。次のすべてを満たせば完了で、段 9 へ進む。
+   - 定型コマンド B の `run` の行の結論が `success`
+   - 結果表の 4 つがすべて `published` か `skipped`
+   - 定型コマンド A（`-Version {V}`）の `集計` が、公開済み 4/4・`不明` 0（`GitHub Release` の行の URL を、報告の URL とする）
+
+   1 つ目と 2 つ目を満たすのに 3 つ目が 4/4 でないときは、1 分後に定型コマンド A を 1 度だけ実行し直す。それでも 4/4 でなければ、未完了として止まる。1 つ目か 2 つ目を満たさないときは、段 8 へ進む。
+
+### 結果表の作り方
+
+公開先ごとに、定型コマンド B の `step` の行（step の結論）と `line` の行（ログの `status=` の行）を、次の対応で見る。crates.io の認証は job の先頭で 1 回だけ取り、3 クレートで共有する。
+
+| 公開先 | 認証の step | 公開の step |
+|--------|-------------|-------------|
+| crates.io `shiori4_abi`・`shiori4`・`shiori4_host`（この順に公開する） | `Auth crates.io`（3 つで共有） | `Publish <クレート>` |
+| GitHub Release | なし | `Create GitHub Release` |
+
+規則は公開先ごとに上から当て、最初に当てはまったものを使う。リリース CI の集約の step（`Summarize crates.io results`）と同じ読み方である。値が書かれていない公開先を、推測で `published` にしない（11.3）。
+
+| # | 条件 | `status` | `reason` |
+|---|------|----------|----------|
+| 1 | 公開の step の結論が `success` | その step の `line` のうち、attempt が最大のものの値（`published` か `skipped`）。`line` が無ければ「`published` か `skipped`（区別できない）」 | なし |
+| 2 | 公開の step の結論が `failure`・`cancelled` | `failed` | その step の `line` のうち、attempt が最大のものの `reason=` の値。`line` が無ければ `publish` |
+| 3 | 公開の step が走っていない（結論が `skipped` か、`step` の行が無い）。かつ、認証の step の結論が `failure` で、公開の順で前のクレートに `failed` が無い | `failed` | `auth` |
+| 4 | それ以外 | `not-run`。ただし、その job の結論が `failure`・`cancelled`・`timed_out` で、その job のどの公開先も `failed` でないときは、その job の先頭の公開先を `failed` にする | 読み替えたものは `不明` |
+
+- 規則 3 は、認証の失敗を 1 か所（最初に走らなかったクレート）にだけ付ける。後のクレートは規則 4 で `not-run` になる。
+- 「区別できない」は、完了の判定では `published` か `skipped` として扱う。報告には「区別できない」と書く。
+- `not-run` は、上流の失敗の結果である。それ自体は対応の対象にしない。
+
+## 段 8: 失敗への対応
+
+| Field | Detail |
+|-------|--------|
+| Intent | 失敗の種類ごとに、再実行・案内・停止を判定表で決める |
+| Requirements | 11.4, 11.5, 11.6, 11.7, 11.8, 11.9, 11.10, 11.11, 13.4 |
+
+段 7 の結果表と、定型コマンド B の `job` の行を、次の表に上から当てる。最初に当てはまった行に従う。「手順書」は `.github/release-ci-setup.md` である。
+
+| # | 条件 | 区分 | 次の手 |
+|---|------|------|--------|
+| F0 | 実行の結論が `cancelled` | 取り消された（11.11） | 再実行しない。取り消されていることを示して止まる |
+| F1 | job `verify` か、名前が `gate` で始まる job のどれかが `failure`・`cancelled`・`timed_out` | 公開前の段の失敗（11.7） | 再実行しない。定型コマンド A で 0/4 を確かめ、失敗した job と step の名前、失敗のログの末尾、「どの公開先にも公開していない」を報告して止まる（13.4）。0/4 でないときは、「公開していない」と書かず、公開済みの行を示して止まる。続きは「公開前の段の失敗の続き」 |
+| F3 | どれかが `failed`・`auth` | セットアップ（11.5） | 先に下の「トークンの期限切れの見分け」を行う。期限切れなら F6 に従う。そうでなければ再実行しない。`shiori4_abi` か、認証の step（`Auth crates.io`）の失敗なら手順書の「名前の対応表」を、2 つ目以降のクレート（`shiori4`・`shiori4_host`）だけなら「2 つ目以降のクレートの認証だけが失敗したとき」を示して止まる。続きは「セットアップを直した後の続き」 |
+| F4 | どれかが `failed`・`not-registered` | セットアップ（11.5） | 再実行しない。手順書の「新しいクレートの初回公開」を示して止まる。続きは F3 と同じ |
+| F6 | どれかが `failed`・`transient` | 一時的な失敗（11.4） | `N_AUTO` が 3 未満なら、失敗した job を再実行する。3 なら、自動の再実行をやめ、未完了として止まる |
+| F7 | どれかが `failed`・`publish`、または `failed`・`不明` | 切り分け（11.10） | `F7_DONE` が「いいえ」で `N_AUTO` が 3 未満なら、`F7_DONE` を「はい」にして、失敗した job を 1 度だけ再実行する。そうでなければ「再実行では直らない失敗」 |
+
+F2・F5 は欠番である（番号を移植元にそろえた。F2 は CI での初回のリリースだけの行、F5 は Release の添付の行で、どちらもこのリポジトリには無い）。
+
+**トークンの期限切れの見分け**（F3）。crates.io の認証は 1 回だけで、トークンは 30 分で切れる。`failed`・`auth` のクレートの `Publish <クレート>` の `step` の行の `期限まで <秒> 秒` が 0 以下なら、認証の設定ではなくトークンの期限切れである。F6 と同じく、失敗した job を再実行する（新しいトークンを取り直して続く）。`期限まで - 秒` のとき、その `step` の行が無いとき（認証の step の失敗）、1 以上のときは期限切れではなく、F3 のまま止まる。
+
+**失敗した job の再実行**（F6・F7）
+
+```bash
+gh run rerun {RUN} --failed
+```
+
+終了コード 0 なら `N_AUTO` を 1 増やし、`{ATTEMPT}` を 1 増やして、段 7 の手順 2 へ戻る。再実行は、公開済みのものを飛ばす。自動の再実行は、1 回の `/release` の中で合わせて 3 回までである（11.4）。
+
+**失敗のログの末尾**（F1・F7 の報告に付ける）
+
+```bash
+gh run view {RUN} --log-failed | tail -n 60
+```
+
+**再実行では直らない失敗**（F7 の 2 度目。11.10）。定型コマンド A（`-Version {V}`）を実行する。
+
+- 公開済みが 0/4 で、`GitHub Release` が `無し`: F1 と同じ報告をして止まる（何も公開していない。修正の後にタグを付け直せる。11.7）。
+- それ以外: タグを付け直さない。公開済みの公開先と未公開の公開先を示し、版を上げて出し直す必要があることを報告して止まる（11.9）。
+
+**セットアップを直した後の続き**（11.6）。開発者が設定を直したと伝えたら、同じ会話なら上の「失敗した job の再実行」から続ける。新しい会話なら、`/release` の再実行で段 2 の S5 に入り、同じ失敗が残っていれば、また F3・F4 で止まる。そのときは、開発者の「直した」という指示を受けて、失敗した job を再実行する。
+
+**公開前の段の失敗の続き**（11.7・11.8）。開発者が次のどちらかを指示する。
+
+- 「そのまま再実行」: 上の「失敗した job の再実行」を行う（`N_AUTO` は増やさない）。
+- 「修正を main に入れた。タグを付け直してよい」: 下の「タグの付け直し」を行う。
+
+**タグの付け直し**（11.8）。開発者の承認が明示されているときだけ行う。承認が無ければ、付け直さない。
+
+1. 定型コマンド A（`-Version {V}`）で、公開済みが 0/4・`不明` が 0・`GitHub Release` が `無し` であることを確かめる。満たさなければ、付け直さずに止まる（11.9）。
+2. `git fetch origin main` の後、`git rev-parse origin/main` の出力を `TARGET` とする。定型コマンド C を `-Version {V} -Target {TARGET}` で実行し、4 行とも `合格` であることを確かめる。不合格なら、付け直さずに `不合格` の行を示して止まる。
+3. タグを付け直して push する。この 2 つは許可の一覧に入れない。実行のたびに、開発者が許可の確認に答える。
+
+   ```bash
+   git tag -f -a v{V} -m "Release v{V}" {TARGET}
+   git push -f origin v{V}
+   ```
+
+4. 新しい実行が起動する。`{ATTEMPT}` を 1 に戻し、段 7 の手順 1 から続ける。
+
+## 段 9: 完了の報告
+
+| Field | Detail |
+|-------|--------|
+| Intent | 完了を、取り違えようのない形で報告する |
+| Requirements | 13.2, 13.5 |
+
+段 7 の手順 4 を満たしたときだけ、次の形で報告する（13.2）。`<...>` は結果表と定型コマンド A・B の出力から埋める。
+
+```
+リリース完了: v{V}
+- crates.io: shiori4_abi <status> / shiori4 <status> / shiori4_host <status>
+- GitHub Release: <URL>
+- リリース CI の実行: <URL>
+- 再実行の回数: <最後の attempt から 1 を引いた数>
+- 手順との食い違い: <なし / 手順どおりに動かなかった箇所>
+```
+
+手順書・スキルの記述と実際の挙動が食い違ったときは（13.5）、この実行では文書を直さない。食い違った段・コマンド・期待した出力・実際の出力を「手順との食い違い」に書く。止まるときの報告（「リリース未完了」）にも、同じ項目を付ける。
+
 ## 定型コマンド A の出力（状態の照会）
 
 1 行に 1 つの事実を、` | ` で区切って出す。値の語は固定である。
@@ -343,6 +489,9 @@ main へ直接 push しない（9.7）。
 | `line` | `line \| attempt <n> \| <job 名> \| <step 名> \| status=<値> [reason=<値>] [url=<値>]` |
 
 対象の job は `publish-crates`・`github-release`、対象の step は `Auth crates.io`・`Publish <クレート>`・`Create GitHub Release` である。
+
+- `期限まで` は、3 クレートで共有するトークン（30 分 = 1800 秒）の残りである。`Auth crates.io` かその step の完了の時刻が無いと数えられず、`期限まで - 秒` と出る（段 8 の「トークンの期限切れの見分け」では期限切れと見なさない）。
+- `line` は、公開の step（`Publish <クレート>`・`Create GitHub Release`）のログの行だけを、attempt ごとに出す。
 
 ## 定型コマンドの呼び出し方
 
