@@ -210,4 +210,4 @@
 - 定型 D は release-notes.ps1 を `$PSScriptRoot` からの相対で探し、材料と見どころは作業ディレクトリから読む。5.1 のテストは一時のリポジトリをカレントにして worktree のスクリプトを呼ぶ
 - procedure.md の共有の節（定型 A・B の出力・呼び出し方）はファイルの末尾にある。段 4〜9 は段 3 とそれらの間に入れる（4.6・4.7）
 - procedure.md の初版の節はファイルの最後にあり、手順書（6）の節「後片付け（必須）」を名前で指す。6 はこの見出しをそのまま使うこと
-- settings.json の `Bash(git push origin v*)` は設計どおりだが、`*` が空白も含むため `--force` や `vX:refs/heads/main` も通りうる（レビューで Important）。deny の規則で塞ぐかは開発者の判断待ち
+- settings.json の `Bash(git push origin v*)` は `*` が空白も含むので `--force`・`--delete`・refspec の push にも合う。`permissions.ask` で確認させ、`v*:*` は外した（開発者の判断 2026-10-23）。ask の規則の末尾に `:*` を置くと前方一致の意味になるので、コロンの後ろに文字を置く

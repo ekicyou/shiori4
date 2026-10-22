@@ -87,7 +87,7 @@ gh pr merge --squash --delete-branch --subject "<subject>" --body "<body>"
 - `{remote}`（`origin` → 単一リモート → none）と `{default-branch}`（`git symbolic-ref` → `main` → `master` → 現ブランチ）は決定的に解決し、ハードコードしない
 - **CI を待たない**: PR では CI（`.github/workflows/build.yml`）が走るが、その結果は待たない。マージ前の関門は DoD の Test Gate（ローカルの `cargo test --all` と clippy、補助スクリプトを変えたときはそのテスト）である
 - **版の更新の PR**: `/release` が作る版の更新の PR（`chore(release): vX.Y.Z`）も、同じ流れ（PR・squash・CI を待たない）で統合する
-- **直接 push の禁止の例外**: リリースタグの ref の push（`git push origin vX.Y.Z`）だけである。`.claude/settings.json` の allow にあるのはリリースタグの push（`git push origin v*`）と作業ブランチの push（`git push -u origin HEAD`）だけで、main への push・強制 push・タグの付け直しの項目は無い。ただし deny の規則は無く、タグの push の glob は後ろのオプションや refspec を縛らないので、`--force` / `-f` / `v*:<ref>` を使わないことは手順で守る
+- **直接 push の禁止の例外**: リリースタグの ref の push（`git push origin vX.Y.Z`）だけである。`.claude/settings.json` の allow にあるのはリリースタグの push（`git push origin v*`）と作業ブランチの push（`git push -u origin HEAD`）だけで、main への push・強制 push・タグの付け直しの項目は無い。タグの push の glob は後ろのオプションや refspec まで合うので、強制 push（`-f`・`--force`・`+`）・削除（`-d`・`--delete`）・refspec の push（`:refs/`・`:…main…`・`:v…`）・タグの付け直し（`git tag … -f`・`-d`）は `ask` の規則で毎回確認させる（`ask` は `allow` より先に当たる）。規則は書かれたコマンドの文字列に当たるだけなので、別の形の呼び出しまでは縛らない
 - **ブランチ削除**: リモートの feature ブランチは `--delete-branch` がマージ成功**後に** API で消す。ローカルブランチ・ワークツリーの後始末はハーネスに委ねる（ローカル削除の警告は非致命）
 - **フォールバック（PR 不可）**: デフォルトブランチ上 / `{remote}` が none / `gh` 未認証のときは、警告して PR・push をスキップし、ローカルコミットを保持する
 - **中断条件**: PR の作成またはマージ（API）が失敗したら、ブランチを消さずに中断して報告する

@@ -179,7 +179,7 @@ build.yml（job release-scripts）→ release-scripts-test.ps1 → CI の補助�
 | `ci-result.ps1`（B） | 同 | step の名前（`Publish shiori4*`）。「期限まで」を auth の step の完了からの経過で出す |
 | `pretag-check.ps1`（C） | 同 | `package.json` の行を外す（5 → 4 行） |
 | `highlights-check.ps1`（D） | 同 | Claudia の出典リンクの行を外す（5 → 4 行）。`-Repo ekicyou/shiori4` |
-| `.claude/settings.json` | 同（新規） | `vsce` の文言を外す。`git merge --no-edit origin/main` の許可を足す |
+| `.claude/settings.json` | 同（新規） | `vsce` の文言を外す。`git merge --no-edit origin/main`・`git tag -a`・`gh pr view` の許可を足す。`v*:*` を外し、強制 push・削除・refspec の push・タグの付け直しを `ask` にする |
 
 ### 設計判断（research.md の「設計で決めること」への答え）
 
@@ -733,7 +733,8 @@ param(
 | Intent | リリーススキルが使う操作を許可し、取り返しのつかない操作を許可しない |
 | Requirements | 16.6 |
 
-- `permissions.allow`: `mcp__github__merge_pull_request`、`Bash(git fetch:*)`、`Bash(git merge --no-edit origin/main)`、`Bash(git merge origin/main:*)`、`Bash(git merge --abort)`、`Bash(git push -u origin HEAD)`、`Bash(git push origin v*)`、`Bash(git push origin v*:*)`、`Bash(gh pr create:*)`、`Bash(gh pr merge:*)`、`Bash(gh run list:*)`、`Bash(gh run view:*)`、`Bash(gh run rerun:*)`
+- `permissions.allow`: `mcp__github__merge_pull_request`、`Bash(git fetch:*)`、`Bash(git merge --no-edit origin/main)`、`Bash(git merge origin/main:*)`、`Bash(git merge --abort)`、`Bash(git push -u origin HEAD)`、`Bash(git tag -a:*)`、`Bash(git push origin v*)`、`Bash(gh pr create:*)`、`Bash(gh pr merge:*)`、`Bash(gh pr view:*)`、`Bash(gh run list:*)`、`Bash(gh run view:*)`、`Bash(gh run rerun:*)`（`git tag -a`・`gh pr view` は `procedure.md` の段 5・6 が使う。pasta の `v*:*` は手順が使わず、refspec の push まで許すので持たない）
+- `permissions.ask`: `Bash(git push *-f*)`、`Bash(git push *+*)`、`Bash(git push *-d*)`、`Bash(git push *:refs/*)`、`Bash(git push *:*main*)`、`Bash(git push *:v*)`、`Bash(git tag *-f*)`、`Bash(git tag *-d*)`。`*` は空白も含めて何にでも合い、`git push origin v*` は `--force`・`--delete`・`v1:refs/heads/main` にも合うので、これらを `ask` で毎回確認させる（評価は deny → ask → allow の順）。末尾の `:*` は前方一致の書き方と同じ意味になるので、コロンの後ろに文字を置いて書く。段 8 のタグの付け直しは承認の後にこの確認を通る
 - `autoMode.allow`: `$defaults`、リリーススキルの説明 1 文（PR の作成と squash、タグの push、CI の閲覧と失敗した job の再実行。手元からの `cargo publish`・`gh release create` は行わない）、`kiro-complete` の squash の説明 1 文（pasta と同じ）
 - 入れないもの: `git tag -f`・`git push -f`・`git push --force`・`cargo publish`・`gh release create`・`gh release delete`・`cargo yank`・main への push
 - pasta からの差: `procedure.md` が実行する `git merge --no-edit origin/main` は pasta の `git merge origin/main:*` に前方一致しないので、その規則を足す
@@ -748,7 +749,7 @@ param(
 - `workflow.md` 前提: 完成の形 — 「公開の仕組みができるまでは」の段落を、タグ push で CI が公開し、開発者は `/release` で版の更新から見届けまでを行う形に書き換える。spec の完成の判定（テストと clippy）は変えない（16.1）
 - `workflow.md` DoD の Test Gate — 「リリースの補助スクリプト（`.github/scripts/release/`・`.claude/skills/release/scripts/`）を変えたときは、`pwsh -NoProfile -File .github/scripts/release/release-scripts-test.ps1` が通ること」を足す（16.3、確定事項 6）
 - `workflow.md` スキルドキュメント更新検討 — 「ドメイン固有のスキルを足したら表を足す」の指示に従い、「リリースの仕組みの変更 → `.claude/skills/release/`」の 1 行の表を足す
-- `workflow.md` リモート同期 — 版の更新の PR も同じ流れ（PR・squash・CI を待たない）で統合すること、直接 push の禁止の例外はリリースタグの ref の push（`git push origin vX.Y.Z`）だけであること、`settings.json` はタグ push を許可し main への push を許可しないこと（16.2）
+- `workflow.md` リモート同期 — 版の更新の PR も同じ流れ（PR・squash・CI を待たない）で統合すること、直接 push の禁止の例外はリリースタグの ref の push（`git push origin vX.Y.Z`）だけであること、`settings.json` はタグ push を許可し、main への push・強制 push・削除・refspec の push・タグの付け直しは `ask` で確認させること（16.2）
 - `workflow.md` ドキュメント保守の表 — 「リリースの仕組みの変更（release.yml・補助スクリプト・公開対象のクレート・版の置き場所・見どころの約束）」→ `.claude/skills/release/`（SKILL.md・procedure.md・scripts）・`.github/release-ci-setup.md`・`doc/release-notes/README.md`。CLAUDE.md は変えない（16.4）
 - `tech.md` 公開とバージョン — リリース CI の段（verify → gate → publish-crates → github-release → report）、公開の順、Trusted Publishing（environment `release`・1 回の auth）、手元から公開しない（初回の手動公開と緊急時を除く）（16.5）
 - `tech.md` CI — build.yml の job に `release-scripts` を足し、release.yml の 1 段落を足す（16.5）

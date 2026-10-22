@@ -9,13 +9,22 @@
       "Bash(git push -u origin HEAD)",
       "Bash(git tag -a:*)",
       "Bash(git push origin v*)",
-      "Bash(git push origin v*:*)",
       "Bash(gh pr create:*)",
       "Bash(gh pr merge:*)",
       "Bash(gh pr view:*)",
       "Bash(gh run list:*)",
       "Bash(gh run view:*)",
       "Bash(gh run rerun:*)"
+    ],
+    "ask": [
+      "Bash(git push *-f*)",
+      "Bash(git push *+*)",
+      "Bash(git push *-d*)",
+      "Bash(git push *:refs/*)",
+      "Bash(git push *:*main*)",
+      "Bash(git push *:v*)",
+      "Bash(git tag *-f*)",
+      "Bash(git tag *-d*)"
     ]
   },
   "autoMode": {
