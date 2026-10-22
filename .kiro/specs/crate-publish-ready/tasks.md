@@ -16,7 +16,7 @@
   - _Requirements: 1.2, 1.3, 2.2, 2.3, 2.8, 7.3_
 
 - [ ] 2. パッケージに入る LICENSE と README を用意する
-- [ ] 2.1 (P) 各クレートにルートの LICENSE の写しを置く
+- [x] 2.1 (P) 各クレートにルートの LICENSE の写しを置く
   - ルートの LICENSE を 3 クレートのディレクトリへバイト単位で写す。ルートの本文は変えない
   - 完了時: 3 つの写しがルートの LICENSE と `cmp` で一致する
   - _Boundary: LicenseCopies_
