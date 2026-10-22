@@ -160,7 +160,7 @@
   - _Depends: 2.1_
   - _Requirements: 14.1, 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8, 15.9, 3.6, 3.7_
 
-- [ ] 7. 操作の許可と steering
+- [x] 7. 操作の許可と steering
 - [x] 7.1 (P) エージェントの操作の許可を作る
   - リリーススキルが使う操作（取り込み・作業ブランチの push・PR の作成と統合・タグの push・CI の閲覧と失敗した job の再実行）と、auto mode の説明 2 文を入れる
   - タグの付け直し・強制 push・手元からの公開・Release の作成と削除・yank・main への push を入れない
@@ -174,7 +174,7 @@
   - _Boundary: workflow.md_
   - _Requirements: 16.1, 16.2, 16.3, 16.4_
 
-- [ ] 7.3 (P) tech.md を公開の運用に合わせる
+- [x] 7.3 (P) tech.md を公開の運用に合わせる
   - 公開とバージョンの節にリリース CI の段・公開の順・認証の方式・手元から公開しないことを、CI の節に release.yml と補助スクリプトのテストの job を書く
   - 完了の状態: tech.md の該当の節が release.yml・build.yml の実際の job 名と一致する
   - _Boundary: tech.md_
