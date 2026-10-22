@@ -1,0 +1,169 @@
+# .github/workflows/release.yml
+# リリース CI（release-workflow）。リリースタグ vX.Y.Z の push だけで起動し、
+# verify（タグと版の検査）→ gate（build.yml の全検査）→ publish-crates（crates.io への公開）の順に進める。
+# 上流の job が失敗したら後続は needs の既定で止まり、どの公開先にも公開しない。
+name: Release
+
+on:
+  push:
+    # 数字 3 つの形だけ（v0.3・v1.0.0-rc.1・test-1 は合わない）。verify-tag.ps1 でも同じ形を二重に検査する。
+    # tags だけを指定しているので、ブランチへの push では起動しない。PR などの他のトリガーは持たない。
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+# 同じタグの実行は直列にし、実行中のものを取り消さない。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+    steps:
+      # タグの push なので、チェックアウトされるのはタグのコミット。verify-tag.ps1 は作業ツリーの版と見どころを読む。
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch main
+        run: git fetch origin main
+
+      # タグ名・SHA は既定の環境変数 GITHUB_REF_NAME・GITHUB_SHA（github.ref_name・github.sha と同じ値）で渡す。
+      # タグの版の見どころのファイル（doc/release-notes/vX.Y.Z.md）が在り空でないことも、同じスクリプトで検査する。
+      - name: Verify tag, versions and highlights
+        id: verify
+        run: ./.github/scripts/release/verify-tag.ps1 -Tag $env:GITHUB_REF_NAME -Sha $env:GITHUB_SHA -MainRef origin/main
+
+  # 関門: タグのコミットで build.yml の検査をすべて行う（reusable workflow なので steps・runs-on を持てない）。
+  gate:
+    needs: verify
+    uses: ./.github/workflows/build.yml
+
+  # crates.io への公開（3 クレートを依存順に 1 つずつ）。
+  # 認証は Trusted Publishing（OIDC → 30 分のトークン）。トークンは job の先頭の auth step で 1 回だけ取り、
+  # 3 つの publish step に環境変数 CARGO_REGISTRY_TOKEN で渡す（トークンは設定が一致するすべてのクレートに効く）。
+  # 30 分を超えて失敗したら「失敗した job の再実行」で新しいトークンを取り直して続く（公開済みのクレートは飛ばされる）。
+  # クレートごとの所要時間は publish-crate.ps1 が summary の各行に書く（トークン期限の判断材料）。
+  # step が失敗すると後続のクレートは既定どおり走らない。末尾の集約 step だけは常に動き、
+  # クレートごとの status・reason を summary と job outputs（<crate>_status・<crate>_reason）に書く。
+  # 集約 step は成功で終わるが、失敗した step があるので job 自体は失敗のまま（再実行の対象になる）。
+  publish-crates:
+    name: publish-crates
+    needs: [verify, gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    outputs:
+      shiori4_abi_status: ${{ steps.result.outputs.shiori4_abi_status }}
+      shiori4_abi_reason: ${{ steps.result.outputs.shiori4_abi_reason }}
+      shiori4_status: ${{ steps.result.outputs.shiori4_status }}
+      shiori4_reason: ${{ steps.result.outputs.shiori4_reason }}
+      shiori4_host_status: ${{ steps.result.outputs.shiori4_host_status }}
+      shiori4_host_reason: ${{ steps.result.outputs.shiori4_host_reason }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # cargo publish の検証ビルド（ホストのターゲット）に使う。
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: publish
+
+      - name: Auth crates.io
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish shiori4_abi
+        id: pub_abi
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: ./.github/scripts/release/publish-crate.ps1 -Crate shiori4_abi -Version $env:VERSION
+
+      - name: Publish shiori4
+        id: pub_shiori4
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: ./.github/scripts/release/publish-crate.ps1 -Crate shiori4 -Version $env:VERSION -DependsOn shiori4_abi
+
+      - name: Publish shiori4_host
+        id: pub_host
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: ./.github/scripts/release/publish-crate.ps1 -Crate shiori4_host -Version $env:VERSION -DependsOn shiori4
+
+      # status 契約: クレートを公開の順に見て、最初に当てはまる規則を使う。
+      # (1) publish step が status を書いた → その値 (2) publish step が値を書かずに failure・cancelled → failed/publish
+      # (3) publish step が走らず auth step が failure で、前のクレートに failed が無い → failed/auth (4) それ以外 → not-run
+      - name: Summarize crates.io results
+        id: result
+        if: always()
+        env:
+          AUTH_OUTCOME: ${{ steps.auth.outcome }}
+          SHIORI4_ABI_OUTCOME: ${{ steps.pub_abi.outcome }}
+          SHIORI4_ABI_STATUS: ${{ steps.pub_abi.outputs.status }}
+          SHIORI4_ABI_REASON: ${{ steps.pub_abi.outputs.reason }}
+          SHIORI4_OUTCOME: ${{ steps.pub_shiori4.outcome }}
+          SHIORI4_STATUS: ${{ steps.pub_shiori4.outputs.status }}
+          SHIORI4_REASON: ${{ steps.pub_shiori4.outputs.reason }}
+          SHIORI4_HOST_OUTCOME: ${{ steps.pub_host.outcome }}
+          SHIORI4_HOST_STATUS: ${{ steps.pub_host.outputs.status }}
+          SHIORI4_HOST_REASON: ${{ steps.pub_host.outputs.reason }}
+        run: |
+          $setup = '手順書 `.github/release-ci-setup.md`'
+          $next = @{
+            auth             = "Trusted Publisher の設定を${setup}の「名前の対応表」と照合する"
+            'not-registered' = "${setup}の「新しいクレートの初回公開」に従う"
+            transient        = '失敗した job を再実行する'
+            publish          = 'ログを読む'
+          }
+          $prevFailed = $false
+          $first = $true
+          $rows = foreach ($crate in 'shiori4_abi', 'shiori4', 'shiori4_host') {
+            $key = $crate.ToUpperInvariant()
+            $status = [Environment]::GetEnvironmentVariable("${key}_STATUS")
+            $reason = [Environment]::GetEnvironmentVariable("${key}_REASON")
+            $outcome = [Environment]::GetEnvironmentVariable("${key}_OUTCOME")
+            if (-not $status) {
+              if ($outcome -in 'failure', 'cancelled') { $status, $reason = 'failed', 'publish' }
+              elseif ($outcome -eq 'skipped' -and $env:AUTH_OUTCOME -eq 'failure' -and -not $prevFailed) { $status, $reason = 'failed', 'auth' }
+              else { $status, $reason = 'not-run', '' }
+            }
+            if ($status -ne 'failed') { $reason = '' } else { $prevFailed = $true }
+            "${crate}_status=$status", "${crate}_reason=$reason" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+            $hint = if ($status -eq 'not-run') { '前の step の失敗で行わなかった' }
+                    elseif ($reason -eq 'auth' -and -not $first) { "$($next.auth)（2 つ目以降のクレートだけなら${setup}の「2 つ目以降のクレートの認証だけが失敗したとき」）" }
+                    elseif ($reason) { $next[$reason] }
+                    else { '' }
+            $first = $false
+            "| ``$crate`` | $status | $reason | $hint |"
+          }
+          @(
+            "## crates.io の公開結果（$env:VERSION）"
+            ''
+            '| クレート | status | reason | 次の手 |'
+            '|----------|--------|--------|--------|'
+            $rows
+            ''
+          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8

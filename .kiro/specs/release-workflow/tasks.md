@@ -35,7 +35,7 @@
   - _Requirements: 4.6, 4.7, 4.8_
 
 - [ ] 2. リリース CI のワークフロー
-- [ ] 2.1 タグの検査・関門・crates.io への公開の job を組む
+- [x] 2.1 タグの検査・関門・crates.io への公開の job を組む
   - リリースタグの形の push だけで起動し、同じタグの実行を取り消さずに直列にする。トップの権限は読み取りだけ
   - verify の job がタグの検査スクリプトを呼んで版を出し、gate の job が PR の CI（build.yml）をそのまま呼ぶ
   - publish-crates の job は environment `release` と id-token の権限だけを持ち、認証を先頭で 1 回取って、3 クレートを依存の順に公開スクリプトへ渡す。失敗したら後のクレートは走らない
