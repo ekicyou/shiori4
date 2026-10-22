@@ -362,7 +362,7 @@ allow-git = []
 
 #### SteeringDocs（`.kiro/steering/tech.md`・`structure.md`・`workflow.md`）
 - `tech.md`（8.1–8.3）:
-  - Core Technologies か新しい節「公開とバージョン」に、版の置き場所の契約（3 か所＋導出される lock）、共通メタデータ、ライセンスは MIT だけ、を書く
+  - Core Technologies か新しい節「公開とバージョン」に、版の置き場所の契約（3 か所。lock はコミットしないので含まない）、共通メタデータ、ライセンスは MIT だけ、を書く
   - 新しい節「CI」に、build.yml の 3 ジョブ（3 OS の test・clippy、cargo-deny、パッケージ化＋中身の検査）と `workflow_call` による呼び出しを書く
   - Key Technical Decisions の「`Cargo.lock` はコミットしない」は保ち、理由（ライブラリの lock は利用者のビルドで使われない。CI は利用者と同じく最新の依存で検査する。公開に `--locked` は使わない）を添える
   - Common Commands に `cargo clippy --all-targets --workspace -- -D warnings` と `cargo package --workspace` を書く（単独の `-p` は初回公開まで使えない旨を添える）
