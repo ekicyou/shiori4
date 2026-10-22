@@ -57,7 +57,7 @@
   - _Depends: 1.2, 3.2_
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
 
-- [ ] 5. 公開の直前まで通ることを手元で確かめる
+- [x] 5. 公開の直前まで通ることを手元で確かめる
 - [x] 5.1 パッケージ化・中身・版の食い違いの検出を手元で確かめる
   - 変更をコミットしてから（未コミットの変更があると `cargo package` が断る）、`cargo package --workspace` を流す
   - `cargo package --list -p <crate>` と、解凍した `.crate` のマニフェストを確かめる
@@ -67,7 +67,7 @@
   - _Depends: 1.2, 2.1, 2.2, 3.2_
   - _Requirements: 1.1, 1.2, 1.4, 1.6, 2.1, 2.2, 2.5, 2.6, 2.7, 2.8, 3.1, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
 
-- [ ] 5.2 回帰と変えないものを確かめる
+- [x] 5.2 回帰と変えないものを確かめる
   - Test Gate の 2 コマンドを流し、`cargo deny check` も念のため再実行して（許可の設定そのものの確認はタスク 3.1）、Rust のソースと C ヘッダに差分が無いことを `git diff main --stat` で確かめる
   - ワークフローの定義を読み、入力なしの呼び出しトリガがあること・トリガで分岐する条件が無いこと・権限が読み取りだけ・`pull_request_target` を使わないことを確かめる
   - 完了時: `cargo test --all`・`cargo clippy --all-targets --workspace -- -D warnings`・`cargo deny check` が通り、`src/` と `include/` の差分が 0 で、外部依存は libloading だけのまま。3 OS の実際の CI 実行は最初の PR で確かめる残りとして報告する
