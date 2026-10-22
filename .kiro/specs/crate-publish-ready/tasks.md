@@ -1,7 +1,7 @@
 # Implementation Plan
 
 - [ ] 1. 版とメタデータをワークスペースに一本化する
-- [ ] 1.1 ワークスペースに版・共通メタデータ・内部依存の置き場所を作る
+- [x] 1.1 ワークスペースに版・共通メタデータ・内部依存の置き場所を作る
   - ワークスペースの版を初版 0.0.1 とし、edition 2024・rust-version 1.85 は今の値のまま共通メタデータに置く
   - 作者・MIT だけのライセンス・リポジトリとホームページ（GitHub の URL）・keywords（shiori・ghost・ukagaka）を共通メタデータに置き、documentation・categories・license-file は書かない
   - 内部依存 2 つ（`shiori4_abi`・`shiori4`）を、手元のソースの場所と版要求 0.0.1 の両方を持つ形でワークスペースの依存に置く。外部依存 libloading はここに移さない
