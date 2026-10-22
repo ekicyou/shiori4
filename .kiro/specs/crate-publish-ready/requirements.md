@@ -51,7 +51,8 @@ shiori4 ワークスペースの 3 クレート（`shiori4_abi`・`shiori4`・`s
 
 #### Acceptance Criteria
 1. The 各クレート shall ライセンスの表明を `MIT` だけとし、`Apache-2.0` を含めない
-2. The 各クレート shall リポジトリとホームページ（どちらも `https://github.com/ekicyou/shiori4`）と作者（`Dot-Station Master <dot.station@gmail.com>`、pasta と同じ）を、ワークスペースの共通メタデータから受け継いで表明する3. The 各クレート shall 現在の `description`（クレートの役割の 1 文）を保つ
+2. The 各クレート shall リポジトリとホームページ（どちらも `https://github.com/ekicyou/shiori4`）と作者（`Dot-Station Master <dot.station@gmail.com>`、pasta と同じ）を、ワークスペースの共通メタデータから受け継いで表明する
+3. The 各クレート shall 現在の `description`（クレートの役割の 1 文）を保つ
 4. The shiori4 ワークスペース shall edition 2024・`rust-version = "1.85"` を変えない
 5. When 開発者が各クレートをパッケージ化する, the パッケージ化 shall メタデータの欠落（documentation・homepage・repository など）に関する警告を出さない
 6. The 各クレートのパッケージ shall MIT の著作権表示と許諾文（ルートの LICENSE と同じ本文）を含む。ルートの LICENSE の本文は変えない
