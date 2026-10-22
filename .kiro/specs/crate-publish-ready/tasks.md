@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. 版とメタデータをワークスペースに一本化する
+- [x] 1. 版とメタデータをワークスペースに一本化する
 - [x] 1.1 ワークスペースに版・共通メタデータ・内部依存の置き場所を作る
   - ワークスペースの版を初版 0.0.1 とし、edition 2024・rust-version 1.85 は今の値のまま共通メタデータに置く
   - 作者・MIT だけのライセンス・リポジトリとホームページ（GitHub の URL）・keywords（shiori・ghost・ukagaka）を共通メタデータに置き、documentation・categories・license-file は書かない
@@ -8,7 +8,7 @@
   - 完了時: ルートのマニフェストに design.md の WorkspaceManifest の契約どおりの値があり、この時点でも `cargo build` が通る
   - _Requirements: 1.1, 1.3, 1.4, 1.5, 2.1, 2.2, 2.4, 2.7, 2.8_
 
-- [ ] 1.2 3 クレートのマニフェストをワークスペースの値の受け継ぎに切り替える
+- [x] 1.2 3 クレートのマニフェストをワークスペースの値の受け継ぎに切り替える
   - 各クレートは名前と今の description だけを自前で持ち、版・edition・rust-version・作者・ライセンス・リポジトリ・ホームページ・keywords を受け継ぐ
   - `shiori4` は `shiori4_abi` を、`shiori4_host` は `shiori4` をワークスペースの内部依存から受け継ぐ。`shiori4_host` の libloading 0.8 はそのまま残す
   - readme・include・exclude は書かない

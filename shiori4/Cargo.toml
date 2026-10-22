@@ -1,10 +1,14 @@
 [package]
 name = "shiori4"
-version = "0.1.0"
 description = "High-level SHIORI framework on top of shiori4_abi (v3/v4 adaptation, headers, properties)"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+authors.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
 
 [dependencies]
-shiori4_abi = { path = "../shiori4_abi" }
+shiori4_abi.workspace = true
