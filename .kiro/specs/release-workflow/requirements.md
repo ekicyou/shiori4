@@ -17,14 +17,14 @@
 
 あわせて、リリースノートの見どころの約束と、steering（`workflow.md`・`tech.md`）・エージェントの操作の許可を、公開の運用に合わせる。
 
-要件のうち brief で確定できず、仮定で書いた箇所には **【仮定】** を付け、末尾の「未決事項」に要件ディスカッションへの申し送りとしてまとめる。
+brief で確定できなかった点は要件ディスカッションで確定し、末尾の「確定事項」にまとめる。
 
 用語:
 
 - **リリースタグ**: `v` の後に `X.Y.Z`（ASCII 数字 3 つ。プレリリースの形を含まない）が続くタグ。例: `v0.0.1`。
 - **ワークスペースの版**: ルート `Cargo.toml` の `[workspace.package] version` の値。内部依存の版要求 2 か所（`[workspace.dependencies]` の `shiori4_abi`・`shiori4`）も同じ値にそろっている（crate-publish-ready の契約）。
 - **公開先**: crates.io の 3 クレート（`shiori4_abi`・`shiori4`・`shiori4_host`）と GitHub Release の 4 つ。
-- **公開済み**: その版が公開先に実際に存在する状態。GitHub Release は、下書きでなく公開されていて、必要な添付がそろっている状態だけを公開済みとする。
+- **公開済み**: その版が公開先に実際に存在する状態。GitHub Release は、下書きでなく公開されている状態だけを公開済みとする。
 - **公開先ごとの結果**: `published`（今回公開した）・`skipped`（公開済みのため飛ばした）・`failed`（失敗した。理由 `reason` を伴う）・`not-run`（前の段の失敗で行わなかった）のいずれか。
 - **見どころのファイル**: `doc/release-notes/vX.Y.Z.md`。その版の GitHub Release の本文の先頭に置く文章。
 - **版の更新**: ワークスペースの版の表記 3 か所を新しい版にそろえ、見どころのファイルを加える変更。
@@ -105,11 +105,10 @@
 2. If 3 クレートのいずれかが `published` でも `skipped` でもないとき, the Release CI shall GitHub Release を作らない。
 3. The Release CI shall GitHub Release の本文の先頭に見どころのファイルの中身を置き、末尾の空白と改行の形のほかは書き換えない。
 4. The Release CI shall 1 つ前のリリースタグ（無ければ履歴の先頭）からリリースタグまでの変更を種類ごとに分類した詳しいリリースノートを作り、内部の作業（Requirement 6.5）を載せない。
-5. 【仮定】The Release CI shall 詳しいリリースノートを GitHub Release の添付（`release-notes-vX.Y.Z.md`）とし、本文の末尾にその添付へのリンクと載せた変更の件数を足す（pasta と同じ形。添付はこの 1 つだけ）。
-6. When 同じタグの GitHub Release がすでに公開済みで添付がそろっているとき, the Release CI shall 作り直さずに `skipped` とする。
-7. When 同じタグの GitHub Release が下書きのまま、または添付が足りないまま残っているとき, the Release CI shall 足りないものだけを補って公開する。公開済みの Release の添付を削除・上書きしない。
-8. If 公開済みの Release が変更できない設定で、添付が足りないとき, the Release CI shall `failed`（`reason`: 変更不可）とし、手で添付する内容を案内する。
-9. The Release CI shall 書き込みの権限を GitHub Release を作る段にだけ与え、リリースタグを作ったり動かしたりしない。
+5. The Release CI shall 詳しいリリースノートを GitHub Release の本文の見どころの後に直接置き、添付を持たない。
+6. When 同じタグの GitHub Release がすでに公開済みのとき, the Release CI shall 作り直さずに `skipped` とする。
+7. When 同じタグの GitHub Release が下書きのまま残っているとき, the Release CI shall その下書きを公開する。公開済みの Release を削除・上書きしない。
+8. The Release CI shall 書き込みの権限を GitHub Release を作る段にだけ与え、リリースタグを作ったり動かしたりしない。
 
 ### Requirement 5: 結果の報告
 
@@ -120,7 +119,7 @@
 1. When 実行が終わるとき（どの段で止まっても）, the Release CI shall 4 つの公開先（3 クレートと GitHub Release）の結果と `reason`、GitHub Release の URL（無ければ「なし」）を 1 枚の表にまとめて実行の summary に書く。
 2. If 公開より前の段（タグの検査・関門）で止まったとき, the Release CI shall 止まった段と「どの公開先にも公開していない」ことを表に添える。
 3. If 公開先の結果が書かれていないとき, the Release CI shall その段が走らなかった場合だけ `not-run` とし、それ以外は推測せず、その段の summary を参照するよう書く。
-4. The Release CI shall 失敗の理由ごとに次の手（認証 → 手順書の照合、未登録 → 初回の手動公開、一時的な失敗 → 失敗した job の再実行、公開の失敗 → ログを読む、変更不可 → 手で添付）を示す。
+4. The Release CI shall 失敗の理由ごとに次の手（認証 → 手順書の照合、未登録 → 初回の手動公開、一時的な失敗 → 失敗した job の再実行、公開の失敗 → ログを読む）を示す。
 
 ### Requirement 6: 見どころとリリースノートの約束
 
@@ -132,7 +131,7 @@
 2. The Release Notes Convention shall 見どころの書き方（日本語の Markdown、見どころの件数の目安、見どころごとの見出しと元の PR の番号、動きが変わる点をすべて載せること、spec 名やコミットの接頭辞を書かないこと）を定める。
 3. The Release Notes Convention shall 見どころのファイルに版・件数・詳しいリリースノートへのリンクを書かない（リリース CI が足す）ことを定める。
 4. The Release Notes Convention shall 語り手の口調の決まりを持たない（pasta の口調の検査は移植しない）。
-5. 【仮定】The Release Notes Convention shall 詳しいリリースノートに載せない内部の作業を、コミットの件名の種類とスコープで定める（種類 `spec`、スコープ `spec`・`discovery`・`roadmap`・`steering`・`skills`・`cc-sdd`・`release-workflow`・`kiro` または `kiro-` で始まるもの、`chore(release)`）。決まりを変えるときは、リリース CI の分類と同時に直す。
+5. The Release Notes Convention shall 詳しいリリースノートに載せない内部の作業を、コミットの件名の種類とスコープで定める（種類 `spec`、スコープ `spec`・`discovery`・`roadmap`・`steering`・`skills`・`cc-sdd`・`release-workflow`・`kiro` または `kiro-` で始まるもの、`chore(release)`）。spec 名をスコープにしたコミットは、`release-workflow` のほかは載せる。決まりを変えるときは、リリース CI の分類と同時に直す。
 6. The Release Notes Convention shall タグを打つ前に、見どころの材料（1 つ前のリリースタグから main の先頭までの変更の一覧）を手元で出す方法と、見どころのファイルを確かめる方法を示す。
 7. Where 1 つ前のリリースタグが無い初版のとき, the Release Notes Convention shall 材料を履歴の先頭からの変更とすることを示す。
 
@@ -148,7 +147,7 @@
 4. If 作業ブランチに未コミットの変更、または main に無い内容があるとき, the Release Skill shall それらをリリースに含めず、内容を示して止まる。ただし、main に無い内容が版の更新のコミットだけである場合（Requirement 12.5）を除く。
 5. When 作業ブランチが main より遅れているとき, the Release Skill shall 版の更新より前に、main を履歴を書き換えずに取り込む。
 6. If main の取り込みで衝突が起きたとき, the Release Skill shall 取り込みを中止して止まり、衝突したファイルを示す。
-7. The Release Skill shall 手元でのビルド・テスト・公開（crates.io への公開・GitHub Release の作成と添付）を行わず、公開済みのものの取り消し（yank・Release の削除）を行わない。公開前の検査はリリース CI に任せる。
+7. The Release Skill shall 手元でのビルド・テスト・公開（crates.io への公開・GitHub Release の作成）を行わず、公開済みのものの取り消し（yank・Release の削除）を行わない。公開前の検査はリリース CI に任せる。
 8. The Release Skill shall 進み具合をファイルに書かず、版の更新のほかにコミットを作らない。
 
 ### Requirement 8: 版の決定
@@ -209,7 +208,6 @@
 9. If 再実行では直らない失敗があり、いずれかの公開先にその版がすでにあるとき, the Release Skill shall タグを付け直さず、公開済みと未公開の公開先を示し、版を上げて出し直す必要があることを報告する。
 10. If 原因が特定できない公開の失敗のとき, the Release Skill shall 失敗した job を 1 度だけ再実行して切り分け、なお失敗すれば Requirement 11.7 か 11.9 に従う。
 11. If 実行が取り消されていたとき, the Release Skill shall 再実行せず、取り消されていることを示して止まる。
-12. If GitHub Release が変更不可で添付が足りないとき, the Release Skill shall 自分では添付せず、手で添付する内容を開発者に案内して止まる。
 
 ### Requirement 12: 途中からの再開
 
@@ -247,7 +245,7 @@
 2. When main のワークスペースの版の 3 クレートが crates.io に公開済みで、その版のリリースタグと GitHub Release がどちらも無く、その版の見どころのファイルが main にあるとき, the Release Skill shall 初版の状態と判定し、版の決定と版の更新を飛ばして、リリースタグの作成（Requirement 10）から続ける。
 3. The repository shall 初版の見どころのファイル `doc/release-notes/v0.0.1.md` を本仕様の実装の変更に含めて main に入れる。初版の `/release` は見どころのファイルを書かず、見どころだけのコミットも作らない。
 4. When 初版のリリースタグで実行が終わったとき, the Release Skill shall 3 クレートが `skipped`、GitHub Release が `published` であれば完了と判定する。
-5. 【仮定】When 初版の実行が完了したとき, the Release Skill shall 3 クレートの認証が CI から得られたこと（公開そのものは次の版で初めて CI から行われること）を報告に含め、手順書の初回の後片付け（Requirement 15.5）を開発者に案内する。自分では行わない。
+5. When 初版の実行が完了したとき, the Release Skill shall 3 クレートの認証が CI から得られたこと（公開そのものは次の版で初めて CI から行われること）を報告に含め、手順書の初回の後片付け（Requirement 15.5）を開発者に案内する。自分では行わない。
 6. The Release Skill shall 初版の判定と経路を、ほかの判定・経路に触れずに取り除けるように 1 か所にまとめ、初版のためだけのものであることを明記する（撤去は後続の spec `release-bootstrap-cleanup` が行う）。
 
 ### Requirement 15: 一度だけの準備の手順書
@@ -257,7 +255,7 @@
 #### Acceptance Criteria
 
 1. The Setup Guide shall 節の順が実施の順になるように、準備の全体の流れを先頭に示す。
-2. The Setup Guide shall GitHub の公開専用の environment（`release`）を作り、実行できる ref をリリースタグに限る手順を定める。
+2. The Setup Guide shall GitHub の公開専用の environment（`release`）を作り、実行できる ref をリリースタグに限る手順を必須として定める。main のブランチ保護（PR 必須）は推奨として示し、タグの作成を制限するルールセットは求めない。
 3. The Setup Guide shall 3 クレートそれぞれに crates.io の Trusted Publisher（リポジトリ・ワークフローのファイル名 `release.yml`・environment `release`）を登録する手順を、初回の手動公開の後に行う順で定める。
 4. The Setup Guide shall 設定に入れる名前（リポジトリ・ワークフローのファイル名・environment・クレート名と公開の順）を 1 枚の対応表にまとめ、リリース CI の認証の失敗の案内がその表を指す。
 5. The Setup Guide shall 初版の確認の後に必ず行う後片付けとして、3 クレートの「Trusted Publishing のみ」の有効化と、手動公開に使った API トークンの失効・手元からの削除を定める。
@@ -274,19 +272,19 @@
 
 1. The Steering shall `workflow.md` の「前提: 完成の形」を、公開の仕組みができた形（タグ push で CI が公開し、開発者は `/release` で版の更新から見届けまでを行う）に改める。
 2. The Steering shall `workflow.md` のリモート同期の節に、版の更新の PR も同じ流れ（PR・squash・CI を待たない）で統合することと、直接 push の禁止の例外がリリースタグの push だけであることを書く。
-3. 【仮定】The Steering shall `workflow.md` の DoD に、リリースの補助スクリプトを変えたときは補助スクリプトのテストが通ることを加える。
-4. The Steering shall `workflow.md` のドキュメント保守の表に、リリースの仕組み（release.yml・補助スクリプト・公開対象のクレート・版の置き場所・見どころの約束）を変えたときに合わせて直す文書（リリーススキル・手順書・見どころの約束）を加える。
+3. The Steering shall `workflow.md` の DoD の Test Gate に、リリースの補助スクリプトを変えたときは手元で補助スクリプトのテストが通ることを加える。
+4. The Steering shall `workflow.md` のドキュメント保守の表に、リリースの仕組み（release.yml・補助スクリプト・公開対象のクレート・版の置き場所・見どころの約束）を変えたときに合わせて直す文書（リリーススキル・手順書・見どころの約束）を加える。CLAUDE.md は Kiro のワークフローの説明なので変えない。
 5. The Steering shall `tech.md` の公開とバージョン・CI の節に、リリース CI の段の流れ・公開の順・認証の方式・手元から公開しないことを書く。
 6. The repository shall エージェントの操作の許可（`.claude/settings.json`）に、リリーススキルが使う操作（作業ブランチの push・PR の作成と統合・リリースタグの push・リリース CI の閲覧と失敗した job の再実行・main の取り込み）を入れ、手元からの公開・タグの付け直し・強制 push を入れない。
 7. The repository shall 本仕様の変更の後も、`cargo test --all` と clippy、および PR の CI が通る状態を保つ。
 
-## 未決事項（要件ディスカッションへの申し送り）
+## 確定事項（要件ディスカッションの結果）
 
-1. **（確定）初版 0.0.1 の扱い**（14.2・14.4・14.6）: `/release` に「初版の状態」の判定を足し、版の決定と更新を飛ばしてタグの作成から続ける。初版の経路は 1 か所にまとめ、0.0.1 の完了後に後続の spec `release-bootstrap-cleanup` が撤去する。
-2. **（確定）`v0.0.1.md` を誰がいつ書くか**（14.3）: 本仕様の実装の PR に含める。見どころだけのコミットの経路は持たない。
-3. **「Trusted Publishing のみ」の有効化の時期**（14.5・15.5）: 初版の CI の実行では 3 クレートとも `skipped` になり、CI からの公開そのものは 0.0.2 まで確かめられない。【仮定】初版の実行で認証が通ったことを確かめた後に有効化し、トークンを失効させる（CI からの公開は次の版で初めて確かめる）。代案: 0.0.2 を CI で公開できたことを確かめてから有効化する（それまでトークンを手元に残す）。
-4. **GitHub Release の添付**（4.5）: 配布物が無いので、添付は詳しいリリースノートの 1 つだけになる。【仮定】pasta と同じく詳しいリリースノートを添付し、本文にはリンクと件数だけを足す。代案: 添付を持たず、詳しいリリースノートを本文の見どころの後に直接置く（「添付がそろう」の判定が要らなくなる）。
-5. **内部の作業のスコープ**（6.5）: 【仮定】pasta の一覧に、このリポジトリで使われているスコープ `kiro`（例 `chore(kiro): …`）を足したもの。spec 名をスコープにしたコミット（例 `feat(crate-publish-ready): …`）は載せる（利用者に見える変更のため）。
-6. **DoD への補助スクリプトのテストの追加**（16.3）: 【仮定】補助スクリプトを変えたときだけ、手元で補助スクリプトのテスト（pwsh）を通すことを DoD の Test Gate に加える。代案: DoD は変えず、PR の CI に任せる（workflow.md は「PR の CI を待たない」ため、手元で確かめないと壊れたまま main に入り得る）。
-7. **main のブランチ保護・タグの保護**（15.2）: 公開の認証は「リリースタグからの実行」に限られるので、タグを push できる人が公開できる。【仮定】手順書は environment の ref の制限だけを必須とし、main のブランチ保護（PR 必須）は推奨として書く。タグの作成を制限するルールセットは求めない（開発者 1 人のリポジトリのため）。
-8. **CLAUDE.md の更新**: workflow.md の保守の表は「開発フローの変更 → workflow.md・CLAUDE.md」を求める。【仮定】CLAUDE.md は Kiro のワークフローの説明なので変えない（`/release` はリリーススキル自身の説明で足りる）。
+1. **初版 0.0.1 の扱い**（14.2・14.4・14.6）: `/release` に「初版の状態」の判定を足し、版の決定と更新を飛ばしてタグの作成から続ける。初版の経路は 1 か所にまとめ、0.0.1 の完了後に後続の spec `release-bootstrap-cleanup` が撤去する。
+2. **`v0.0.1.md` の置き場所**（14.3）: 本仕様の実装の PR に含める。見どころだけのコミットの経路は持たない。
+3. **「Trusted Publishing のみ」の有効化の時期**（14.5・15.5）: 初版の実行で認証が通ったことを確かめた後に有効化し、トークンを失効させる。CI からの公開は 0.0.2 で初めて確かめる（失敗しても再実行と緊急時の手順 15.6 で戻せる）。
+4. **GitHub Release の添付**（4.5〜4.7）: 添付を持たず、詳しいリリースノートを本文の見どころの後に直接置く。添付の判定・変更不可の失敗の経路は持たない。
+5. **内部の作業のスコープ**（6.5）: pasta の一覧に `kiro` を足したもの。spec 名のスコープは `release-workflow` のほかは載せる。
+6. **DoD への補助スクリプトのテストの追加**（16.3）: 補助スクリプトを変えたときだけ、手元で pwsh のテストを通すことを Test Gate に加える。
+7. **main のブランチ保護・タグの保護**（15.2）: environment の ref の制限だけを必須、main のブランチ保護は推奨、タグのルールセットは求めない。
+8. **CLAUDE.md の更新**（16.4）: 変えない。

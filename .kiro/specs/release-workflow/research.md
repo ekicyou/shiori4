@@ -36,19 +36,19 @@
   | `release.yml` の build | × | 配布物が無い。`git diff --exit-code -- Cargo.lock` も持ってこない（brief） |
   | `release.yml` の publish-crates | ○ | 5 → 3 クレート、`needs: [verify, gate]`、outputs・集約 step の一覧、runs-on（windows である理由が無い） |
   | `release.yml` の publish-vsce | × | — |
-  | `release.yml` の github-release | ○ | artifact のダウンロードを外す。添付は詳しいリリースノートだけ（要件 4.5【仮定】）。Title `shiori4 vX.Y.Z` |
+  | `release.yml` の github-release | ○ | artifact のダウンロードを外す。添付を持たず、詳しいリリースノートを本文に置く（要件 4.5。要件ディスカッションで確定）。Title `shiori4 vX.Y.Z` |
   | `release.yml` の report | ○ | 行を 4 つに。`build`・`publish-vsce` を needs から外す |
   | `verify-tag.ps1` | ○ | 拡張の版（package.json）の検査を外す。5 条件 → 4 条件 |
   | `publish-crate.ps1` | ○ | `--locked` を外す（DryRun の表示も）。User-Agent を shiori4 に |
-  | `release-notes.ps1` | ○ | 内部の作業のスコープに `kiro` を足す（要件 6.5【仮定】）。`-BodyFile` の本文の形 |
-  | `github-release.ps1` | △ | 「4 つの添付（配布物 3 つ＋ノート）」の判定を「ノート 1 つ」に。既定の Title |
+  | `release-notes.ps1` | ○ | 内部の作業のスコープに `kiro` を足す（要件 6.5）。`-BodyFile` の本文の形 |
+  | `github-release.ps1` | △ | 添付の判定を外し「下書き → 公開」だけにする。既定の Title |
   | `publish-vsix.ps1` | × | — |
   | `release-scripts-test.ps1` | ○ | 見どころの見本から Claudia を外す。定型コマンド D の項目を 4 行に。`package.json` を作る準備を外す |
   | `release-ci-setup.md` | △ | 2〜7 節（Azure・Marketplace・確認ワークフロー）を落とす。8 節を 3 クレートに。初回の手動公開（11 節）を「初版」の節として前に出す。10 節の後片付けから `VSCE_PAT` を外す |
   | `doc/release-notes/README.md` | △ | 書き方 4〜6（Claudia の口調・出典リンク）を外す。`book/` へのリンクを外す。内部の作業の表 |
   | `.claude/skills/release/SKILL.md` | ○ | 7/7 → 4/4、6 ファイル → 2 ファイル、`release.ps1`・`npm`・`vsce` の記述を外す。「まだ実地で確かめていない読み方」の節を引き継ぐか |
   | `procedure.md` | △ | 段 4 の手順 1〜7（版の表記 5 ファイル・`npm version`・`cargo update --workspace`・`cargo metadata --locked`・`verify-content.mjs`）を `Cargo.toml` の 3 か所だけに。判定表 S0〜S9 に初版の行を足す。F5 の「配布物」を「詳しいリリースノート」に。`RELEASE.md` への参照を外す |
-  | `release-state.ps1`（定型 A） | ○ | 出どころから `package.json`・Marketplace を外し、クレートの一覧を 3 つに、集計を n/4 に、GitHub Release の添付の判定を 1/1 に |
+  | `release-state.ps1`（定型 A） | ○ | 出どころから `package.json`・Marketplace を外し、クレートの一覧を 3 つに、集計を n/4 に、GitHub Release の添付の判定を外す |
   | `ci-result.ps1`（定型 B） | ○ | `Publish pasta_*` → `Publish shiori4*` |
   | `pretag-check.ps1`（定型 C） | ○ | `package.json` の行を外す（5 行 → 4 行） |
   | `highlights-check.ps1`（定型 D） | ○ | Claudia の出典リンクの行を外す（5 行 → 4 行）。`-Repo ekicyou/pasta` |
@@ -76,7 +76,7 @@
 - **Implications**:
   - 認証は「job の先頭で 1 回だけ取り、3 つの publish に渡す」形で足りる見込み。3 クレートは小さく、30 分の内に収まる見込みが高い（ただし publish-crate.ps1 の待ちの上限は「索引の反映待ち 5 分＋再試行 3 分＋公開後の確認 5 分」でクレートあたり最大 13 分ほどになり、3 クレートの最悪は 30 分を超え得る）。時間切れは「失敗した job の再実行」で新しいトークンを取り直して続けられる（公開済みは `skipped`）。どちらを採るか（pasta どおりクレートごとに取る／1 回だけ取る）は設計で決める（Research Needed）
   - `cargo publish --workspace` は再実行で skip しないので、要件 3.4（公開済みは `skipped`）を満たすには、pasta の 1 クレートずつの形（`-p` と、事前の公開済み判定）を残す
-  - 初版の CI の実行では 3 クレートとも `skipped` になる。publish-crate.ps1 は公開済みの判定を認証なしの API で行うので、`skipped` の経路では crates.io に対する「公開の権限」は試されない。試されるのはトークンの交換（auth step）だけ。要件 14.5・未決事項 3 はこの事実に基づく
+  - 初版の CI の実行では 3 クレートとも `skipped` になる。publish-crate.ps1 は公開済みの判定を認証なしの API で行うので、`skipped` の経路では crates.io に対する「公開の権限」は試されない。試されるのはトークンの交換（auth step）だけ。要件 14.5（確定事項 3）はこの事実に基づく
 
 ### 初版 0.0.1 の流れ
 - **Context**: brief の Constraint「初版 0.0.1 は手動で出し、CI の最初の実行は全部 skipped の確認になる見込み（手順書で扱う）」、要件 14
@@ -87,7 +87,7 @@
   - 手動公開の順も依存の順（`shiori4_abi` → `shiori4` → `shiori4_host`）。`cargo publish -p shiori4` は、`shiori4_abi 0.0.1` が索引に現れるまで解決できない（crate-publish-ready の実験 E2）。cargo 1.90 以上なら `cargo publish --workspace` 1 回で依存の順に出せる（初回は全部未公開なので skip の問題は無い）
   - release-notes.ps1 は前のタグが無いとき全履歴を使い、`**Full Changelog**` の行を出さない。pasta の段 4 H1 の確認（「最後の行が compare のリンク」）は初版では当たらないので、初版の扱いを procedure に書く必要がある
   - 初版の材料には `Initial commit`（接頭辞なし → 「そのほか」）と `feat(host): …`（PR 番号なし）が入る。見どころの PR 番号の検査（定型 D）が PR 番号の無い見どころを許すか、確かめる必要がある
-- **Implications**: 初版は「版の更新を飛ばし、見どころだけを PR で入れてタグを押す」特別な経路になる。スキルに組み込むか（要件 14【仮定】）、手順書の手作業にするか（未決事項 1）を要件ディスカッションで決める
+- **Implications**: 初版は「版の更新を飛ばし、見どころだけを PR で入れてタグを押す」特別な経路になる。要件ディスカッションで、スキルに初版の判定を 1 か所にまとめて持たせ（要件 14.6）、`v0.0.1.md` は実装の PR に含めると確定した。初版の経路は v0.0.1 の完了後に release-bootstrap-cleanup が撤去する
 
 ## Requirement-to-Asset Map
 
@@ -98,7 +98,7 @@
 | 2.3–2.4 補助スクリプトのテスト | なし | build.yml の release-scripts job・release-scripts-test.ps1 | build.yml に job を 1 つ足す（既存 job・トリガは変えない）。テストの項目を縮める | Missing |
 | 3 crates.io への公開 | `[workspace.dependencies]` の版要求 | publish-crates・publish-crate.ps1 | 新規。`--locked` を外す。認証を 1 回にするか 3 回にするか | Missing / Unknown |
 | 3.3 environment の制限 | なし | 手順書 4 節 | GitHub の設定（開発者が行う） | Missing（手順書） |
-| 4 GitHub Release | なし | github-release・github-release.ps1・release-notes.ps1 | 添付の判定を 1 つに縮める。添付を持つか（未決事項 4） | Missing / Unknown |
+| 4 GitHub Release | なし | github-release・github-release.ps1・release-notes.ps1 | 添付を持たない（確定）。添付の判定を外す | Missing / Unknown |
 | 5 結果の報告 | なし | report job・各 job の集約 step | 行を 4 つに | Missing |
 | 6 見どころの約束 | なし（`doc/` が無い） | doc/release-notes/README.md | 口調の決まりを外す。内部の作業のスコープ（未決事項 5） | Missing |
 | 7–13 リリーススキル | kiro-* スキルのみ | `.claude/skills/release/` 一式 | 新規。7/7 → 4/4、版の更新 2 ファイル、判定表に初版の行 | Missing |
@@ -141,7 +141,7 @@
 - **設計で決めること**:
   1. 認証を 1 回だけにするか、pasta どおりクレートごとに取るか（brief が設計に委ねた点。トークンは 3 クレート共通で効く。待ちの上限の合計と 30 分の関係）
   2. publish-crates の runs-on（pasta は配布物のビルドの都合で windows。shiori4 では理由が無い）
-  3. GitHub Release の添付の有無と、「公開済み」の判定（定型 A・github-release.ps1・F5）
+  3. 添付を持たない形での「公開済み」の判定（定型 A・github-release.ps1・F5 の縮め方）
   4. 判定表 S0〜S9 への初版の行の入れ方と、初版の見どころの PR（版の更新を伴わないコミットの件名・段 1 の「版の更新のコミットだけが残っている場合」の判定との関係）
   5. 補助スクリプトのテストの項目（pasta の 9 項目から、口調・`package.json` の項目を外し、初版（前のタグ無し）の項目を足すか）
   6. pasta 固有の語（`pasta`・`package.json`・`vsce`・`Claudia`・`--locked`・`Cargo.lock`）の残りを検出する完了条件
@@ -150,4 +150,3 @@
   - 同じ job での crates-io-auth-action の複数回の呼び出し（UNVERIFIED。1 回にするなら不要）
   - environment の名前の大文字小文字の照合（GitHub の経路は完全一致の見込み。手順書では小文字の `release` に統一すれば足りる）
   - 定型 D の「PR の番号」の検査が、PR を通らなかった変更（`feat(host): …`・`Initial commit`）だけを材料にする初版で、どう判定されるか
-  - GitHub のリポジトリ設定で immutable releases が有効か（要件 4.8・F5 の経路が実際に起こり得るか）
