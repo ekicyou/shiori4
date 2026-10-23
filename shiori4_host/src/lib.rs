@@ -105,6 +105,7 @@ use shiori4::shiori4_abi::{
 mod v3;
 mod discover;
 mod dist;
+pub use dist::{machine_matches, shiori_file_candidates, TargetArch, TargetOs};
 #[cfg(test)]
 mod test_dll;
 
