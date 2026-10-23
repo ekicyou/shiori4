@@ -104,7 +104,7 @@
   - _Requirements: 14.3, 14.4, 14.5, 14.6_
 
 - [ ] 7. 新しい読み込みの口
-- [ ] 7.1 v3 互換モードの口を作る
+- [x] 7.1 v3 互換モードの口を作る
   - パス・読み終えたライブラリ・同じプロセスのテーブルの 3 つの入口を持ち、どれも dir に検査と正規化を掛け、host を渡さずに v3 で load する。NULL なら理由なしの `LoadFailed`
   - 読み終えたライブラリの入口は v4 の入口と同じ規則でライブラリを返す（`NotShiori4`・`Unsupported`・`InvalidPath`）
   - 要求の全文（GET も NOTIFY も）を文字列で受け、応答を UTF-8 で検査してから文字列で返す。UTF-8 でなければ壊れた文字列を作らず UTF-8 のエラー、パニックの後は常にパニックのエラー。post と完了通知は持たない
@@ -155,3 +155,4 @@
 - 5.1: `SHIORI_E_WRONG_THREAD` は shiori4_host の非公開の `use shiori4::shiori4_abi::{..}` に入れた。5.4 で `pub use` に足すときは非公開の側から外す
 - 5.2: dir の検査と正規化は shiori4_host の非公開 `normalize_dir(&Path) -> Result<String, LoadError>`。テストの dir は OS ごとの定数 `GHOST_DIR` を使う
 - 5.3: テスト用 DLL のモードは `test_dll::set_mode(&lib, mode)` で、開いているライブラリに対して設定する（すべてのハンドルを閉じると DLL が外れてモードが既定に戻るため）。subagent の継ぎはぎのスクリプトが `\r\n` のエスケープを壊したことがある。文字列のエスケープは diff で確かめる
+- 7.1: ライブラリからの入口の共通部分は lib.rs の非公開 `unsafe fn library_entry(lib, dir, version)`（dir の検査 → `shiori_get_api` → テーブルの検査）。v3.rs は子モジュールなので `normalize_dir` と `FromLibraryError` の非公開フィールドを直接使える

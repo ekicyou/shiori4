@@ -103,6 +103,7 @@ use shiori4::shiori4_abi::{
 };
 
 mod v3;
+pub use v3::V3Runtime;
 mod discover;
 mod dist;
 pub use dist::{machine_matches, shiori_file_candidates, TargetArch, TargetOs};
@@ -533,6 +534,25 @@ fn normalize_dir(dir: &Path) -> Result<String, LoadError> {
     Ok(s)
 }
 
+/// 読み終えたライブラリの入口の共通部分: dir の検査 → `shiori_get_api` を探す → 版 version のテーブルの検査
+///
+/// 失敗は `InvalidPath`・`NotShiori4`・`Unsupported` だけ（どれも SHIORI の初期化の前。ライブラリを返してよい）
+///
+/// # Safety
+/// 返るテーブルは lib が開いている間だけ有効。呼び出し側は lib をインスタンスより後に解放すること
+unsafe fn library_entry(
+    lib: &libloading::Library,
+    ghost_dir: &Path,
+    version: u32,
+) -> Result<(String, &'static ShioriApi), LoadError> {
+    let dir = normalize_dir(ghost_dir)?;
+    let get: ShioriGetApiFn =
+        *unsafe { lib.get::<ShioriGetApiFn>(SHIORI_GET_API_SYMBOL) }.map_err(|_| LoadError::NotShiori4)?;
+    let p = unsafe { get(version) };
+    let api = unsafe { ShioriApi::from_raw(p, version) }.map_err(LoadError::Unsupported)?;
+    Ok((dir, api))
+}
+
 // ============================================================
 // ランタイム
 // ============================================================
@@ -588,26 +608,14 @@ impl<H: Host> GhostRuntime<H> {
         ghost_dir: impl AsRef<Path>,
         host: H,
     ) -> Result<Self, FromLibraryError> {
-        let load_failed = |error| FromLibraryError { error, library: None };
-        let dir = match normalize_dir(ghost_dir.as_ref()) {
-            Ok(d) => d,
-            Err(error) => return Err(FromLibraryError { error, library: Some(lib) }),
-        };
-        let get: ShioriGetApiFn = match unsafe { lib.get::<ShioriGetApiFn>(SHIORI_GET_API_SYMBOL) } {
-            Ok(s) => *s,
-            Err(_) => return Err(FromLibraryError { error: LoadError::NotShiori4, library: Some(lib) }),
-        };
-
-        let p = unsafe { get(SHIORI_ABI_VERSION) };
         // SAFETY: lib は GhostRuntime の最後のフィールドとして保持し、instance より後に解放する。
         // 'static はこの構造体の外へ漏らさない
-        let api: &'static ShioriApi = match unsafe { ShioriApi::from_raw(p, SHIORI_ABI_VERSION) } {
-            Ok(api) => api,
-            Err(s) => return Err(FromLibraryError { error: LoadError::Unsupported(s), library: Some(lib) }),
+        let (dir, api) = match unsafe { library_entry(&lib, ghost_dir.as_ref(), SHIORI_ABI_VERSION) } {
+            Ok(v) => v,
+            Err(error) => return Err(FromLibraryError { error, library: Some(lib) }),
         };
-
         // with_api が失敗したとき lib は中で捨てられる（LoadFailed は読み直さない）
-        Self::with_api(api, &dir, host, Some(lib)).map_err(load_failed)
+        Self::with_api(api, &dir, host, Some(lib)).map_err(|error| FromLibraryError { error, library: None })
     }
 
     /// 同じプロセス内のテーブル（ShioriApi::new で作った static）を使う。テスト用
