@@ -36,5 +36,5 @@ pasta（`C:\home\maz\git\pasta`）のリリースの仕組みを下敷きにし�
 
 ## Specs (dependency order)
 - [x] crate-publish-ready -- 3 クレートを crates.io に出せる形にし（版の一本化・path+version 依存・メタデータ・各クレートの README・ライセンス整合・`cargo package` の通過）、PR の CI（build.yml、3 OS・cargo-deny）で守る。Dependencies: none
-- [ ] release-workflow -- タグ push で検査・公開・GitHub Release を行う release.yml と公開スクリプト、初回セットアップの手順書、リリースノートの約束、`/release` スキル、workflow.md の更新。仕組みを main に統合した後、開発者の準備（environment・初版の手動公開・Trusted Publisher・後片付け）と `/release` による v0.0.1 のリリースまでを、この spec の中で行ってから閉じる。Dependencies: crate-publish-ready
+- [x] release-workflow -- タグ push で検査・公開・GitHub Release を行う release.yml と公開スクリプト、初回セットアップの手順書、リリースノートの約束、`/release` スキル、workflow.md の更新。仕組みを main に統合した後、開発者の準備（environment・初版の手動公開・Trusted Publisher・後片付け）と `/release` による v0.0.1 のリリースまでを、この spec の中で行ってから閉じる。Dependencies: crate-publish-ready
 - [ ] release-bootstrap-cleanup -- v0.0.1 を 4/4 で出し終えた後、`/release` と手順書から初版のためだけの判定・経路を削る。Dependencies: release-workflow（v0.0.1 のリリースを含む）
