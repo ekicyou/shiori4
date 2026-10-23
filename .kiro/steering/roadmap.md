@@ -47,7 +47,7 @@ v0.0.1 の公開の後、SHIORI 実装者（pasta、`SHIORI4:pasta` セッショ
 
 - **Why this split**: ABI 層（バイト列の運搬と、スレッド・所有権・寿命の規約）とプロトコル層（運ぶ中身の語彙）は、product.md の方針どおり分ける。ABI を小さく安定に保ち、語彙はその上で増やす。abi-conventions は `shiori4_abi`（と各クレートの規約の守り方）、host-protocol は `shiori4::host_protocol` と `shiori4_host` の組み込みの処理を持つ
 - **Shared seams to watch**:
-  - 拒否の返し方で 403 を ABI の定数に足すと決まったら、定数の追加は abi-conventions の `shiori4_abi` に入れる（host-protocol は使う側）
+  - 拒否の返し方は 400 ＋ `Reason: forbidden` に決まった（3 者会談）。ABI の定数は足さない
   - どちらも `shiori4/src/lib.rs`・`shiori4_host/src/lib.rs` に触れる。並べて進めるときは片方を先に統合する
   - property の改名（`property` → `getproperty`）は 0.0.1 の動きを壊す唯一の変更。0.0.x のうちに入れる
 - **Release**: 2 本を統合した後、`/release` で 0.0.2 を出す（spec ではない）。0.0.2 は CI からの初めての公開で、1 回の認証で 3 クレートを出せるかと 401・403 の分類も確かめる

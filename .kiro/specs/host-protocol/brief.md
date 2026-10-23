@@ -38,21 +38,37 @@ SHIORI 実装者（pasta）にとって v4 の最大の利点は「SHIORI から
    - ベースウェア固有の名前は接頭辞（例 `areka.`）で分ける。
    - 大文字小文字は区別しない。
    - 値の改行は取り除く（エスケープして残すことはしない）。改行を含む値が要るプロパティが出たら、別の名前で足す。
-5. **v4 の要求ヘッダの語彙**（A7・P7）:
-   - v4 のヘッダの名前と意味は SHIORI/3.0（ukadoc）と同じ（ID・Reference*・Sender・SecurityLevel・SecurityOrigin・BaseID・Status 等）。
-   - ホストが必ず付けるヘッダを決める。
-6. **SHIORI の名前と版**（P7）: v3 の GET Version に当たる手段を決める（候補 `ID: version`）。
-7. **OnHostComplete の届け方**（A8）: 既定は request で届ける（結果を台本で返す必要がありうるため）。SHIORI は request と notify の両方を受けられなければならない。Reference の並びを確定させる。
+5. **v4 の要求ヘッダの語彙**（A7・P7。3 者会談で確定）:
+   - v4 のヘッダの名前と意味は SHIORI/3.0（ukadoc）と同じ。
+   - 必須: ID・Sender（ベースウェアの名前）・SenderType（ukadoc の語）・SecurityLevel（`local` / `external` の 2 語だけ）・SecurityOrigin（ukadoc の形。`null` か起点）。
+   - 状況による: Status（伝える状態があるときだけ。ukadoc の語・カンマ区切り）・BaseID（ukadoc が定めるイベントだけ）・Reference*。
+   - Charset は付けない（abi-conventions）。
+   - post から起きた要求（SEND の中の `\![raise]`、NOTIFY で起こしたイベント）には `SenderType: internal`・`SecurityLevel: local` を付ける。
+6. **SHIORI の名前と版**（P7。3 者会談で確定）: SHIORI/3.0 と同じ。`ID: version`（ほかに `name`・`craftman`・`craftmanw`）の request に、200 ＋ `Value:` で答える。答えなければ 204。ABI の版はヘッダに載せない（`shiori_get_api` の引数と `abi_version` で分かる）。
+7. **OnHostComplete**（A8。並びは 3 者会談で確定）:
+   - 届け方の既定は request（結果を台本で返す必要がありうるため）。SHIORI は request と notify の両方を受けられなければならない。
+   - 共通のヘッダ: `Tag`・`Status`・`Reference0: <コマンド名>`。
+   - SEND の完了は「再生が終わった時」に出す。
+     - 200: 再生した。Reference1 は `completed` か `interrupted`。
+     - 204: 一度も再生せずに捨てた（nobreak で待っている間に終了・切り替えが来た、ホストが受けられない状態だった）。Reference1 は無し。
+     - 400 ＋ `Reason`: 不正・拒否。
+   - NOTIFY: Reference1 は無し。起こせたかどうかを 200 / 400 で返す。
+   - OnHostComplete への応答のスクリプトは、`Option: nobreak` の SEND と同じに扱う。つまり再生中なら終わるまで待ち、待つ間に終了・切り替えが来たら捨てる。理由: interrupted の通知は、割り込んだトークの再生中に届く。通常の応答と同じに扱うと、割り込んだ側をさらに置き換えてしまう。
+8. **拒否の返し方**（A3。3 者会談で確定）: 400 ＋ `Reason: forbidden`。これで「存在しない（204）」と区別する。403 は足さない。理由: ステータスを SHIORI/3.0 の集合に収め、v3 と v4 で要求と応答のコードを分けないため。
+9. **SEND の割り込み**（P 追加 b。3 者会談で確定。shiori4 の当初の推奨「既定は待つ」から変えた）:
+   - 既定と待ち方は SSTP に揃える。
+     - post の SEND は、既定で割り込む。
+     - `Option: nobreak` のときだけ、今のスクリプトが終わるまで待つ。
+     - 新しいヘッダ（Interrupt）は作らない。
+     - 理由: post は「同じプロセスからの SSTP」なので、語・既定・ukadoc の参照・areka の既存の裁定（mcp-kanade-tools の 1〜3）を 1 つにできる。
+   - 優先度は Owned SSTP と同じ（SHIORI 自身の依頼）。`\t` が入っていても割り込める。
+   - 待つための列はホストの仕事（areka が引き受ける）。
+   - 割り込まれた側への知らせに OnBalloonBreak は使わない（ukadoc では「SSTP 以外でブレイクされた際」のイベント）。
+     - 切られたトークが Tag 付きの SEND から始まったものなら、その OnHostComplete が `interrupted` を運ぶ。
+     - 通常のイベントの応答として出たトークが SEND に切られたときは、何も出さない（SSP と同じ）。
+     - 利用者の中断なら、今どおり OnBalloonBreak。
 
-## 要件・設計の段で裁定する論点
-- **拒否の返し方**（A3）: ベースウェアが安全上の理由で、プロパティの読み書きや post を断るときの返し方。「存在しない（204）」と区別する。2 案のどちらにするかを開発者が裁定する。
-  - 案 1（shiori4 の推奨）: 400 ＋理由のヘッダ（`Reason: forbidden`。`X-` は付けない）。SHIORI/3.0 の状態コードの範囲を崩さない。
-  - 案 2: 403 を ABI の定数に足す。v4 だけの話なので技術的には可能。この案に決まったら、定数は abi-conventions の `shiori4_abi` に入れる。
-- **SEND の割り込み**（P 追加 b）: 台本の再生中に SEND が来たときの扱い（割り込む / 待つ / 捨てる）。pasta には連続トークの途中で割り込まれる場面（chain-talk-interrupt）がある。
-  - shiori4 の推奨: 既定は「待つ（キューに積む）」。割り込みは post 側が明示したときだけ（例 `Interrupt: true`。名前は設計で決める）。
-  - 結果は、Tag があれば OnHostComplete の Status で返す（再生した / 捨てた の値の割り当ても決める）。
-  - 割り込まれた側の連続トークへの知らせ方も決める。
-  - areka の再生キューと、SSTP SEND の割り込みの今の扱いを 2026-10-23 に問い合わせ中。返事を推奨に反映する。
+上の 1〜9 は、pasta・areka の 2 者が合意し、2026-10-23 に shiori4 へ届けたもの。割れたものは無い。要件の段では、これを開発者が承認する。
 
 ## Approach
 仕様の本文は、新しい文書 `doc/host-protocol.md` に置く。置き場所は設計で確定させる。`shiori4` の crate doc と `host_protocol` モジュールの doc はその文書を指す。
@@ -94,10 +110,14 @@ SHIORI 実装者（pasta）にとって v4 の最大の利点は「SHIORI から
 
 ## Existing Spec Touchpoints
 - **Extends**: なし
-- **Adjacent**: abi-conventions（403 の定数を足す場合の置き場所、`shiori4/src/lib.rs`・`shiori4_host/src/lib.rs` の同時編集）
+- **Adjacent**: abi-conventions（`shiori4/src/lib.rs`・`shiori4_host/src/lib.rs` の同時編集）
 
 ## Constraints
 - 確定した語は shiori4 を正本とする。areka・pasta の文書は shiori4 の仕様を参照し、語を写して変えない。
 - property の改名以外は、0.0.1 の動きを変えない（足すだけ）。
 - ヘッダの書式は SHIORI/3.0 と同じ（`名前: 値`、CRLF、ヘッダ部分だけ）。
 - 要件の段に入ったら、決まった語を pasta・areka の両セッションへ知らせる。
+
+## 下流の予定（参考・2026-10-23 pasta より）
+- pasta 0.4.2: shiori4 の v3 互換モード（`shiori_get_api(3)`）を出し、Windows 以外でも SHIORI/3.0 として動かす。
+- pasta 0.5.0: v4（host.request・post・OnHostComplete）に本格対応する。abi-conventions と host-protocol の 2 本を前提にする。

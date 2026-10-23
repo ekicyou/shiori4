@@ -17,7 +17,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 3. **log と release のスレッド**（P3）: `host->log` は post と同じく任意のスレッドから呼べる（ホストはコピーしてすぐ返る）。`ShioriBytes.release` も、どのスレッドから呼んでもよい。
 4. **notify の後回し**（P5）: notify を即 204 で返し、処理を後で行う実装は合法とする。後回しにした処理の中では `host->request` を使えない（post を使う）、と注記する。
 5. **load の失敗**（P6）: 失敗するときは、NULL を返す前に `host->log` で理由を出す。SHIORI は 2 つ目のインスタンスを拒否してよい（NULL ＋ log）。拒否されたホストは、ゴーストごとに別のプロセスで読むか、拒否を受け入れる。
-6. **load の dir の形**（A5）: v4 も v3 互換も「絶対パス・OS の区切り・末尾に区切りあり・UTF-8」とする（SSP が SHIORI/3.0 の load に渡す形に合わせる）。
+6. **load の dir の形**（A5）: v4 も v3 互換も「絶対パス・OS の区切り・末尾に区切りあり・UTF-8」とする（SSP が SHIORI/3.0 の load に渡す形に合わせる）。 pasta も 3 者会談で問題なしと確認した（PathBuf で使い、末尾の区切りの有無に関係なく動く）。
 7. **v4 の Charset**（A6）: v4 は UTF-8 固定なので、ホストは Charset ヘッダを付けなくてよい。付いていても SHIORI は無視する。応答にも付けない。
 
 ## Approach
@@ -59,7 +59,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 
 ## Existing Spec Touchpoints
 - **Extends**: なし（ABI の初版は spec 外で作られた）
-- **Adjacent**: host-protocol。拒否の返し方で 403 を ABI の定数に足すと決まったら、その定数はこの spec の `shiori4_abi` に入れる。
+- **Adjacent**: host-protocol（`shiori4/src/lib.rs`・`shiori4_host/src/lib.rs` を同時に触る。拒否の返し方は 400 ＋ `Reason` に決まり、ABI の定数は足さない）
 
 ## Constraints
 - 構造体のレイアウト（`SHIORI_STATIC_ASSERT`）を変えない。足すのは定数と注釈だけで、関数テーブルは末尾追加の規則に従う。
