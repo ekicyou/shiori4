@@ -72,7 +72,7 @@
   - _Depends: 1.1, 2.1_
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 5.3_
 
-- [ ] 5.2 dir を検査して見た目だけ正規化し、既存の dir を受ける口に掛ける
+- [x] 5.2 dir を検査して見た目だけ正規化し、既存の dir を受ける口に掛ける
   - 絶対パスでない（Windows の `\ghost`・`C:ghost` を含む）か UTF-8 で表せない dir を `InvalidPath` で断る
   - Windows では `/` を `\` にそろえる（`\\?\` で始まるものは置き換えない）。末尾の区切りをちょうど 1 つにする。ファイルシステムには触れない
   - `GhostRuntime::load` と `from_static` が dir を `Path` として受けて検査と正規化を掛ける（`&str` で呼ぶコードはそのままビルドできる）。`InvalidPath` の doc と `Display` を新しい意味に直す
@@ -153,3 +153,4 @@
 - 2.1: `ShioriHostPoster` から `Copy` を外した（移行は `.clone()`）。ワークスペースの中に暗黙のコピーは無かった。門は `shiori4_abi` の `PosterGate`（Mutex+Condvar）で、`ShioriHostHandle::new(api, gate)` は `pub(crate)`
 - 3.1: 規約の本文は scratchpad の conv.txt から splice.py で C ヘッダと `//!` の両方に流し込み、compare.py で同文を確かめた（`//!` の規約の節にはバッククォートを使わない）。3.2 も同じ手で節を足す
 - 5.1: `SHIORI_E_WRONG_THREAD` は shiori4_host の非公開の `use shiori4::shiori4_abi::{..}` に入れた。5.4 で `pub use` に足すときは非公開の側から外す
+- 5.2: dir の検査と正規化は shiori4_host の非公開 `normalize_dir(&Path) -> Result<String, LoadError>`。テストの dir は OS ごとの定数 `GHOST_DIR` を使う

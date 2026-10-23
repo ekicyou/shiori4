@@ -407,7 +407,7 @@ pub enum LoadError {
     NotShiori4,
     /// 要求した版に対応していない
     Unsupported(ShioriStatus),
-    /// ゴーストディレクトリが UTF-8 で表せない
+    /// ゴーストディレクトリが絶対パスでない、または UTF-8 で表せない
     InvalidPath,
     /// SHIORI の load が失敗した
     LoadFailed,
@@ -419,7 +419,7 @@ impl fmt::Display for LoadError {
             Self::Library(e) => write!(f, "failed to open SHIORI library: {e}"),
             Self::NotShiori4 => f.write_str("shiori_get_api not found (legacy SHIORI?)"),
             Self::Unsupported(s) => write!(f, "unsupported SHIORI ABI version (status {s})"),
-            Self::InvalidPath => f.write_str("ghost directory is not valid UTF-8"),
+            Self::InvalidPath => f.write_str("ghost directory is not an absolute path or not valid UTF-8"),
             Self::LoadFailed => f.write_str("SHIORI load failed"),
         }
     }
@@ -432,6 +432,23 @@ impl std::error::Error for LoadError {
             _ => None,
         }
     }
+}
+
+/// dir を検査し、見た目だけ正規化する（絶対パス・OS の区切り・末尾に区切り 1 つの UTF-8）
+///
+/// ファイルシステムには触れない（存在の確認・リンクや `..` の解決・`\\?\` の付加をしない）。
+/// 相対パスはカレントを基準に解決せず `InvalidPath` で断る（Windows の `\ghost`・`C:ghost` も相対）
+fn normalize_dir(dir: &Path) -> Result<String, LoadError> {
+    if !dir.is_absolute() {
+        return Err(LoadError::InvalidPath);
+    }
+    let s = dir.to_str().ok_or(LoadError::InvalidPath)?;
+    // `\\?\` の形では `/` は区切りではないので置き換えない。Unix では `\` は名前の文字
+    let mut s = if cfg!(windows) && !s.starts_with(r"\\?\") { s.replace('/', "\\") } else { s.to_owned() };
+    let sep = std::path::MAIN_SEPARATOR;
+    s.truncate(s.trim_end_matches(sep).len());
+    s.push(sep);
+    Ok(s)
 }
 
 // ============================================================
@@ -464,7 +481,7 @@ impl<H: Host> GhostRuntime<H> {
         ghost_dir: impl AsRef<Path>,
         host: H,
     ) -> Result<Self, LoadError> {
-        let dir = ghost_dir.as_ref().to_str().ok_or(LoadError::InvalidPath)?.to_owned();
+        let dir = normalize_dir(ghost_dir.as_ref())?;
 
         // SAFETY: ライブラリの初期化コードが実行される。信頼できる SHIORI だけを読み込むこと
         let lib = unsafe { libloading::Library::new(lib_path) }.map_err(LoadError::Library)?;
@@ -482,11 +499,18 @@ impl<H: Host> GhostRuntime<H> {
     }
 
     /// 同じプロセス内のテーブル（ShioriApi::new で作った static）を使う。テスト用
-    pub fn from_static(api: &'static ShioriApi, ghost_dir: &str, host: H) -> Result<Self, LoadError> {
+    ///
+    /// dir は `load` と同じ検査と正規化を経て SHIORI に届く
+    pub fn from_static(
+        api: &'static ShioriApi,
+        ghost_dir: impl AsRef<Path>,
+        host: H,
+    ) -> Result<Self, LoadError> {
+        let dir = normalize_dir(ghost_dir.as_ref())?;
         if api.abi_version() < SHIORI_ABI_VERSION {
             return Err(LoadError::Unsupported(SHIORI_E_UNSUPPORTED));
         }
-        Self::with_api(api, ghost_dir, host, None)
+        Self::with_api(api, &dir, host, None)
     }
 
     fn with_api(
@@ -649,6 +673,20 @@ mod tests {
     use shiori4::{Adapter, Ghost, Lookup, PendingTags, Properties};
     use std::sync::atomic::AtomicUsize;
 
+    /// テストの dir。OS ごとの絶対パス（Windows では "/ghost" は絶対でない）
+    #[cfg(windows)]
+    const GHOST_DIR: &str = r"C:\ghost";
+    #[cfg(not(windows))]
+    const GHOST_DIR: &str = "/ghost";
+    /// GHOST_DIR を正規化したもの（SHIORI に届く形）
+    #[cfg(windows)]
+    const GHOST_DIR_NORMALIZED: &str = r"C:\ghost\";
+    #[cfg(not(windows))]
+    const GHOST_DIR_NORMALIZED: &str = "/ghost/";
+
+    /// TestGhost の load が受け取った dir（どのテストも GHOST_DIR を正規化した形を渡す）
+    static LOADED_DIR: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
     struct TestGhost {
         props: Properties,
         poster: Option<ShioriHostPoster>,
@@ -656,7 +694,8 @@ mod tests {
     }
 
     impl Ghost for TestGhost {
-        fn load(host: Option<ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+        fn load(host: Option<ShioriHostHandle>, dir: &str) -> Result<Self, ShioriStatus> {
+            *LOADED_DIR.lock().unwrap() = dir.to_owned();
             let poster = host.as_ref().map(|h| h.poster());
             Ok(Self { props: Properties::new(host), poster, pending: PendingTags::new() })
         }
@@ -714,7 +753,7 @@ mod tests {
     }
 
     fn runtime() -> GhostRuntime<TestHost> {
-        GhostRuntime::from_static(&API, "/ghost", TestHost { woken: AtomicUsize::new(0) })
+        GhostRuntime::from_static(&API, GHOST_DIR, TestHost { woken: AtomicUsize::new(0) })
             .expect("load")
     }
 
@@ -872,7 +911,7 @@ mod tests {
     static GUARD_API: ShioriApi = ShioriApi::new::<Adapter<GuardGhost>, { SHIORI_ABI_VERSION }>();
 
     fn guard_runtime() -> GhostRuntime<CountHost> {
-        GhostRuntime::from_static(&GUARD_API, "/ghost", CountHost::default()).expect("load")
+        GhostRuntime::from_static(&GUARD_API, GHOST_DIR, CountHost::default()).expect("load")
     }
 
     #[test]
@@ -911,5 +950,92 @@ mod tests {
         assert_eq!(r.status, 204);
         drop(r);
         assert_eq!(*rt.host().logs.lock().unwrap(), ["from worker"]);
+    }
+
+    // ---- dir の検査と正規化（要件 8.3〜8.8） ----
+
+    /// 正規化の結果。InvalidPath は None
+    fn norm(dir: impl AsRef<Path>) -> Option<String> {
+        match normalize_dir(dir.as_ref()) {
+            Ok(s) => Some(s),
+            Err(LoadError::InvalidPath) => None,
+            Err(e) => panic!("想定外のエラー: {e}"),
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_dir_table_windows() {
+        let ok = |input: &str, want: &str| assert_eq!(norm(input).as_deref(), Some(want), "{input}");
+        ok(r"C:\a\b", r"C:\a\b\");
+        ok(r"C:\a\b\", r"C:\a\b\");
+        ok(r"C:\a\b\\", r"C:\a\b\");
+        ok("C:/a/b", r"C:\a\b\");
+        ok("C:/a/b/", r"C:\a\b\");
+        ok(r"C:\", r"C:\");
+        ok(r"\\server\share", r"\\server\share\");
+        ok(r"\\server\share\", r"\\server\share\");
+        ok("//server/share", r"\\server\share\");
+        // \\?\ の形では / は区切りではないので置き換えない。\\?\ を足しもしない
+        ok(r"\\?\C:\a/b", r"\\?\C:\a/b\");
+        ok(r"\\?\C:\a\", r"\\?\C:\a\");
+        // ファイルシステムに触れない（.. も解決しない）
+        ok(r"C:\no\such\..\dir", r"C:\no\such\..\dir\");
+        for bad in ["ghost", r"ghost\master", r"\ghost", "/ghost", "C:ghost", ""] {
+            assert_eq!(norm(bad), None, "{bad}");
+        }
+        use std::os::windows::ffi::OsStringExt;
+        // 対でないサロゲート
+        let w: Vec<u16> = r"C:\a".encode_utf16().chain([0xD800]).collect();
+        assert_eq!(norm(std::ffi::OsString::from_wide(&w)), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn normalize_dir_table_unix() {
+        let ok = |input: &str, want: &str| assert_eq!(norm(input).as_deref(), Some(want), "{input}");
+        ok("/a/b", "/a/b/");
+        ok("/a/b/", "/a/b/");
+        ok("/a/b//", "/a/b/");
+        ok("/", "/");
+        // Unix では \ は名前の文字
+        ok(r"/a\b", r"/a\b/");
+        // ファイルシステムに触れない（.. も解決しない）
+        ok("/no/such/../dir", "/no/such/../dir/");
+        for bad in ["ghost", "ghost/master", "./ghost", r"C:\ghost", ""] {
+            assert_eq!(norm(bad), None, "{bad}");
+        }
+        use std::os::unix::ffi::OsStrExt;
+        assert_eq!(norm(OsStr::from_bytes(b"/a/\xff")), None);
+    }
+
+    #[test]
+    fn from_static_passes_normalized_dir_to_shiori() {
+        // 末尾の区切りを二重にして渡す（Windows では `/` を混ぜることにもなる）
+        let messy = format!("{}//", GHOST_DIR.trim_end_matches(std::path::MAIN_SEPARATOR));
+        let _rt = GhostRuntime::from_static(&API, &messy, TestHost { woken: AtomicUsize::new(0) })
+            .expect("load");
+        let got = LOADED_DIR.lock().unwrap().clone();
+        assert_eq!(got, GHOST_DIR_NORMALIZED);
+    }
+
+    #[test]
+    fn from_static_rejects_relative_dir() {
+        for bad in ["ghost", "ghost/master"] {
+            let r = GhostRuntime::from_static(&API, bad, TestHost { woken: AtomicUsize::new(0) });
+            assert!(matches!(r, Err(LoadError::InvalidPath)), "{bad}");
+        }
+    }
+
+    #[test]
+    fn load_rejects_relative_dir_before_opening_library() {
+        // ライブラリのパスは存在しない。dir の検査が先なので Library ではなく InvalidPath になる
+        let r = GhostRuntime::load("no-such-shiori.dll", "ghost", TestHost { woken: AtomicUsize::new(0) });
+        assert!(matches!(r, Err(LoadError::InvalidPath)));
+    }
+
+    #[test]
+    fn invalid_path_display_mentions_absolute() {
+        assert!(LoadError::InvalidPath.to_string().contains("absolute"));
     }
 }
