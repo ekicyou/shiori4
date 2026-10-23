@@ -13,7 +13,7 @@
 //! SHIORI が別スレッドから post すると `Host::wake` が呼ばれるので、そこでイベントループに
 //! 「pump を呼んで」と依頼する（Windows なら DispatcherQueue.TryEnqueue、など）。
 //!
-//! ```ignore
+//! ```no_run
 //! use shiori4_host::*;
 //!
 //! struct MyHost;
@@ -35,18 +35,47 @@
 //!     fn wake(&self) { /* UI スレッドに pump を依頼する */ }
 //! }
 //!
-//! let mut rt = GhostRuntime::load("ghost/master/shiori.dll", "ghost/master", MyHost)?;
-//! let r = rt.request("ID: OnBoot\r\n")?;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // dir は絶対パスで渡す（相対パスは LoadError::InvalidPath）。ここでは実行ファイルの隣から組み立てる
+//! let exe = std::env::current_exe()?;
+//! let dir = exe.parent().expect("exe dir").join("ghost").join("master");
+//! let mut rt = GhostRuntime::load(dir.join("shiori.dll"), &dir, MyHost)?;
+//! let r = rt.request("ID: OnBoot\r\n").map_err(|s| format!("ABI error: {s}"))?;
 //! // ... wake されたら:
 //! for d in rt.pump() { /* d.outcome の応答（スクリプト）を再生する */ }
+//! # drop(r);
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # 規約との対応
 //! - 規約 1（単一スレッド）: `GhostRuntime` が `!Send` で、呼び出しは `&mut self`
+//! - 規約 2（host.request の期間）: load / request / notify を呼んでいるスレッドで、その呼び出しの
+//!   間だけ `Host::property`・`Host::request` に渡す。外れた呼び出しには SHIORI_E_WRONG_THREAD を返す
 //! - 規約 3（再入禁止）: `Host` のメソッドは `&self` しか持たず、ランタイムに触れない。
 //!   `Host` の中から `GhostRuntime` を呼べるような共有（Rc<RefCell<..>> 等）はしないこと
-//! - 規約 4（post）: ホスト側では post をコピーしてキューに積むだけ。`on_post` は pump の中で呼ばれる
-//! - 規約 5（unload）: Drop で、shutdown → 未配送の破棄 → unload → ライブラリ解放 の順に行う
+//! - 規約 4（post・log）: ホスト側では post をコピーしてキューに積むだけ。`on_post` は pump の中で
+//!   呼ばれる。`Host::log` は任意のスレッドから呼ばれる
+//! - 規約 5（unload）: Drop で、shutdown → 未配送の破棄 → unload → ライブラリ解放 の順に行う。
+//!   SHIORI に join は求めない。unload が返った後、SHIORI はホストを呼ばない
+//! - load の規約（dir）: dir を検査し、絶対パスでないか UTF-8 で表せなければ `LoadError::InvalidPath`。
+//!   通るときは見た目だけ正規化し（OS の区切り・末尾に区切り）、SHIORI に渡す
+//! - Charset: v4 は UTF-8 固定なので、組み込みの応答と完了通知の見出しに Charset を付けない
+//!
+//! # エラー定数
+//! `shiori4_host` を use するだけで、ABI 層のエラー（`SHIORI_E_*`）がすべて使える。
+//!
+//! ```
+//! use shiori4_host::{
+//!     SHIORI_E_INVALID_ARG, SHIORI_E_INVALID_UTF8, SHIORI_E_PANIC, SHIORI_E_REENTRANT,
+//!     SHIORI_E_SHUTDOWN, SHIORI_E_UNSUPPORTED, SHIORI_E_WRONG_THREAD,
+//! };
+//! assert_eq!(
+//!     [SHIORI_E_INVALID_ARG, SHIORI_E_UNSUPPORTED, SHIORI_E_PANIC, SHIORI_E_REENTRANT,
+//!      SHIORI_E_SHUTDOWN, SHIORI_E_INVALID_UTF8, SHIORI_E_WRONG_THREAD],
+//!     [-1, -2, -3, -4, -5, -6, -7],
+//! );
+//! ```
 
 use std::{
     ffi::OsStr,
@@ -64,13 +93,13 @@ pub use shiori4::{host_protocol, HeaderWriter, Headers};
 pub use shiori4::shiori4_abi::{
     shiori_is_abi_error, shiori_is_success, ShioriApi, ShioriOwnedBytes, ShioriOwnedResponse,
     ShioriResponse, ShioriStatus, SHIORI_200_OK, SHIORI_204_NO_CONTENT, SHIORI_400_BAD_REQUEST,
-    SHIORI_500_INTERNAL_SERVER_ERROR, SHIORI_ABI_VERSION, SHIORI_E_INVALID_ARG, SHIORI_E_PANIC,
-    SHIORI_E_REENTRANT, SHIORI_E_SHUTDOWN, SHIORI_E_UNSUPPORTED, SHIORI_LOG_DEBUG,
-    SHIORI_LOG_ERROR, SHIORI_LOG_INFO, SHIORI_LOG_WARN,
+    SHIORI_500_INTERNAL_SERVER_ERROR, SHIORI_ABI_VERSION, SHIORI_E_INVALID_ARG,
+    SHIORI_E_INVALID_UTF8, SHIORI_E_PANIC, SHIORI_E_REENTRANT, SHIORI_E_SHUTDOWN,
+    SHIORI_E_UNSUPPORTED, SHIORI_E_WRONG_THREAD, SHIORI_LOG_DEBUG, SHIORI_LOG_ERROR,
+    SHIORI_LOG_INFO, SHIORI_LOG_WARN,
 };
 use shiori4::shiori4_abi::{
-    ShioriBytes, ShioriGetApiFn, ShioriHost, ShioriHostBox, ShioriInstance, SHIORI_E_WRONG_THREAD,
-    SHIORI_GET_API_SYMBOL,
+    ShioriBytes, ShioriGetApiFn, ShioriHost, ShioriHostBox, ShioriInstance, SHIORI_GET_API_SYMBOL,
 };
 
 mod v3;
@@ -86,9 +115,12 @@ mod test_dll;
 /// ホスト（ベースウェア）の実装者が実装する trait
 ///
 /// すべて `&self` で呼ばれる。呼ばれるスレッドはメソッドごとに異なるので注意:
-/// - `property` / `request` / `log` : SHIORI のスレッド（= GhostRuntime を使っているスレッド）
-/// - `accept_post` / `wake`         : 任意のスレッド（SHIORI のワーカーからも呼ばれる）
+/// - `property` / `request`         : SHIORI のスレッド（= GhostRuntime を使っているスレッド）
+/// - `accept_post` / `wake` / `log` : 任意のスレッド（SHIORI のワーカーからも呼ばれる）
 /// - `on_post`                      : GhostRuntime::pump を呼んだスレッド
+///
+/// 任意のスレッドから呼ばれる `accept_post`・`wake`・`log` は、`GhostRuntime` を Drop するスレッドを
+/// 同期で待たないこと（規約 4: コピーしてすぐ返る。待つと unload の門の待ちと互いに待ち合って止まる）
 pub trait Host: Send + Sync + 'static {
     /// プロパティ取得（`ID: property` / `Reference0: <名前>`）に答える
     /// None なら 204（存在しない）。値に含まれる改行は取り除かれる
@@ -103,6 +135,7 @@ pub trait Host: Send + Sync + 'static {
     }
 
     /// post を受け付けるかを、その場で判定する（任意のスレッドから呼ばれる。軽く保つこと）
+    /// `GhostRuntime` を Drop するスレッドを同期で待たないこと（規約 4）
     /// 既定では `Command` ヘッダがあれば受け付ける。false なら SHIORI に 400 を返す
     fn accept_post(&self, req: &Headers<'_>) -> bool {
         req.get(host_protocol::HEADER_COMMAND).is_some()
@@ -112,11 +145,13 @@ pub trait Host: Send + Sync + 'static {
     /// 結果を返すときは `post.into_completer()` を使う。Tag のない post では完了通知は捨てられる
     fn on_post(&self, post: Post);
 
-    /// SHIORI からのログ
+    /// SHIORI からのログ（任意のスレッドから呼ばれる。規約 4）
+    /// `GhostRuntime` を Drop するスレッドを同期で待たないこと（UI スレッドへの同期の送信など）
     fn log(&self, _level: i32, _msg: &str) {}
 
     /// キューに何かが積まれた（任意のスレッドから呼ばれる）
-    /// イベントループに「GhostRuntime::pump を呼んで」と依頼する
+    /// イベントループに「GhostRuntime::pump を呼んで」と依頼する。依頼は非同期で行い、
+    /// `GhostRuntime` を Drop するスレッドを同期で待たないこと（規約 4）
     fn wake(&self) {}
 }
 
@@ -729,7 +764,7 @@ impl<H: Host> Drop for GhostRuntime<H> {
         self.shutdown.store(true, Ordering::Release);
         // 2. 未配送のメッセージを破棄する
         while self.rx.try_recv().is_ok() {}
-        // 3. unload（SHIORI は自分のスレッドを止めてから返る）
+        // 3. unload（unload が返った後、SHIORI はホストを呼ばない。規約 5）
         // SAFETY: 以後 instance には触れない
         unsafe { ManuallyDrop::drop(&mut self.instance) };
         // 4. ホストのテーブルを解放する
@@ -879,6 +914,33 @@ mod tests {
         let _ = r.into_owned();
         // Command のない post は 400
         assert_eq!(ShioriHost::post(&b, b"Tag: 1\r\n"), SHIORI_400_BAD_REQUEST);
+    }
+
+    // ---- Charset を付けない（9.2） ----
+
+    #[test]
+    fn builtin_responses_have_no_charset() {
+        let b = count_bridge(true);
+        for req in [PROP_REQ, b"ID: property\r\n", b"ID: unknown\r\n"] {
+            let r = ShioriHost::request(&b, req).into_owned();
+            assert!(r.status >= 0);
+            assert!(!r.body.as_str().unwrap().to_ascii_lowercase().contains("charset"), "{:?}", r.body.as_str());
+        }
+    }
+
+    #[test]
+    fn completion_headers_have_no_charset() {
+        let (tx, rx) = mpsc::channel();
+        let sender = EventSender { tx, wake: Arc::new(|| {}), shutdown: Arc::new(AtomicBool::new(false)) };
+        let post = Post::new("Command: test.echo\r\nTag: 1\r\n".to_owned(), sender.clone());
+        assert!(post.into_completer().complete(Delivery::Request, SHIORI_200_OK, &["ok"]));
+        let post = Post::new("Command: test.echo\r\nTag: 2\r\n".to_owned(), sender);
+        assert!(post.into_completer().complete_with(Delivery::Notify, "X: y\r\n"));
+        for _ in 0..2 {
+            let Ok(Msg::Event(ev)) = rx.try_recv() else { panic!("event") };
+            assert!(ev.parsed().get(host_protocol::HEADER_TAG).is_some());
+            assert!(!ev.headers.to_ascii_lowercase().contains("charset"), "{}", ev.headers);
+        }
     }
 
     // ---- 規約 2（ThreadGuard） ----
