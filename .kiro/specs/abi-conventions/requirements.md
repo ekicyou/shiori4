@@ -10,7 +10,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 ## Introduction
 この spec は、SHIORI 次世代 ABI の規約（スレッド・寿命・load の失敗・dir の形・Charset・DLL の選び方と読み方）を、3 者（pasta・areka・shiori4）の合意どおりに確定させる。規約の本文は C ヘッダ `shiori4_abi/include/shiori4_abi.h` の冒頭の注釈を正本とし、Rust 版 `shiori4_abi` の doc と、高水準層（`shiori4`・`shiori4_host`）の doc と振る舞いをそれに合わせる。あわせて、ホスト側の高水準層 `shiori4_host` に、DLL の選び方・見る順・読み方の口（論点 12・13・15・16・17）を足す。
 
-要件の番号と brief.md の論点の対応は、各要件の目的の末尾に「（論点 N）」で示す。brief.md で決め切れていない所は、要件の中で **【仮定】** と明示し、末尾の「未決の論点」に挙げる。
+要件の番号と brief.md の論点の対応は、各要件の目的の末尾に「（論点 N）」で示す。brief.md で決め切れていなかった所は、要件ディスカッションで決め、末尾の「要件ディスカッションの決定」に記録した。
 
 ## Boundary Context
 - **In scope**:
@@ -115,9 +115,11 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 1. The C ヘッダ shall v4 と v3 互換モードの両方について、load の dir を「絶対パス・OS の区切り・末尾に区切りあり・UTF-8」と述べる。
 2. The C ヘッダ shall 「カレントディレクトリはホスト次第である。SHIORI はカレントディレクトリに頼らず、load の dir を使う」と述べる。
 3. When ホストが `shiori4_host` にゴーストのディレクトリを渡して load する（v4・v3 互換モードのどちらでも）, the shiori4_host shall SHIORI の load に、絶対パス・OS の区切り・末尾に区切りが 1 つ付いた UTF-8 の文字列を渡す。
-4. If ホストが相対パスを渡す, the shiori4_host shall それを絶対パスにしてから渡す。**【仮定】** 呼び出した時点のプロセスのカレントディレクトリを基準にし、ディレクトリの存在は確かめない（未決の論点 8）。
+4. If ホストが絶対パスでない dir（OS の判定で絶対でないもの。Windows の `\ghost`・`C:ghost` を含む）を渡す, the shiori4_host shall load を呼ばずに `LoadError::InvalidPath` を返す。カレントディレクトリを基準に解決しない（カレントはプロセスに 1 つで、複数のゴーストを別々のスレッドで読むと競争になるため。パスの作り方は呼び出し側の責任）（議題 7）。
 5. If ゴーストのディレクトリが UTF-8 で表せない, the shiori4_host shall load を呼ばずに `LoadError::InvalidPath` を返す。
 6. The shiori4_host shall 末尾に区切りが付いている入力と付いていない入力を、同じ dir として渡す（区切りを二重にしない）。
+7. The shiori4_host shall dir の正規化を見た目（区切りを OS のものにそろえること・末尾の区切りをちょうど 1 つにすること）に限り、ファイルシステムに触れない。存在の確認・シンボリックリンクの解決・`..` の解決はせず、`\\?\` の接頭辞を足さない（呼び出し側が付けて渡したものはそのまま通す）。
+8. The shiori4_host shall dir を受けるすべての口（`GhostRuntime::load`・読み終えたライブラリから作る入口・v3 互換モードの口・`from_static`）で、dir を `Path` として受け、4〜7 の同じ検査と正規化をかける。`from_static` は `&str` から `Path` として受ける形に変えるが、`&str` で呼ぶ既存のコードはそのままビルドできる。
 
 ### Requirement 9: v4 の Charset
 **Objective:** As a SHIORI 実装者・ベースウェア実装者, I want v4 で Charset を付けるかどうかが決まっていること, so that 両者が余計なヘッダを付け合ったり、それで失敗したりしない（論点 7）
@@ -202,7 +204,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 - **議題 4**: `Ghost::load` の失敗（パニックを含む）を高水準層が自動で 1 行 log する（要件 7.5）。
 - **議題 5**: `ShioriHostPoster` から log も呼べる（要件 5.6）。
 - **議題 6**: `ShioriOwnedBytes`／`ShioriOwnedResponse` を `Send` にする（要件 5.7）。
-- **議題 7**: dir の正規化の細部（相対パスの扱い）— 議論中。
+- **議題 7**（個別に議論）: 相対パスは `InvalidPath` で断り、カレントを基準に解決しない。正規化は見た目だけで、ファイルシステムに触れない。dir を受けるすべての口に同じ検査をかける（要件 8.4・8.7・8.8）。
 - **議題 8**: 従来の口で解決したら、口の種類と開いたライブラリを返すだけ（要件 11.5）。
 - **議題 9**: 配布の決まりは C ヘッダの規約の後の節に書き、`shiori4_host` の doc から指す（要件 1.1・14）。
 - **議題 10**: 候補の関数は対象の OS・arch を引数で受ける形だけ。今のプロセスの値は定数で得る（要件 14.3）。
