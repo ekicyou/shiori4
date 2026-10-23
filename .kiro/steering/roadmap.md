@@ -40,6 +40,7 @@ pasta（`C:\home\maz\git\pasta`）のリリースの仕組みを下敷きにし�
 - [x] release-bootstrap-cleanup -- v0.0.1 を 4/4 で出し終えた後、`/release` と手順書から初版のためだけの判定・経路を削る。Dependencies: release-workflow（v0.0.1 のリリースを含む）
 - [ ] abi-conventions -- shiori4_abi.h の規約を、SHIORI 実装者（pasta）とベースウェア実装者（areka）の意見で締める（スレッドの意味・`SHIORI_E_WRONG_THREAD`・unload の結果の約束・log と release のスレッド・notify の後回し・load の失敗理由と 2 つ目のインスタンス・load の dir の形・v4 の Charset）。Rust 側の型と高水準層をそれに合わせる。Dependencies: none
 - [ ] host-protocol -- 暫定の `host_protocol` を、ホスト側プロトコル仕様として確定させる（getproperty / setproperty・post の語彙 SEND / NOTIFY と宛先・割り込み・拒否の返し方・プロパティ名の決まり・v4 の要求ヘッダの語彙・version・OnHostComplete の届け方と Reference の並び）。pasta と areka が上流として参照する正本。Dependencies: none
+- [ ] abi-textbook -- ABI の教科書を作る。中身は README.md（全体図・最小の例・道案内）、docs.rs の利用方法（SHIORI 側とホスト側の例）、C ヘッダの説明（所有権・版の判定・最小の C のホスト）、規約の理由、移行の手引き、ゴーストの配布の決まりの章。あわせて、DLL だけを読んで要求を投げる試験用のホストを作る。要望は pasta と areka に聞いた（`.kiro/specs/abi-textbook/hearing.md`）。Dependencies: abi-conventions, host-protocol
 
 ## Phase 2: v4 の規約とホスト側プロトコルの確定
 
@@ -50,4 +51,4 @@ v0.0.1 の公開の後、SHIORI 実装者（pasta、`SHIORI4:pasta` セッショ
   - 拒否の返し方は 400 ＋ `Reason: forbidden` に決まった（3 者会談）。ABI の定数は足さない
   - どちらも `shiori4/src/lib.rs`・`shiori4_host/src/lib.rs` に触れる。並べて進めるときは片方を先に統合する
   - property の改名（`property` → `getproperty`）は 0.0.1 の動きを壊す唯一の変更。0.0.x のうちに入れる
-- **Release**: 2 本を統合した後、`/release` で 0.0.2 を出す（spec ではない）。0.0.2 は CI からの初めての公開で、1 回の認証で 3 クレートを出せるかと 401・403 の分類も確かめる
+- **Release**: abi-conventions と host-protocol を統合した後、`/release` で 0.0.2 を出す（spec ではない）。0.0.2 は CI からの初めての公開で、1 回の認証で 3 クレートを出せるかと 401・403 の分類も確かめる

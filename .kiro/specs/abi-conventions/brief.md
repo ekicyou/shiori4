@@ -39,6 +39,16 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
     - 背景: areka は v4 の DLL も同じプロセスでは読まず、SHIORI ごとに helper のプロセスを起こして、その中で shiori4_host を使う。
     - 論点 8（同じプロセスでの 2 つ目の load）は、ほかのホストのための規約として残す。
 
+## 開発者が承認した論点（2026-10-23。ヒアリングの論点 b・d・e から）
+13. **両方を持つ DLL**（P・A）: SHIORI/3.0 の書き出し（load・request・unload）と `shiori_get_api` の両方を持つことを許す。
+    - ホストは先に `shiori_get_api` を見る。4 を試し、だめなら 3 を試す。どちらも NULL なら、SHIORI/3.0 の書き出しで読む。
+    - `shiori_get_api` を知らない古いホストは、今までどおり読める。
+14. **カレントディレクトリ**（A）: 規約では決めない。「カレントディレクトリはホスト次第で、SHIORI は頼らずに load の dir を使う」と一行書く。
+15. **読み終えたライブラリから作る入口**（A の正式な要望）: `shiori4_host` に足す。
+    - 形: 読み終えたライブラリから `GhostRuntime` を作る公開の入口（例 `from_library`）。今の `GhostRuntime::load` は変えない。中身は、非公開の `with_api(.., lib: Option<Library>)` にすでにある。
+    - エラーと一緒にライブラリを返すのは、`NotShiori4` と `Unsupported` のときだけ。ホストが SHIORI/3.0 として読み直せるようにするため。
+    - `LoadFailed`（v4 の load が NULL）のときは返さない。「v4 の SHIORI が初期化に失敗したので、読み直さない」と文書に書く。`shiori_get_api` を持つ DLL は v4 だと宣言しているので、旧来の口で取り繕うと、二重の初期化か作者の意図と違う動きになる。
+
 ## 開発者の裁定を待つ論点
 12. **arch ごとの SHIORI の名前**（areka の提案。2026-10-23。pasta にも送付済み）: ゴーストが arch ごとの SHIORI を同梱するときの名前の決まりを、shiori4 の正本に置くかどうか。
     - areka の形: descript.txt の `shiori,pasta.dll` に対し、ホストは arch の接尾辞つきの名前から先に探す。
@@ -66,11 +76,12 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 - **In**:
   - `shiori4_abi`: C ヘッダの規約の注釈、`SHIORI_E_WRONG_THREAD` の定数（C と Rust）、Rust 版の doc。
   - `shiori4`: `ShioriHostPoster` の無効化と、その doc。
-  - `shiori4_host`: スレッドの検査と -7、load の dir の正規化、log と release の任意スレッド対応の確認。
+  - `shiori4_host`: スレッドの検査と -7、load の dir の正規化、log と release の任意スレッド対応の確認、両方を持つ DLL の見る順（論点 13）、読み終えたライブラリから作る入口（論点 15）。
   - 上の 3 つのテスト。
 - **Out**:
   - 運ぶ中身の語彙（property・post のコマンド・必ず付けるヘッダ・version・OnHostComplete）。これは host-protocol。
   - x86 の v4 DLL を別プロセス越しに読むこと（areka は当面しない）。
+  - 教科書としての文書（全体図・移行の手引き・最小の例）。これは abi-textbook。この spec が書くのは、規約の本文と doc の更新まで。
   - SHIORI/3.0 側の HGLOBAL の入口。
 
 ## Boundary Candidates
