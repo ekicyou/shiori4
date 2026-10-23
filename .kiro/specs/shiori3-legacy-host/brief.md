@@ -56,6 +56,7 @@ DLL に触る芯だけを shiori4_host に置く。プロセスの起こし方�
   - 下位 1 バイトだけを読むと、C の DLL が Win32 の BOOL として、下位 1 バイトが 0 で上位が非 0 の値（例 0x100）を返したときに、失敗と読む。正典どおり TRUE(1)／FALSE(0) を返す限り、問題は無い。
   - areka は、わざと下位 1 バイトで読んでいる（`crates/shiori-host32-helper/src/shiori_proxy.rs:206-211`）。
   - 推奨: 下位 1 バイトで読み、この限界を文書に書く（areka と同じ）。
+  - pasta も推奨に賛成した（2026-10-23）。pasta の `-> bool` は既知の不具合で、pasta の spec が BOOL を i32 に直す。それでも、直る前の pasta と同じ書き方の SHIORI を読めるよう、ホストの側の守りとして下位 1 バイトで読む。
 - **c. SHIORI/2.x の見分け**（A）: SHIORI/3.0 の要求に 400 しか返さない DLL（2.x の口しか無いもの）の見分け。推奨: この spec の外にする（areka の spec `shiori2-protocol` が持つ）。
 
 ## Scope
