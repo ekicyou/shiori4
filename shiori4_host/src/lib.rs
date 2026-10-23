@@ -72,6 +72,9 @@ use shiori4::shiori4_abi::{
     ShioriGetApiFn, ShioriHost, ShioriHostBox, ShioriInstance, SHIORI_GET_API_SYMBOL,
 };
 
+mod v3;
+mod discover;
+mod dist;
 #[cfg(test)]
 mod test_dll;
 
