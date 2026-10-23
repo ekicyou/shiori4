@@ -434,6 +434,52 @@ impl std::error::Error for LoadError {
     }
 }
 
+/// [`GhostRuntime::from_library`] の失敗。読み直せる失敗ではライブラリを返す
+///
+/// ライブラリが返るのは `InvalidPath`・`NotShiori4`・`Unsupported`（SHIORI の初期化の前の失敗）
+/// のときだけ。`LoadFailed` では返さない（v4 の SHIORI が初期化に失敗したので読み直さない。
+/// `shiori_get_api` を持つ DLL は v4 だと宣言しているので、旧来の口で取り繕うと二重の初期化か
+/// 作者の意図と違う動きになる）。フィールドは非公開で、この組み合わせは型の中で守る
+#[derive(Debug)]
+pub struct FromLibraryError {
+    error: LoadError,
+    library: Option<libloading::Library>,
+}
+
+impl FromLibraryError {
+    pub fn error(&self) -> &LoadError {
+        &self.error
+    }
+
+    /// `NotShiori4`・`Unsupported`・`InvalidPath` のときだけ Some
+    pub fn into_library(self) -> Option<libloading::Library> {
+        self.library
+    }
+
+    pub fn into_parts(self) -> (LoadError, Option<libloading::Library>) {
+        (self.error, self.library)
+    }
+}
+
+impl fmt::Display for FromLibraryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.fmt(f)
+    }
+}
+
+impl std::error::Error for FromLibraryError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
+/// ライブラリを捨てて LoadError にする
+impl From<FromLibraryError> for LoadError {
+    fn from(e: FromLibraryError) -> Self {
+        e.error
+    }
+}
+
 /// dir を検査し、見た目だけ正規化する（絶対パス・OS の区切り・末尾に区切り 1 つの UTF-8）
 ///
 /// ファイルシステムには触れない（存在の確認・リンクや `..` の解決・`\\?\` の付加をしない）。
@@ -481,21 +527,51 @@ impl<H: Host> GhostRuntime<H> {
         ghost_dir: impl AsRef<Path>,
         host: H,
     ) -> Result<Self, LoadError> {
-        let dir = normalize_dir(ghost_dir.as_ref())?;
+        // dir の検査をライブラリを開くより先にする（開けないライブラリでも InvalidPath が先に出る）
+        normalize_dir(ghost_dir.as_ref())?;
 
         // SAFETY: ライブラリの初期化コードが実行される。信頼できる SHIORI だけを読み込むこと
         let lib = unsafe { libloading::Library::new(lib_path) }.map_err(LoadError::Library)?;
-        let get: ShioriGetApiFn = unsafe { lib.get::<ShioriGetApiFn>(SHIORI_GET_API_SYMBOL) }
-            .map(|s| *s)
-            .map_err(|_| LoadError::NotShiori4)?;
+        Self::from_library(lib, ghost_dir, host).map_err(LoadError::from)
+    }
+
+    /// 読み終えたライブラリから v4 で作る
+    ///
+    /// 手順は dir の検査 → `shiori_get_api` を探す → 版 4 のテーブルの検査 → load。
+    /// `InvalidPath`・`NotShiori4`・`Unsupported` で失敗したときは、エラーと一緒にライブラリを返す
+    /// （[`FromLibraryError::into_library`]）。どれも SHIORI の初期化の前なので、dir を直したり、
+    /// 別の版や SHIORI/3.0 として同じライブラリで読み直したりできる。
+    ///
+    /// `LoadFailed`（v4 の load が NULL を返した）ではライブラリを返さない。v4 の SHIORI が
+    /// 初期化に失敗したので読み直さない。`shiori_get_api` を持つ DLL は v4 だと宣言しているので、
+    /// 旧来の口で取り繕うと二重の初期化か作者の意図と違う動きになる。理由は `Host::log` に届いている。
+    ///
+    /// lib は信頼できる SHIORI であること（`shiori_get_api` と load で DLL のコードが動く）
+    pub fn from_library(
+        lib: libloading::Library,
+        ghost_dir: impl AsRef<Path>,
+        host: H,
+    ) -> Result<Self, FromLibraryError> {
+        let load_failed = |error| FromLibraryError { error, library: None };
+        let dir = match normalize_dir(ghost_dir.as_ref()) {
+            Ok(d) => d,
+            Err(error) => return Err(FromLibraryError { error, library: Some(lib) }),
+        };
+        let get: ShioriGetApiFn = match unsafe { lib.get::<ShioriGetApiFn>(SHIORI_GET_API_SYMBOL) } {
+            Ok(s) => *s,
+            Err(_) => return Err(FromLibraryError { error: LoadError::NotShiori4, library: Some(lib) }),
+        };
 
         let p = unsafe { get(SHIORI_ABI_VERSION) };
         // SAFETY: lib は GhostRuntime の最後のフィールドとして保持し、instance より後に解放する。
         // 'static はこの構造体の外へ漏らさない
-        let api: &'static ShioriApi =
-            unsafe { ShioriApi::from_raw(p, SHIORI_ABI_VERSION) }.map_err(LoadError::Unsupported)?;
+        let api: &'static ShioriApi = match unsafe { ShioriApi::from_raw(p, SHIORI_ABI_VERSION) } {
+            Ok(api) => api,
+            Err(s) => return Err(FromLibraryError { error: LoadError::Unsupported(s), library: Some(lib) }),
+        };
 
-        Self::with_api(api, &dir, host, Some(lib))
+        // with_api が失敗したとき lib は中で捨てられる（LoadFailed は読み直さない）
+        Self::with_api(api, &dir, host, Some(lib)).map_err(load_failed)
     }
 
     /// 同じプロセス内のテーブル（ShioriApi::new で作った static）を使う。テスト用
@@ -1037,5 +1113,102 @@ mod tests {
     #[test]
     fn invalid_path_display_mentions_absolute() {
         assert!(LoadError::InvalidPath.to_string().contains("absolute"));
+    }
+
+    // ---- from_library（要件 7.6・12.1〜12.4） ----
+
+    struct FailGhost;
+
+    impl Ghost for FailGhost {
+        fn load(_host: Option<ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+            Err(SHIORI_500_INTERNAL_SERVER_ERROR)
+        }
+
+        fn request(&mut self, _req: &Headers<'_>) -> ShioriResponse {
+            ShioriResponse::no_content()
+        }
+    }
+
+    static FAIL_API: ShioriApi = ShioriApi::new::<Adapter<FailGhost>, { SHIORI_ABI_VERSION }>();
+
+    #[test]
+    fn from_static_load_null_is_load_failed() {
+        let r = GhostRuntime::from_static(&FAIL_API, GHOST_DIR, TestHost { woken: AtomicUsize::new(0) });
+        assert!(matches!(r, Err(LoadError::LoadFailed)));
+    }
+
+    fn test_lib() -> libloading::Library {
+        unsafe { libloading::Library::new(crate::test_dll::dll_path()) }.expect("テスト用 DLL を開けない")
+    }
+
+    fn test_host() -> TestHost {
+        TestHost { woken: AtomicUsize::new(0) }
+    }
+
+    #[test]
+    fn from_library_ok() {
+        let _g = crate::test_dll::lock();
+        let mut rt = GhostRuntime::from_library(test_lib(), GHOST_DIR, test_host()).expect("load");
+        let r = rt.request("ID: OnBoot\r\n").expect("abi");
+        assert!(r.body.as_str().unwrap().contains("Value: testghost"));
+    }
+
+    #[test]
+    fn from_library_not_shiori4_returns_library() {
+        #[cfg(windows)]
+        const OS_LIB: &str = "kernel32.dll";
+        #[cfg(target_os = "macos")]
+        const OS_LIB: &str = "/usr/lib/libSystem.B.dylib";
+        #[cfg(all(unix, not(target_os = "macos")))]
+        const OS_LIB: &str = "libc.so.6";
+        let lib = unsafe { libloading::Library::new(OS_LIB) }.expect("OS のライブラリを開けない");
+        let e = GhostRuntime::from_library(lib, GHOST_DIR, test_host()).err().expect("失敗するはず");
+        assert!(matches!(e.error(), LoadError::NotShiori4));
+        assert!(e.into_library().is_some());
+    }
+
+    #[test]
+    fn from_library_unsupported_returns_library() {
+        let _g = crate::test_dll::lock();
+        let lib = test_lib();
+        crate::test_dll::set_mode(&lib, crate::test_dll::MODE_V3);
+        let e = GhostRuntime::from_library(lib, GHOST_DIR, test_host()).err().expect("失敗するはず");
+        assert!(matches!(e.error(), LoadError::Unsupported(_)));
+        // 返ったライブラリでやり直せる
+        let lib = e.into_library().expect("ライブラリが返る");
+        crate::test_dll::set_mode(&lib, crate::test_dll::MODE_DEFAULT);
+        assert!(GhostRuntime::from_library(lib, GHOST_DIR, test_host()).is_ok());
+    }
+
+    #[test]
+    fn from_library_invalid_path_returns_library() {
+        let _g = crate::test_dll::lock();
+        let e = GhostRuntime::from_library(test_lib(), "ghost", test_host()).err().expect("失敗するはず");
+        assert!(matches!(e.error(), LoadError::InvalidPath));
+        let (err, lib) = e.into_parts();
+        assert!(matches!(err, LoadError::InvalidPath));
+        // dir を直して同じライブラリでやり直せる
+        assert!(GhostRuntime::from_library(lib.expect("ライブラリが返る"), GHOST_DIR, test_host()).is_ok());
+    }
+
+    #[test]
+    fn from_library_load_failed_drops_library() {
+        let _g = crate::test_dll::lock();
+        let dir = std::path::Path::new(GHOST_DIR).join("fail");
+        let e = GhostRuntime::from_library(test_lib(), &dir, test_host()).err().expect("失敗するはず");
+        assert!(matches!(e.error(), LoadError::LoadFailed));
+        assert_eq!(e.to_string(), LoadError::LoadFailed.to_string());
+        assert!(std::error::Error::source(&e).is_some());
+        assert!(matches!(LoadError::from(e), LoadError::LoadFailed));
+    }
+
+    #[test]
+    fn load_goes_through_from_library() {
+        let _g = crate::test_dll::lock();
+        let rt = GhostRuntime::load(crate::test_dll::dll_path(), GHOST_DIR, test_host());
+        assert!(rt.is_ok());
+        let dir = std::path::Path::new(GHOST_DIR).join("fail");
+        let r = GhostRuntime::load(crate::test_dll::dll_path(), &dir, test_host());
+        assert!(matches!(r, Err(LoadError::LoadFailed)));
     }
 }

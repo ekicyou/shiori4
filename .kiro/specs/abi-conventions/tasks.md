@@ -80,7 +80,7 @@
   - 完了: OS ごとの表のテスト（末尾の区切りの有無が同じ結果、`C:/a/b` → `C:\a\b\`、`C:\`・`/`・UNC・`\\?\` の扱い、相対・`\ghost`・`C:ghost`・UTF-8 でない → `InvalidPath`）と既存のテストが通る
   - _Requirements: 8.3, 8.4, 8.5, 8.6, 8.7, 8.8_
 
-- [ ] 5.3 読み終えたライブラリから v4 のランタイムを作る入口と、ライブラリを返すエラーを作る
+- [x] 5.3 読み終えたライブラリから v4 のランタイムを作る入口と、ライブラリを返すエラーを作る
   - dir の検査 → `shiori_get_api` を探す → 版 4 のテーブルを検査 → load の順で作る。`NotShiori4`・`Unsupported`・`InvalidPath` ではエラーと一緒にライブラリを返し、`LoadFailed` では返さない
   - ライブラリを返すかどうかを型の中（非公開のフィールド）で守り、`LoadFailed` で返さない理由を doc に書く。エラーは `Display`・`Error`・`LoadError` への変換を持つ
   - 既存の `GhostRuntime::load` を、ライブラリを開いてこの入口に渡す形にしてよい（形と結果は変えない）
@@ -154,3 +154,4 @@
 - 3.1: 規約の本文は scratchpad の conv.txt から splice.py で C ヘッダと `//!` の両方に流し込み、compare.py で同文を確かめた（`//!` の規約の節にはバッククォートを使わない）。3.2 も同じ手で節を足す
 - 5.1: `SHIORI_E_WRONG_THREAD` は shiori4_host の非公開の `use shiori4::shiori4_abi::{..}` に入れた。5.4 で `pub use` に足すときは非公開の側から外す
 - 5.2: dir の検査と正規化は shiori4_host の非公開 `normalize_dir(&Path) -> Result<String, LoadError>`。テストの dir は OS ごとの定数 `GHOST_DIR` を使う
+- 5.3: テスト用 DLL のモードは `test_dll::set_mode(&lib, mode)` で、開いているライブラリに対して設定する（すべてのハンドルを閉じると DLL が外れてモードが既定に戻るため）。subagent の継ぎはぎのスクリプトが `\r\n` のエスケープを壊したことがある。文字列のエスケープは diff で確かめる

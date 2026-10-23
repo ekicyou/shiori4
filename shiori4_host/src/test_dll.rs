@@ -35,6 +35,21 @@ pub(crate) fn dll_path() -> &'static Path {
     })
 }
 
+/// v4 のテーブルを出す（testdata/testghost/src/lib.rs と同じ値）
+pub(crate) const MODE_V4: u32 = 1;
+/// v3 のテーブルを出す
+pub(crate) const MODE_V3: u32 = 2;
+/// 既定: v4 と v3 の両方を出す
+pub(crate) const MODE_DEFAULT: u32 = MODE_V4 | MODE_V3;
+
+/// DLL のモードを設定する。[`lock`] を取ってから呼ぶこと
+///
+/// モードは DLL の static なので、lib を全部閉じると DLL が外れて既定に戻る。開いたままの lib に掛ける
+pub(crate) fn set_mode(lib: &libloading::Library, mode: u32) {
+    let f = unsafe { lib.get::<unsafe extern "C" fn(u32)>(b"testghost_set_mode") }.expect("testghost_set_mode が無い");
+    unsafe { f(mode) };
+}
+
 /// DLL のモードを守るロック。前のテストのパニックで毒になっていても使う
 pub(crate) fn lock() -> MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
