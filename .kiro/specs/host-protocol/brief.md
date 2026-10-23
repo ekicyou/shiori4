@@ -128,3 +128,4 @@ SHIORI 実装者（pasta）にとって v4 の最大の利点は「SHIORI から
 ## 下流の予定（参考・2026-10-23 pasta より）
 - pasta 0.4.2: shiori4 の v3 互換モード（`shiori_get_api(3)`）を出し、Windows 以外でも SHIORI/3.0 として動かす。
 - pasta 0.5.0: v4（host.request・post・OnHostComplete）に本格対応する。abi-conventions と host-protocol の 2 本を前提にする。
+- areka v0.2.0: 自前の COM の SHIORI（IShiori 系）と JSON-RPC の紙の契約をやめ、shiori4 に完全に移る（spec `shiori4-api`）。着手の条件は、host-protocol が入った shiori4 の版が crates.io に出ていること（2026-10-23 areka より）。
