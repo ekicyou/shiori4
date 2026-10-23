@@ -203,6 +203,38 @@
   - 完了の状態: 上の 3 種の確かめがすべて通った出力がある
   - _Requirements: 14.6, 16.7, 2.3_
 
+- [ ] 9. 初版 0.0.1 のリリース
+  - 手順書（`.github/release-ci-setup.md`）の「位置づけと全体の流れ」を、その順に実施する。開発者の作業は開発者が行い、エージェントは手順の案内と結果の確かめだけを受け持つ（アカウントの設定・トークンの作成・手での公開をエージェントは行わない）
+  - kiro-complete は統合と spec の完了を一度に行うので、本仕様の PR の統合だけを 9.2 で先に行い、spec の完了（kiro-complete）は 9.6 の後に行う
+  - _Requirements: 14.1, 14.2, 14.4, 14.5, 15.1, 15.4, 15.5_
+
+- [ ] 9.1 （開発者）GitHub の environment `release` を作る
+  - 手順書の節「GitHub: environment `release`」のとおり、タグの規則 `v*` だけに限る。main のブランチ保護（推奨）も同じ節に従う
+  - 完了の状態: environment `release` があり、Deployment branches and tags がタグ `v*` だけになっている（エージェントが `gh api` で読んで確かめる）
+
+- [ ] 9.2 本仕様の PR を作り、main に統合する
+  - 作業ブランチを push し、PR を作る。PR の CI（build.yml。job `release-scripts` の ubuntu での初回の実行を含む）が通ってから squash で統合する
+  - spec はまだ completed に移さない
+  - 完了の状態: main に release.yml と `doc/release-notes/v0.0.1.md` があり、定型 C（`-Version 0.0.1 -Target origin/main`）の 4 行が合格する
+
+- [ ] 9.3 （開発者）初版 0.0.1 の 3 クレートを手で公開する
+  - 手順書の節「【初版のみ】初版 0.0.1 の手動公開」のとおり
+  - 完了の状態: 定型 A で crates.io の 3 クレートが `0.0.1 あり`、集計が 3/4
+
+- [ ] 9.4 （開発者）3 クレートに Trusted Publisher を登録する
+  - 手順書の節「crates.io: Trusted Publisher」と「名前の対応表」のとおり
+  - 完了の状態: 3 クレートの Trusted Publisher の値が名前の対応表と一致する（開発者が画面で確かめる）
+
+- [ ] 9.5 `/release` で初版のリリースタグと GitHub Release をそろえる
+  - 9.1〜9.4 の後に `/release` を実行する。判定表 S の S2 から節「初版の経路【初版のみ】」に進む
+  - 完了の状態: リリース CI の結果表で 3 クレートが `skipped`・GitHub Release が `published`、定型 A が 4/4・不明 0。手順と食い違った点は報告に書く
+  - _Depends: 9.1, 9.2, 9.3, 9.4_
+
+- [ ] 9.6 （開発者）後片付けをする
+  - 手順書の節「後片付け（必須）」のとおり（Trusted Publisher の照合・Trusted Publishing のみの有効化・API トークンの失効・手元から消す）
+  - 完了の状態: 開発者が 4 項目の完了を伝える。その後に kiro-complete で本仕様を完了する
+  - _Depends: 9.5_
+
 ## Implementation Notes
 - verify-tag.ps1 は版と見どころを `git show` ではなく作業ツリーから読む。release.yml の verify は必ずタグのコミットを checkout すること（2.1）
 - 定型 A は crates.io の最上位 404 と gh の「workflow release.yml not found」を `無し` として扱う（200・404 以外だけが `不明`）。release.yml が main に入る前でも `不明 0` になる
