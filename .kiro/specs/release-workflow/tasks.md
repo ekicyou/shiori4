@@ -225,7 +225,7 @@
   - 手順書の節「crates.io: Trusted Publisher」と「名前の対応表」のとおり
   - 完了の状態: 3 クレートの Trusted Publisher の値が名前の対応表と一致する（開発者が画面で確かめる）
 
-- [ ] 9.5 `/release` で初版のリリースタグと GitHub Release をそろえる
+- [x] 9.5 `/release` で初版のリリースタグと GitHub Release をそろえる
   - 9.1〜9.4 の後に `/release` を実行する。判定表 S の S2 から節「初版の経路【初版のみ】」に進む
   - 完了の状態: リリース CI の結果表で 3 クレートが `skipped`・GitHub Release が `published`、定型 A が 4/4・不明 0。手順と食い違った点は報告に書く
   - _Depends: 9.1, 9.2, 9.3, 9.4_
@@ -246,3 +246,4 @@
 - 9.2: PR #4 を squash で統合（main の c71bdee）。作業ブランチは squash の前の履歴のまま残るので、以後のコミットを main に入れるときは main を取り込んでから PR にする
 - 9.1: 開発者の指示で、environment `release`（カスタムの規則、タグ `v*` だけ）と main の保護（強制 push と削除の禁止のみ。直接 push・レビューは縛らない）をエージェントが `gh api` で設定した。手順書の画面の手順と同じ結果になる
 - 9.3: 開発者が cargo login（トークンは `CARGO_HOME`=`c:\rust\cargo` の credentials.toml）、エージェントが main の先頭 c71bdee から `cargo publish --workspace` で 3 クレートを公開した。定型 A は 3/4・不明 0
+- 9.5: `/release` を S2【初版のみ】で実行し、`v0.0.1`（c71bdee）を push。リリース CI 39888963308 は success、3 クレート `skipped`・GitHub Release `published`、定型 A 4/4・不明 0。手順との食い違い 2 点: (1) spec の作業ブランチは main に無いコミット（tasks.md・steering）を持つので段 1 の手順 3 で止まる。main の先頭から作った別の作業ツリーで実行した（版の更新の無い初版だから成り立つ。以後のリリースもリリース専用のブランチで行う前提を手順に書くか検討） (2) PowerShell ツールは呼び出しごとに作業ディレクトリが戻るので、定型コマンドの前に `Set-Location` が要った（段 7 の手順 2 は `--repo` を足した）
