@@ -22,8 +22,14 @@ SHIORI 実装者（pasta）にとって v4 の最大の利点は「SHIORI から
 
 ## Desired Outcome
 - ホスト側プロトコル仕様（文書）が shiori4 リポジトリにあり、pasta・areka・shiori4 の 3 者の正本になっている。
-- `host_protocol` の定数と `shiori4_host` の組み込みの処理が、その仕様どおりに動く。
-- SHIORI 側の高水準層（`shiori4`）から、プロパティの読み書きと SEND / NOTIFY の post を型のついた呼び方で使える。
+- 3 つのクレートの芯（ABI の口と runtime）は、やり取りされる文字列の中身を解釈しない（下の「方針」）。
+- 仕様の語に合わせた **パースのための便利関数** が、独立したモジュールとして提供されている。使いたい人だけが使う。
+
+## 方針（2026-10-23 開発者の裁定）
+- このリポジトリが支えるのは、インターフェースの変換と取得までである。中身の通信には関与しない。芯が求めてよいのは、文字列の口で UTF-8 であることだけ。
+- 中身に関与してよいのは「パースのための便利関数を提供するので、使いたい人は使ってね」という立場の部分だけ。将来、中身が JSON-RPC などに替わるかもしれないので、芯にパースの層を抱え込まない。
+- したがって、この spec は 3 者で決めた語を **仕様の文書** として持つ。runtime の振る舞いとしては持たない。語に合わせた便利関数のモジュールも持つ。
+- 知らない `Command` の post（議題 2）は、runtime が中身を見ないので決め事が要らない。便利関数も判定しない。
 
 ## 合意した論点（pasta = P、areka = A）
 1. **プロパティの読み書き**（A1）:
@@ -79,18 +85,25 @@ SHIORI 実装者（pasta）にとって v4 の最大の利点は「SHIORI から
 上の 1〜9 は、pasta・areka の 2 者が合意し、2026-10-23 に shiori4 へ届けたもの（割れたものは無い）。10〜12 は areka の追加の提案で、3 者とも同意した。要件の段では、これを開発者が承認する。
 
 ## Approach
-仕様の本文は、新しい文書 `doc/host-protocol.md` に置く。置き場所は設計で確定させる。`shiori4` の crate doc と `host_protocol` モジュールの doc はその文書を指す。
+仕様の本文は、新しい文書（例 `doc/host-protocol.md`。置き場所は設計で確定させる）に置く。
 
-- 定数は `shiori4::host_protocol` に足す。
-- `shiori4_host` の `Host` trait と `Bridge` の組み込みの処理（getproperty・setproperty・accept_post の既定・完了通知）を、仕様どおりにする。
-- SHIORI 側の高水準層には、get / set のプロパティと、SEND / NOTIFY の post の呼び方を足す。
+- **芯から中身の解釈を外す**:
+  - `shiori4_host` の `Bridge` は、要求を解析せずに `Host` へそのまま渡す。今の組み込みの `property` の応答はやめる。
+  - `accept_post` の既定は、全部を受け付ける（`Command` の判定をやめる）。
+  - 完了通知の芯は、ヘッダの全文を渡す `complete_with`。
+- **便利関数のモジュール**: 次のものを、芯から呼ばれない独立したモジュールに移す。モジュールの名前と、どのクレートに置くかは設計で決める。芯はこのモジュールに依存しない。将来の別の語（JSON-RPC など）は、別のモジュールを並べて足す。
+  - `Headers` の解析と `HeaderWriter`
+  - `host_protocol` の名前の定数（`getproperty` への改名・`setproperty`・`SEND`・`NOTIFY`・`Reason` などを足す）
+  - Status と Reference を並べた OnHostComplete の組み立て
+  - `Tag` で完了を待つ `PendingTags`
+  - get / set のプロパティと、SEND / NOTIFY の post を組み立てる関数
+- 公開済みの 0.0.1 の API が動く（芯から外れる）。利用者はまだいないので、0.0.x のうちに行う。
 
 ## Scope
 - **In**:
-  - ホスト側プロトコル仕様の文書。
-  - `host_protocol` の定数（改名と追加）。
-  - `shiori4` のプロパティと post の呼び方。
-  - `shiori4_host` の `Host` trait の追加メソッド（setproperty など）と組み込みの処理。
+  - ホスト側プロトコル仕様の文書（上の論点 1〜12）。
+  - 芯から中身の解釈を外すこと（`Bridge`・`accept_post`・完了通知）。
+  - 便利関数のモジュール（移すものと足すもの）。
   - 上のテスト。
   - pasta・areka への正本の場所の連絡。
 - **Out**:
@@ -98,11 +111,12 @@ SHIORI 実装者（pasta）にとって v4 の最大の利点は「SHIORI から
   - SSTP そのもの（ネットワーク越しの SSTP の受け口）。
   - ukadoc のプロパティの一覧を shiori4 が持つこと（名前の決まりだけを持つ）。
   - ベースウェアの再生キューの実装。
+  - 語の守らせ方（ホストが SEND を割り込ませる・Reason を返すなど）。これはホストの実装が持つ。
 
 ## Boundary Candidates
 - 仕様の文書（語彙の正本）
-- SHIORI 側の型のついた呼び方（`shiori4`）
-- ホスト側の組み込みの処理と `Host` trait の拡張（`shiori4_host`）
+- 芯（runtime）から中身の解釈を外すこと
+- パースのための便利関数のモジュール
 
 ## Out of Boundary
 - ABI の関数テーブルとスレッド規約（abi-conventions）
@@ -122,7 +136,7 @@ SHIORI 実装者（pasta）にとって v4 の最大の利点は「SHIORI から
 
 ## Constraints
 - 確定した語は shiori4 を正本とする。areka・pasta の文書は shiori4 の仕様を参照し、語を写して変えない。
-- property の改名以外は、0.0.1 の動きを変えない（足すだけ）。
+- 芯から中身の解釈を外すことと、property の改名は、0.0.1 の API を動かす。0.0.x のうちに行う。
 - ヘッダの書式は SHIORI/3.0 と同じ（`名前: 値`、CRLF、ヘッダ部分だけ）。
 - 要件の段に入ったら、決まった語を pasta・areka の両セッションへ知らせる。
 
