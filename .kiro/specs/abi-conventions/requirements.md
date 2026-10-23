@@ -37,10 +37,10 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 **Objective:** As a SHIORI 実装者・ベースウェア実装者（Rust 以外の実装者を含む）, I want C ヘッダ・Rust の doc・高水準層の doc が同じ規約を同じ言葉で述べていること, so that どれを読んでも同じ一通りの意味に読める（全論点）
 
 #### Acceptance Criteria
-1. The C ヘッダ shall この spec の要件 2〜11 で定める規約の本文（要件 11 は発見の順の要約）を、冒頭の注釈に日本語で持つ（規約の正本）。
+1. The C ヘッダ shall この spec の要件 2〜11 で定める規約の本文（要件 11 は発見の順の要約）を冒頭の注釈に、要件 14 の配布の決まりを規約の後の節に、日本語で持つ（規約の正本）。
 2. The shiori4_abi shall クレート冒頭の doc に、C ヘッダと同じ番号・同じ言葉で同じ規約を持つ。
 3. The shiori4_abi・shiori4・shiori4_host と steering の `tech.md` shall 規約に触れる doc（`Ghost`・`Shiori`・`ShioriHostPoster`・`Host`・`GhostRuntime`・`tech.md` のスレッド規約など）で、C ヘッダの規約と食い違う記述（「Drop で止めて join すること」「unload の中で post するスレッドをすべて止めてから返る」など）を持たない。
-4. If C ヘッダと Rust の doc の一方にだけある規約がある（例: Rust にだけある「エクスポートする関数はパニックを SHIORI_E_PANIC に変換する」）, the C ヘッダ と shiori4_abi shall 両方に同じ規約を持つか、言語に固有の注意として区別して書く。
+4. If C ヘッダと Rust の doc の一方にだけある規約がある（例: Rust にだけある「エクスポートする関数はパニックを SHIORI_E_PANIC に変換する」）, the C ヘッダ と shiori4_abi shall 両方に同じ規約を持つ。パニックの規約は、言語によらない形（「エクスポートする関数は、例外・パニックを境界の外へ出さず `SHIORI_E_PANIC` を返す」）で C ヘッダの規約に入れる（議題 3）。
 5. The C ヘッダ と shiori4_abi shall 構造体のレイアウト（`SHIORI_STATIC_ASSERT` とコンパイル時の検査が確かめる大きさ・オフセット）を変えない。
 6. The C ヘッダ と shiori4_abi shall 既存の公開シンボル・関数テーブル・定数の値を変えず、足すのは定数と注釈（関数テーブルは末尾追加の規則に従う）だけにする。
 
@@ -72,9 +72,9 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 2. The C ヘッダ shall 「unload は長く止まらないこと。ホストは OS の終了の猶予の中で、各インスタンスの unload を呼ぶことがある」という注意を、時間の数字を書かず、SHIORI に join を求めない言い回しで持つ。
 3. When ホストがそのインスタンスの unload を始める, the shiori4_abi（`shiori_unload`） shall そのインスタンスから取り出したすべての `ShioriHostPoster` を無効にする。
 4. While `ShioriHostPoster` が無効である, the shiori4_abi shall その `post` の呼び出しでホストに触れず、`SHIORI_E_SHUTDOWN` を返す。
-5. When unload が返る, the shiori4_abi shall それ以後、そのインスタンスの `ShioriHostPoster` を通じて ShioriHostApi のどの関数も呼ばれない状態にしている（unload を始める前に始まっていた post の呼び出しも含む）。**【仮定】** 実行中の post の呼び出しが返るのを unload の中で待つことは、「join を求めない」に反しない（未決の論点 2）。
+5. When unload が返る, the shiori4_abi shall それ以後、そのインスタンスの `ShioriHostPoster` を通じて ShioriHostApi のどの関数も呼ばれない状態にしている（unload を始める前に始まっていた post の呼び出しも含む）。そのため unload は、門を閉じた時点で実行中の post の呼び出しが返るのを待ってよい。待つのは post 1 回分（規約 4 でコピーしてすぐ返る）だけで、Ghost 実装者のスレッドの終わりを待つ join とは別であり、「join を求めない」に反しない（議題 2）。
 6. The shiori4_abi と shiori4 shall Ghost 実装者・`Shiori` を直接実装する人に、unload（Drop）の中で post するスレッドを止めて join することを求めない。そのスレッドが unload の後も動き続けて post を呼んでも、`SHIORI_E_SHUTDOWN` が返るだけで安全である。
-7. The shiori4_abi shall `ShioriHostPoster` を使う既存の Ghost のコード（取り出し・複製・別スレッドへの持ち出し・`PendingTags::post`）を、書き換えなしでビルドできるように保つ。**【仮定】** 複製の性質（`Copy`）を保てない場合は設計で判断する（未決の論点 1）。
+7. The shiori4_abi shall `ShioriHostPoster` を使う既存の Ghost のコード（取り出し・複製・別スレッドへの持ち出し・`PendingTags::post`）を、複製の書き方を除いて書き換えなしでビルドできるように保つ。無効化の印を共有するため `ShioriHostPoster` から `Copy` を外し、`Clone` は残す（複製は `.clone()` で書く）。これは 0.0.x の破壊的な変更として、リリースノートに移行の仕方を書く（議題 1）。
 
 ### Requirement 5: log と release のスレッド
 **Objective:** As a SHIORI 実装者・ベースウェア実装者, I want `host->log` と `ShioriBytes.release` を呼べるスレッドが決まっていること, so that ワーカースレッドからのログや、応答を別スレッドで捨てることを安心してできる（論点 3）
@@ -85,7 +85,8 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 3. When SHIORI が任意のスレッドから `host->log` を呼ぶ, the shiori4_host shall それを受けて `Host::log` に渡し、すぐ返る。
 4. The shiori4_host shall `Host::log` の doc で、任意のスレッドから呼ばれることを述べる。
 5. The shiori4_abi shall 自分が確保して渡す `ShioriBytes` の release が、どのスレッドから呼ばれても正しく解放されることを保つ。
-6. Where shiori4_abi が別スレッドへ持ち出せるホストの口（`ShioriHostPoster`）を持つ, the shiori4_abi shall そこから log も呼べるようにし、無効化（要件 4）の後は log でもホストに触れない。**【仮定】** 持ち出せる口に log を足す（未決の論点 6）。
+6. Where shiori4_abi が別スレッドへ持ち出せるホストの口（`ShioriHostPoster`）を持つ, the shiori4_abi shall そこから log も呼べるようにし、無効化（要件 4）の後は log でもホストに触れない（議題 5）。
+7. The shiori4_abi shall `ShioriOwnedBytes` と `ShioriOwnedResponse` を、別のスレッドへ渡せる（`Send`）型にする。release がどのスレッドから呼ばれてもよいという規約（5.2）を型で表すため（議題 6）。
 
 ### Requirement 6: notify の後回し
 **Objective:** As a SHIORI 実装者, I want notify をすぐ返して処理を後回しにしてよいかが決まっていること, so that ホストのスレッドを止めずに重い処理ができる（論点 4）
@@ -103,7 +104,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 2. The C ヘッダ shall 「SHIORI は同じプロセスでの 2 つ目のインスタンスを拒否してよい（NULL ＋ log）。拒否されたホストは、そのゴーストを読めなかったものとして扱い、ゴーストごとに別のプロセスで読むか、拒否を受け入れる」と述べる。
 3. The C ヘッダ shall 「SHIORI は、できれば複数のインスタンスを受けるべきである（状態をインスタンスごとに持ち、グローバルな状態を避ける）」と推奨として述べる。
 4. The C ヘッダ shall 「v3 の load は失敗の理由を返さない（NULL を返すだけ）」と述べる。
-5. If v4 の Ghost の load が失敗する, the SHIORI 側の高水準層 shall NULL を返す前に、`host->log` に失敗したことを出す。**【仮定】** 高水準層は失敗のステータスを含む 1 行を自動で出し、詳しい理由は Ghost 実装者が自分で log する（未決の論点 5）。
+5. If v4 の Ghost の load が失敗する, the SHIORI 側の高水準層 shall NULL を返す前に、`host->log` に失敗のステータスを含む 1 行を自動で出す。Ghost の load がパニックして失敗したときも出す。詳しい理由は Ghost 実装者が自分で log する（議題 4）。
 6. If SHIORI の load が NULL を返す, the shiori4_host shall `LoadError::LoadFailed` を返し、そのゴーストを読めなかったものとしてホストに知らせる（v4 では理由は `Host::log` に届いている）。
 7. The shiori4 の `export_ghost!` で作った SHIORI shall 同じプロセスでの複数のインスタンスを受け付ける（インスタンスごとに別の状態を持つ）。
 
@@ -144,7 +145,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 2. When ホストが `shiori4_host` で DLL を読み、`shiori_get_api` が見つかる, the shiori4_host shall その DLL を shiori4 の DLL として扱い、v4 を試し、v4 のテーブルが得られなければ v3 互換モードを試す。
 3. If `shiori_get_api` が v4 と v3 のどちらにも NULL を返す, the shiori4_host shall そのゴーストを読めなかったものとして返し、`loadu`・`load` へはフォールバックしない。
 4. If `shiori_get_api` で解決した口の load が失敗する, the shiori4_host shall `LoadError::LoadFailed` を返し、ほかの版・ほかの口へはフォールバックしない。
-5. When `shiori_get_api` が見つからない, the shiori4_host shall `loadu`、無ければ `load` の書き出しを探し、見つかった従来の口を結果としてホストに知らせる。**【仮定】** この spec の `shiori4_host` は従来の口で DLL を初期化せず、どの口で解決したかと開いたライブラリを返すだけにする。従来の口で読むのは shiori3-legacy-host が足す（未決の論点 9）。
+5. When `shiori_get_api` が見つからない, the shiori4_host shall `loadu`、無ければ `load` の書き出しを探し、見つかった従来の口を結果としてホストに知らせる。この spec の `shiori4_host` は従来の口で DLL を初期化せず、どの口で解決したかと開いたライブラリを返すだけにする。従来の口で読むのは shiori3-legacy-host が足す（議題 8）。
 6. Where ホストが許可する口の種類（`shiori_get_api` の 4・`shiori_get_api` の 3・`loadu`・`load` の部分集合）を渡す, the shiori4_host shall 発見の順を保ったまま許可された口だけを探し、許可されていない口は DLL にあっても無いものとして扱う。
 7. If 許可された口の中で最初に見つかった口が失敗する, the shiori4_host shall 許可の中でも次の口へフォールバックせず、失敗を返す。
 8. Where ホストが許可する口の種類を渡さない, the shiori4_host shall 4 つの口をすべて許可したものとして扱う。
@@ -174,13 +175,13 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 **Objective:** As a ベースウェア実装者, I want descript.txt の名前から探すファイルの候補と、そのファイルの機械の種類を、DLL を読まずに得られること, so that helper のプロセスを起こす前に、どの arch のどのファイルを読むかを決められる（論点 12・17）
 
 #### Acceptance Criteria
-1. The ゴーストの配布の決まり（この spec の文書） shall descript.txt の `shiori,<名前>` から名前の幹を取り、ホストの OS と arch ごとに次の順で探すことを述べる: Windows x64 は `<幹>.x64.dll` → `<幹>.dll`、Windows arm64 は `<幹>.arm64.dll` →（x64 のプロセスを起こせるホストだけ）`<幹>.x64.dll` → `<幹>.dll`、Linux x64 は `lib<幹>.x64.so` → `lib<幹>.so`、Linux arm64 は `lib<幹>.arm64.so` → `lib<幹>.so`、macOS は `lib<幹>.dylib`（ユニバーサルバイナリを推奨）。
-2. The ゴーストの配布の決まり shall 接尾辞は `x64`・`arm64` の 2 つだけで `x86` は作らないこと、接尾辞なしの Windows の DLL が 32bit の SHIORI/3.0 を担うこと、Linux と macOS は `lib` の付いた名前だけを探すこと、macOS は arch の接尾辞を持たないことを述べる。
-3. The shiori4_host shall 名前の幹（または `shiori,` の値）と、OS・arch・x64 のプロセスを起こせるかを受けて、候補のファイル名を上の順に並べて返す関数を持つ。この関数はファイルにもライブラリにも触れない。**【仮定】** 対象の OS・arch は引数で受け、今のプロセスの OS・arch を使う簡便な形もあってよい（未決の論点 11）。
+1. The C ヘッダ shall 規約の後に「配布の決まり」の節を持ち（議題 9）、 descript.txt の `shiori,<名前>` から名前の幹を取り、ホストの OS と arch ごとに次の順で探すことを述べる: Windows x64 は `<幹>.x64.dll` → `<幹>.dll`、Windows arm64 は `<幹>.arm64.dll` →（x64 のプロセスを起こせるホストだけ）`<幹>.x64.dll` → `<幹>.dll`、Linux x64 は `lib<幹>.x64.so` → `lib<幹>.so`、Linux arm64 は `lib<幹>.arm64.so` → `lib<幹>.so`、macOS は `lib<幹>.dylib`（ユニバーサルバイナリを推奨）。
+2. The C ヘッダの「配布の決まり」 shall 接尾辞は `x64`・`arm64` の 2 つだけで `x86` は作らないこと、接尾辞なしの Windows の DLL が 32bit の SHIORI/3.0 を担うこと、Linux と macOS は `lib` の付いた名前だけを探すこと、macOS は arch の接尾辞を持たないことを述べる。
+3. The shiori4_host shall 名前の幹（または `shiori,` の値）と、OS・arch・x64 のプロセスを起こせるかを受けて、候補のファイル名を上の順に並べて返す関数を持つ。この関数はファイルにもライブラリにも触れない。対象の OS・arch は引数で受ける形だけにし（areka の本体が別の arch の helper のために選ぶため）、今のプロセスの OS・arch は定数で得られるようにする。関数の doc は C ヘッダの「配布の決まり」を指す（議題 9・10）。
 4. The shiori4_host shall ファイルの先頭のヘッダ（PE・ELF・Mach-O）から機械の種類を読み、指定した arch と合うかを確かめる関数を持つ。この関数はライブラリとして読み込まず、初期化コードを動かさない。
 5. If ファイルが PE・ELF・Mach-O のどれでもないか、ヘッダが壊れている, the shiori4_host shall 合わないものとして結果を返し、パニックしない。
 6. When macOS のユニバーサルバイナリを確かめる, the shiori4_host shall 中に指定した arch が含まれていれば合うものとして扱う。
-7. The ゴーストの配布の決まり shall 「ホストは選んだファイルの機械の種類を確かめ、合わなければ次の候補へ進み、候補が尽きたらそのゴーストを読めなかったものとして扱う」と述べ、これが SHIORI/3.0 と v4 の両方に使えることを述べる。
+7. The C ヘッダの「配布の決まり」 shall 「ホストは選んだファイルの機械の種類を確かめ、合わなければ次の候補へ進み、候補が尽きたらそのゴーストを読めなかったものとして扱う」と述べ、これが SHIORI/3.0 と v4 の両方に使えることを述べる。
 
 ### Requirement 15: 読み込みの持ち場・互換性・検証
 **Objective:** As a 3 クレートの利用者, I want 依存と既存の API を壊さずに規約の更新が入ること, so that 0.0.2 に上げても今のコードがそのまま動き、振る舞いがテストで守られる（論点 17・Constraints）
@@ -193,16 +194,15 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 5. The 3 クレート shall この spec の振る舞い（-7 の検出・Poster の無効化・log の任意スレッド・dir の正規化・Charset を付けないこと・発見の順と許可・`from_library` の入口・v3 互換モードの口・ファイル名の候補・機械の種類の確認）を、各クレートのテストで確かめる。
 6. The 3 クレート shall ubuntu・windows・macos の CI（test と clippy の `-D warnings`）を通す。
 
-## 未決の論点（要件ディスカッションで決める）
-1. **`ShioriHostPoster` の `Copy`**: （置き場は解決済み: 実体は `shiori4_abi` にあり、無効化は `shiori4_abi` の unload の入口で行う。要件 4 の主語を直した）無効化の状態を共有するため `Copy` を外す必要が出うる（0.0.x での破壊的な変更）。
-2. **実行中の post と unload の競合**: 「unload が返った後に呼ばない」を厳密に守るには、unload を始めた時点で実行中の post が返るのを待つ必要がある。これを「join を求めない」（論点 2・10）と両立するものとして認めるか。
-3. ~~呼び出しの外での `host->request`~~（解決済み: 論点 1 の「その呼び出しが返るまでの間だけ」の外なので -7。要件 3.3）
-4. **規約 6（パニックの変換）の置き場**: Rust の doc にだけある規約 6 を C ヘッダの規約に入れるか、Rust に固有の注意として分けるか。
-5. **load の失敗の log の自動化**: 高水準層が `Ghost::load` の失敗を自動で log するか（仮定）、Ghost 実装者の義務として doc に書くだけにするか。パニックで失敗したときも log するか。
-6. **別スレッドからの log の口**: `ShioriHostHandle` は別スレッドへ持ち出せないので、論点 3 を高水準層で使えるようにするには、持ち出せる口（Poster など）に log を足す必要がある。足すか。
-7. **`ShioriOwnedBytes` を別スレッドへ渡せるか**: 論点 3 で release がどのスレッドからでもよくなったので、受け取った応答を別スレッドへ渡せる（`Send`）ようにするか。この spec に含めるか。
-8. **dir の正規化の細部**: 相対パスの基準、存在しないディレクトリの扱い、シンボリックリンクを解くか、Windows の `\\?\` の接頭辞を避けるか。`from_static`（テスト用）にも正規化を効かせるか。
-9. **従来の口で解決したときの `shiori4_host` の返り値**: この spec では従来の SHIORI/3.0 の DLL を読まない。`loadu`・`load` で解決したときに、何を返すか（口の種類と開いたライブラリを返す、と仮定）。
-10. **C ヘッダに配布の決まりを書く場所**: ファイル名の決まり（論点 12）は ABI の関数・構造体を変えない。C ヘッダの注釈に書くか、`shiori4_host` の doc に書くか、別の文書に書くか（教科書の章は abi-textbook）。
-11. **ファイル名の候補の関数の入力**: 対象の OS・arch を引数で受けるか（areka の本体が別の arch の helper のために選ぶ場合）、今のプロセスの OS・arch だけか。
-12. ~~steering の更新~~（解決済み: `tech.md` のスレッド規約も同じ食い違いなので、この spec で直す対象に入れた。要件 1.3）
+## 要件ディスカッションの決定（2026-10-23）
+- **自明な修正**: Poster の置き場は `shiori4_abi`（要件 4 の主語）。呼び出しの外の `host->request` は -7（要件 3.3）。`SHIORI_E_INVALID_UTF8` の再エクスポート漏れ（要件 2.5）。steering の `tech.md` も直す対象（要件 1.3）。
+- **議題 1**: `ShioriHostPoster` の `Copy` を外し、`Clone` を残す（要件 4.7）。
+- **議題 2**: unload は、門を閉じた時点で実行中の post 1 回分が返るのを待ってよい。join とは別（要件 4.5）。
+- **議題 3**: パニックの規約を、言語によらない形で C ヘッダに入れる（要件 1.4）。
+- **議題 4**: `Ghost::load` の失敗（パニックを含む）を高水準層が自動で 1 行 log する（要件 7.5）。
+- **議題 5**: `ShioriHostPoster` から log も呼べる（要件 5.6）。
+- **議題 6**: `ShioriOwnedBytes`／`ShioriOwnedResponse` を `Send` にする（要件 5.7）。
+- **議題 7**: dir の正規化の細部（相対パスの扱い）— 議論中。
+- **議題 8**: 従来の口で解決したら、口の種類と開いたライブラリを返すだけ（要件 11.5）。
+- **議題 9**: 配布の決まりは C ヘッダの規約の後の節に書き、`shiori4_host` の doc から指す（要件 1.1・14）。
+- **議題 10**: 候補の関数は対象の OS・arch を引数で受ける形だけ。今のプロセスの値は定数で得る（要件 14.3）。
