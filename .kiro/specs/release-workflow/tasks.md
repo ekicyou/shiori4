@@ -208,7 +208,7 @@
   - kiro-complete は統合と spec の完了を一度に行うので、本仕様の PR の統合だけを 9.2 で先に行い、spec の完了（kiro-complete）は 9.6 の後に行う
   - _Requirements: 14.1, 14.2, 14.4, 14.5, 15.1, 15.4, 15.5_
 
-- [ ] 9.1 （開発者）GitHub の environment `release` を作る
+- [x] 9.1 （開発者）GitHub の environment `release` を作る
   - 手順書の節「GitHub: environment `release`」のとおり、タグの規則 `v*` だけに限る。main のブランチ保護（推奨）も同じ節に従う
   - 完了の状態: environment `release` があり、Deployment branches and tags がタグ `v*` だけになっている（エージェントが `gh api` で読んで確かめる）
 
@@ -244,3 +244,4 @@
 - procedure.md の初版の節はファイルの最後にあり、手順書（6）の節「後片付け（必須）」を名前で指す。6 はこの見出しをそのまま使うこと
 - settings.json の `Bash(git push origin v*)` は `*` が空白も含むので `--force`・`--delete`・refspec の push にも合う。`permissions.ask` で確認させ、`v*:*` は外した（開発者の判断 2026-10-23）。ask の規則の末尾に `:*` を置くと前方一致の意味になるので、コロンの後ろに文字を置く
 - 9.2: PR #4 を squash で統合（main の c71bdee）。作業ブランチは squash の前の履歴のまま残るので、以後のコミットを main に入れるときは main を取り込んでから PR にする
+- 9.1: 開発者の指示で、environment `release`（カスタムの規則、タグ `v*` だけ）と main の保護（強制 push と削除の禁止のみ。直接 push・レビューは縛らない）をエージェントが `gh api` で設定した。手順書の画面の手順と同じ結果になる
