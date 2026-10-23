@@ -23,7 +23,7 @@
   - _Depends: 1_
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-- [ ] 3. 撤去の後の整合と回帰を確かめる
+- [x] 3. 撤去の後の整合と回帰を確かめる
   - `git grep -n '【初版のみ】' -- ':!.kiro/specs'` が空であること、`git diff --stat origin/main` が上の 3 ファイルと spec の文書だけであることを確かめる
   - 状態の照会（版の指定なし）の出力を撤去の後の判定表に上から当て、S3（リリース済み・段 3 から）に当たること、タグ無し・公開済みが 0/4 以外の状態が S9 に当たることを確かめる
   - 補助スクリプトのテスト、`cargo test --all`、`cargo clippy --all-targets --workspace -- -D warnings` を通す
@@ -33,3 +33,4 @@
 
 ## Implementation Notes
 - 1: 定型 A（`-Version 0.0.1`）が `集計 | 0.0.1 の公開済み 4/4 | 不明 0`（タグ・3 クレート・GitHub Release、run 39888963308）
+- 3: `【初版のみ】` は spec の外で 0 件。差分は 3 ファイルと spec の文書だけ。今の状態は S3、タグ無し・3/4 は S9。補助スクリプトのテスト 12 項目 ok、cargo test・clippy 成功
