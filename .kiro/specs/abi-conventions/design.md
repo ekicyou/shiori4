@@ -337,7 +337,7 @@ pub const SHIORI_E_WRONG_THREAD: ShioriStatus = -7;
 - `shiori_load` が返すインスタンスのポインタは、`S` と門をまとめた非公開の箱（`Instance<S>`）を指す。`shiori_request`／`shiori_notify` はその中の `S` を使う。v3 の箱は門を持たない。
 - `shiori_unload` の順: 門を閉じる → 実行中の数が 0 になるまで待つ → `S` を Drop する → 箱を解放する。`S` の Drop の中の post・log は、門が閉じているので `SHIORI_E_SHUTDOWN`／何もしないで返る。
 - Poster は門を見てから ctx に触れる。門が閉じていれば ctx を一度も読まない（ctx はホストがすでに解放しているかもしれない）。
-- `ShioriHostHandle`（`!Send`）の `request`・`log` は門を見ない。unload の中（`S` の Drop）では、ホストの ctx はまだ有効だから（規約 5: unload が返るまで有効）。
+- `ShioriHostHandle`（`!Send`）の `request`・`log` は門を見ない。unload の中（`S` の Drop）では、ホストの ctx はまだ有効だから（規約 5: unload が返るまで有効）。ただし unload は規約 2 の期間（load / request / notify）に入らないので、Drop の中の `host->request`（`Properties::get` を含む）は、規約 2 を見分けるホスト（`shiori4_host` など）では `SHIORI_E_WRONG_THREAD` になる。Drop の中で使えるのは log だけである（`Ghost` の doc にも書く）。
 
 **Dependencies**
 - Inbound: `shiori_load`／`shiori_unload`／`shiori_request`／`shiori_notify` — 門の作成・閉鎖・インスタンスの取り出し（P0）
@@ -383,7 +383,7 @@ impl PosterGate {
 - Concurrency strategy: `Mutex` ＋ `Condvar`（std）。閉じた印を先に立てるので、待ちの間に新しい post が入って待ちが終わらない（飢え）ことは無い。待つ相手は規約 4 によりコピーしてすぐ返るホストの関数 1 回分。
 
 **Implementation Notes**
-- Integration: 既存の Ghost のコード（`h.poster()`・別スレッドへの move・`PendingTags::post(&poster, ..)`）は書き換えなしでビルドできる。暗黙のコピー（`let p2 = p;` の後に `p` を使う）だけが `.clone()` に直る。破壊的な変更なので、実装のコミットの件名に `!` を付け、本文に移行の仕方（`.clone()` で複製する）を書く（`doc/release-notes/README.md` の決まりでリリースノートの「動きが変わる変更」に載る）。
+- Integration: 既存の Ghost のコード（`h.poster()`・別スレッドへの move・`PendingTags::post(&poster, ..)`）は書き換えなしでビルドできる。暗黙のコピー（`let p2 = p;` の後に `p` を使う）だけが `.clone()` に直る。破壊的な変更なので、実装のコミットと PR の本文に移行の仕方（`.clone()` で複製する）を書く。0.0.2 のリリースで `/release` が見どころ `doc/release-notes/v0.0.2.md` を書くとき、`doc/release-notes/README.md` の決まり 4（動きが変わる点はすべて載せる）に従って載せる（要件 4.7 の「リリースノートに書く」はここで満たす）。
 - Validation: `shiori4_abi` の新しい `mod tests` で、(a) unload の後の post が `SHIORI_E_SHUTDOWN` を返しホストの post が呼ばれない、(b) unload を始める前に入った post が返るまで unload が返らない、(c) 別スレッドで unload の後も動き続けるスレッドの post・log が安全、(d) unload の後の Poster の log がホストに届かない、を確かめる。
 - Risks: ホストの post の実装が、unload を呼んでいるスレッドを待つと止まる（例: `Host::wake` が UI スレッドへの同期の送信をする）。規約 4（コピーしてすぐ返る）でホストの義務とし、`Host::wake`・`Host::accept_post` の doc に「unload を呼ぶスレッドを待たないこと」を書く。
 
@@ -762,12 +762,12 @@ pub fn machine_matches(path: impl AsRef<Path>, arch: TargetArch) -> std::io::Res
 
 ## Migration Strategy
 - 版は上げない（15.4）。0.0.2 のリリースで出す。
-- 動きが変わる点（実装のコミットの件名に `!` を付け、本文に移行の仕方を書く）:
+- 動きが変わる点（実装のコミットと PR の本文に移行の仕方を書き、0.0.2 の見どころに `doc/release-notes/README.md` の決まり 4 で載せる）:
   1. `ShioriHostPoster` が `Copy` でなくなる。複製は `.clone()` で書く。
   2. `GhostRuntime::load`・`from_static` は、絶対パスでない dir を `InvalidPath` で断る。dir は末尾に区切りの付いた形で SHIORI に届く。
   3. `ShioriHostApi` の `host->request` を load / request / notify の外や別スレッドから呼ぶと `SHIORI_E_WRONG_THREAD` が返る（`shiori4_host` のホスト）。
   4. `LoadError::InvalidPath`・`NotShiori4` の意味が広がる（`Display` の文が変わる）。
-- host-protocol との統合: 両 spec は `shiori4/src/lib.rs`・`shiori4_host/src/lib.rs` に触れる。この spec は新しいコードを別ファイルに置き、`lib.rs` では `Bridge` の構造体のフィールドと `request` の先頭の門、再エクスポートの列、doc、テストに限る。先に統合する側は決めていない（仮定: この spec が先。OPEN QUESTION）。後の側は、`Bridge::request` の先頭の門と、`Charset` を付けないことのテストを保って取り込む。
+- host-protocol との統合: 両 spec は `shiori4/src/lib.rs`・`shiori4_host/src/lib.rs` に触れる。この spec は新しいコードを別ファイルに置き、`lib.rs` では `Bridge` の構造体のフィールドと `request` の先頭の門、再エクスポートの列、doc、テストに限る。この spec が先に統合する（host-protocol はまだ brief だけで、要件も始まっていないため）。host-protocol は、`Bridge::request` の先頭の門と、`Charset` を付けないことのテストを保って取り込む。
 
 ## Supporting References
 
