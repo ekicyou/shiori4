@@ -94,3 +94,10 @@ DLL に触る芯だけを shiori4_host に置く。プロセスの起こし方�
 - 有効なのは `cfg(all(windows, target_arch = "x86"))` だけ。ほかの環境のビルドに、この口と、そのための依存（Win32 の API の crate など）を含めない。
 - ANSI のエンコーダーを shiori4_host に抱え込まない。変換が要る所は Win32 の API に任せる。
 - CI に i686 の Windows を足す。CI を変える PR なので、CI の完了を見届けてから統合する（workflow.md）。
+
+## 申し送り（abi-conventions より）
+- 発見の口は `shiori4_host::load_ghost`／`load_ghost_with(path, dir, host, &[EntryKind])`（`shiori4_host/src/discover.rs`）。従来の口は有無だけを見て呼ばず、`LoadedGhost::Legacy { entry: EntryKind::Loadu | EntryKind::Load, library }` でライブラリごと返す。この spec はそこから HGLOBAL の受け渡しを足す。
+- dir は `normalize_dir`（`shiori4_host/src/lib.rs` の非公開の関数）が検査し、見た目だけ正規化した UTF-8 の `String` で渡る（Windows は `\` の区切り・末尾に区切り 1 つ・絶対パスでなければ `InvalidPath`）。`load` 用の CP_ACP への変換はこの spec で足す。
+- `LoadError::NotShiori4` は `load_ghost_with` では「許可した口（V4・V3・loadu・load）が 1 つも見つからない」を表し、Display は `no allowed SHIORI entry point found`。
+- 候補のファイル名と機械の種類は `shiori_file_candidates`・`machine_matches`・`TargetOs`・`TargetArch`（`shiori4_host/src/dist.rs`。DLL を読まない）。発見の口は機械の種類を確かめない。
+- テスト用 cdylib `testdata/testghost`（`shiori4_host/src/test_dll.rs` の `dll_path()`・`lock()`・`set_mode`）はダミーの `loadu`・`load` を持つが中身は呼ばれない前提。HGLOBAL の口を試すなら、ここに本物の口を足すか別の cdylib を作る。

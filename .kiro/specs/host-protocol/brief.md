@@ -144,3 +144,8 @@ SHIORI 実装者（pasta）にとって v4 の最大の利点は「SHIORI から
 - pasta 0.4.2: shiori4 の v3 互換モード（`shiori_get_api(3)`）を出し、Windows 以外でも SHIORI/3.0 として動かす。
 - pasta 0.5.0: v4（host.request・post・OnHostComplete）に本格対応する。abi-conventions と host-protocol の 2 本を前提にする。
 - areka v0.2.0: 自前の COM の SHIORI（IShiori 系）と JSON-RPC の紙の契約をやめ、shiori4 に完全に移る（spec `shiori4-api`）。着手の条件は、host-protocol が入った shiori4 の版が crates.io に出ていること（2026-10-23 areka より）。
+
+## 申し送り（abi-conventions より）
+- `Bridge` にフィールド `owner`（持ち主のスレッド）と `in_call`（load・request・notify の処理中の印）を足し、`<Bridge as ShioriHost>::request` の先頭に 1 つの判定を置いた。期間の外の `host->request` には、`Host` を呼ばずに `SHIORI_E_WRONG_THREAD`（-7）と空の out を返す。振り分けの本体を書き替えるときも、この判定は先頭に残すこと（abi-conventions の design.md「ThreadGuard」）。
+- 組み込みの property の応答に Charset が無いことをテスト `builtin_responses_have_no_charset`（`shiori4_host/src/lib.rs`）で守っている（要件 9.2）。組み込みの応答をやめるなら、このテストの作り直しが要る。
+- `Host::log` は任意のスレッドから呼ばれる。`log`・`accept_post`・`wake` は `GhostRuntime` を Drop するスレッドを同期で待ってはいけない（unload が実行中の post・log を待つため）。

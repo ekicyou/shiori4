@@ -152,18 +152,29 @@ impl HeaderWriter {
 // ============================================================
 
 /// SHIORI の実装者が実装する trait。どちらのモードでもヘッダ部分だけを扱う
-/// unload は Drop で表す（ShioriHostPoster を渡したスレッドは Drop で止めて join すること）
+/// unload は Drop で表す。unload を始めた時点で、このインスタンスから取り出した ShioriHostPoster は
+/// すべて無効になり、post は SHIORI_E_SHUTDOWN を返し、log は何もせず、どちらもホストに触れない（スレッド規約 5）。
+/// そのため Poster を渡したスレッドを Drop の中で止めて join する必要はない
 pub trait Ghost: Sized + 'static {
     /// v3（SHIORI3 互換モード）にも対応するか
     const SUPPORTS_V3: bool = true;
 
     /// v4 なら host は Some、v3 なら None
+    ///
+    /// v4 で Err を返す（またはパニックする）と、NULL を返す前に失敗のステータスを含む 1 行が
+    /// 自動で host.log に出る（load の規約）。詳しい理由は自分で log すること。
+    /// 状態は Self（インスタンス）ごとに持ち、グローバルな状態を避ける。
+    /// export_ghost! で作った SHIORI は、同じプロセスで複数のインスタンスを受け付ける（load の規約）
     fn load(host: Option<ShioriHostHandle>, dir: &str) -> Result<Self, ShioriStatus>;
 
     /// GET に相当する。応答の body はヘッダ部分だけ
     fn request(&mut self, req: &Headers<'_>) -> ShioriResponse;
 
     /// NOTIFY に相当する。既定の実装は 204
+    ///
+    /// 即 204 で返して処理を後回しにしてよい（スレッド規約 7）。ただし後回しにした処理の中では
+    /// host.request（Properties::get など）を使えない（スレッド規約 2 の期間の外）。
+    /// ホストへの依頼には ShioriHostPoster の post を使う
     fn notify(&mut self, _req: &Headers<'_>) -> ShioriStatus {
         SHIORI_204_NO_CONTENT
     }
@@ -171,6 +182,8 @@ pub trait Ghost: Sized + 'static {
 
 /// Ghost を ABI 層の Shiori に変換するアダプタ
 /// モードは load の時点で記録し、v3 のときだけ文字列形式を変換する
+/// - v4: Charset は UTF-8 固定。要求の Charset ヘッダは見ず（値で拒否しない）、応答に Charset を付けない
+/// - v3: 従来どおり。UTF-8 以外の Charset は 400、応答に Charset がなければ "Charset: UTF-8" を補う
 pub struct Adapter<G> {
     ghost: G,
     v3: bool,
@@ -484,6 +497,47 @@ mod tests {
 
     static API_V3: ShioriApi = ShioriApi::new::<Adapter<Echo>, { SHIORI_ABI_VERSION_3 }>();
 
+    /// 要求ごとに数を数え、ID: post なら Poster を複製して別スレッドから post する
+    struct Counter {
+        count: u32,
+        poster: ShioriHostPoster,
+    }
+
+    impl Ghost for Counter {
+        const SUPPORTS_V3: bool = false;
+        fn load(host: Option<ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+            let host = host.ok_or(SHIORI_E_UNSUPPORTED)?;
+            Ok(Counter { count: 0, poster: host.poster() })
+        }
+        fn request(&mut self, req: &Headers<'_>) -> ShioriResponse {
+            let v = if req.id() == Some("post") {
+                let p = self.poster.clone();
+                std::thread::spawn(move || p.post_str("Command: test")).join().unwrap()
+            } else {
+                self.count += 1;
+                self.count as ShioriStatus
+            };
+            HeaderWriter::new().push("Value", &v.to_string()).into_response()
+        }
+    }
+
+    static V4_API: ShioriApi = ShioriApi::new::<Adapter<Counter>, { SHIORI_ABI_VERSION }>();
+
+    #[derive(Default)]
+    struct CountHost {
+        posts: AtomicU64,
+    }
+
+    impl ShioriHost for CountHost {
+        fn request(&self, _req: &[u8]) -> ShioriResponse {
+            ShioriResponse::no_content()
+        }
+        fn post(&self, _msg: &[u8]) -> ShioriStatus {
+            self.posts.fetch_add(1, Ordering::SeqCst);
+            SHIORI_204_NO_CONTENT
+        }
+    }
+
     #[test]
     fn v3_roundtrip() {
         let mut inst = API_V3.load_v3("/tmp").expect("load");
@@ -494,7 +548,12 @@ mod tests {
         let text = r.body.as_str().unwrap();
         assert!(text.starts_with("SHIORI/3.0 200 OK\r\n"));
         assert!(text.contains("Value: OnBoot\r\n"));
+        assert!(text.contains("Charset: UTF-8\r\n")); // v3 は応答に Charset を補う
         assert!(text.ends_with("\r\n\r\n"));
+
+        // v3 は UTF-8 以外の Charset を 400 で拒む
+        let r = inst.request("GET SHIORI/3.0\r\nCharset: Shift_JIS\r\nID: OnBoot\r\n\r\n").expect("abi");
+        assert_eq!(r.status, 400);
 
         let r = inst.request("GET SHIORI/2.6\r\n\r\n").expect("abi");
         assert_eq!(r.status, 400);
@@ -507,5 +566,41 @@ mod tests {
         let h = Headers::parse("ID: OnBoot\r\nreference0: a: b\r\n\r\n");
         assert_eq!(h.id(), Some("OnBoot"));
         assert_eq!(h.reference(0), Some("a: b"));
+    }
+
+    // ---- v4 の Charset・複数インスタンス・Poster の複製 ----
+
+    #[test]
+    fn v4_ignores_charset_and_adds_none() {
+        let host = ShioriHostBox::new(CountHost::default());
+        let mut inst = V4_API.load(&host, "/ghost").expect("load");
+        let r = inst.request("Charset: Shift_JIS\r\nID: OnBoot\r\n").expect("abi");
+        assert_eq!(r.status, 200);
+        let text = r.body.as_str().unwrap();
+        assert_eq!(text, "Value: 1\r\n");
+        assert!(!text.to_ascii_lowercase().contains("charset"));
+        assert_eq!(inst.notify("Charset: Shift_JIS\r\nID: OnSecondChange\r\n"), Ok(204));
+    }
+
+    #[test]
+    fn two_instances_from_one_table_keep_separate_state() {
+        let host = ShioriHostBox::new(CountHost::default());
+        let mut a = V4_API.load(&host, "/a").expect("load a");
+        let mut b = V4_API.load(&host, "/b").expect("load b");
+        let value = |i: &mut ShioriInstance<'_>| i.request("ID: x\r\n").unwrap().body.as_str().unwrap().to_owned();
+        assert_eq!(value(&mut a), "Value: 1\r\n");
+        assert_eq!(value(&mut a), "Value: 2\r\n");
+        assert_eq!(value(&mut b), "Value: 1\r\n");
+        drop(a);
+        assert_eq!(value(&mut b), "Value: 2\r\n");
+    }
+
+    #[test]
+    fn cloned_poster_posts_from_another_thread() {
+        let host = ShioriHostBox::new(CountHost::default());
+        let mut inst = V4_API.load(&host, "/ghost").expect("load");
+        let r = inst.request("ID: post\r\n").expect("abi");
+        assert_eq!(r.body.as_str().unwrap(), "Value: 204\r\n");
+        assert_eq!(host.host().posts.load(Ordering::SeqCst), 1);
     }
 }

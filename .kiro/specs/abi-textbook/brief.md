@@ -66,3 +66,8 @@ README は 1 と 2 と道案内だけにする。規約の本文は上流の 2 �
 - 規約の番号は、実装側が引用し続けられるように固定する。
 - 例は `cargo test --doc` か CI で動かし、腐らないようにする。
 - 試験用のホストは、3 OS の CI で動かせるものにする。
+
+## 申し送り（abi-conventions より）
+- 規約の本文の節は、C ヘッダ（`shiori4_abi/include/shiori4_abi.h` 冒頭）と `shiori4_abi` の `//!` で同文になった。節の順: 版／ABI 規約／戻り値／スレッド規約 1〜7／load の規約／ホストのプロセス／DLL の口と発見の順／post の完了通知／配布の決まり。教科書はこの番号と言葉を参照する。
+- `ShioriHostPoster` は `Copy` でなくなり（`.clone()` で複製）、任意のスレッドから呼べる `log` を持つ。unload を始めた時点で Poster は無効になり（post は `SHIORI_E_SHUTDOWN`、log は何もしない）、join は要らない。unload の後まで残った `ShioriHostHandle` も、request は `SHIORI_E_SHUTDOWN`、log は何もしない。
+- 新しいエラー `SHIORI_E_WRONG_THREAD`（-7）: 規約 2 の期間（load・request・notify の処理中・同じスレッド）の外の `host->request`。unload の中の request も -7 になる。

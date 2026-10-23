@@ -12,7 +12,9 @@ SHIORI（v4）を読み込んで動かすホストを作るためのクレート
 
 ## 使い始めの入口
 
-`Host` trait を実装し、`GhostRuntime::load` で SHIORI を読み込みます。`Host::wake` が呼ばれたら、イベントループから `GhostRuntime::pump` を呼びます。
+`Host` trait を実装し、`GhostRuntime::load` で SHIORI を読み込みます（ゴーストのディレクトリは絶対パスで渡します）。`Host::wake` が呼ばれたら、イベントループから `GhostRuntime::pump` を呼びます。
+
+v4 と v3 互換モードの DLL を同じ手順で読みたいときは `load_ghost` を、v3 互換モードの DLL だけを読むときは `V3Runtime` を使います。
 
 ## 他の 2 クレートとの関係
 
