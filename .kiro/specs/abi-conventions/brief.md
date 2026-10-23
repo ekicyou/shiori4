@@ -49,19 +49,27 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
     - エラーと一緒にライブラリを返すのは、`NotShiori4` と `Unsupported` のときだけ。ホストが SHIORI/3.0 として読み直せるようにするため。
     - `LoadFailed`（v4 の load が NULL）のときは返さない。「v4 の SHIORI が初期化に失敗したので、読み直さない」と文書に書く。`shiori_get_api` を持つ DLL は v4 だと宣言しているので、旧来の口で取り繕うと、二重の初期化か作者の意図と違う動きになる。
 
-## 開発者の裁定を待つ論点
-12. **arch ごとの SHIORI の名前**（areka の提案。2026-10-23。pasta にも送付済み）: ゴーストが arch ごとの SHIORI を同梱するときの名前の決まりを、shiori4 の正本に置くかどうか。
-    - areka の形: descript.txt の `shiori,pasta.dll` に対し、ホストは arch の接尾辞つきの名前から先に探す。
-      - x64 の Windows: `pasta.x64.dll` → `pasta.dll`
-      - arm64 の Windows: `pasta.arm64.dll` → `pasta.x64.dll` → `pasta.dll`
-    - 接尾辞は `x64`・`arm64` の 2 つ。`x86` は作らない（接尾辞なしの名前が、SSP の読む 32bit の SHIORI/3.0 を担う）。
-    - ホストは PE ヘッダも確かめ、名前と食い違えば次の候補へ進む。areka は SHIORI/3.0 と v4 の両方に効かせる。
-    - shiori4 の推奨: 規約は「ゴーストの配布の決まり（DLL の選び方）」として載せる。置き場所は abi-conventions。
-      - ABI の関数・構造体は変えない。
-      - Windows の分だけを確定させ、.so／.dylib の名前は、要る利用者が出るまで決めない。
-      - `shiori4_host` に選び方の関数を足すかは、要件の段で決める。
-      - areka も推奨に賛成。関数を足す場合の areka の材料: DLL を選ぶのは helper を起こす前の本体の側なので、使えるのは DLL を読まない純粋な関数だけ。つまり「候補の名前を順に並べる」と「PE ヘッダの機械の種類を確かめる」の 2 つで、読み込みまで一緒にする関数は areka では使えない。
-    - 裁定が要る理由: ABI の外（descript.txt とファイルの選び方）へ、この spec の範囲が広がるため。
+## 開発者が裁定した論点（2026-10-23）
+12. **SHIORI のファイル名の決まり**（areka の提案を開発者と詰めた）: 「ゴーストの配布の決まり（DLL の選び方）」として、この spec に載せる。ABI の関数・構造体は変えない。
+    - descript.txt の `shiori,pasta.dll` から、名前の幹 `pasta` を取る。ホストは次の順に探す。
+
+      | ホストの OS と arch | 探す順 |
+      |---|---|
+      | Windows x64 | `pasta.x64.dll` → `pasta.dll` |
+      | Windows arm64 | `pasta.arm64.dll` →（x64 のプロセスを起こせるホストだけ）`pasta.x64.dll` → `pasta.dll` |
+      | Linux x64 | `libpasta.x64.so` → `libpasta.so` |
+      | Linux arm64 | `libpasta.arm64.so` → `libpasta.so` |
+      | macOS | `libpasta.dylib`（ユニバーサルバイナリを推奨） |
+
+    - 接尾辞は `x64`・`arm64` の 2 つ。`x86` は作らない（接尾辞なしの `pasta.dll` が、SSP の読む 32bit の SHIORI/3.0 を担う）。
+    - arm64 の Windows で `pasta.x64.dll` を候補にするのは、x64 のプロセスを起こせるホストだけ。arm64 のプロセスは x64 の DLL を読めないため（ARM64EC は除く）。
+    - Linux と macOS は `lib` の付いた名前だけを探す（共有ライブラリの大原則で、Rust の cdylib もそう作る）。`lib` の無い名前は探さない。
+    - macOS は、ユニバーサルバイナリ 1 つを前提にし、arch の接尾辞を持たない。分けたい作者が出たら `libpasta.<arch>.dylib` を足す（今の規則とぶつからない）。
+    - ホストは、選んだファイルの機械の種類をヘッダ（PE・ELF・Mach-O）で確かめる。合わなければ次の候補へ進み、候補が尽きたら読めなかったゴーストとして扱う。
+    - `shiori4_host` には、DLL を読まない純粋な関数を 2 つ足す（areka の要望。DLL を選ぶのは helper を起こす前の本体の側なので）。
+      - 候補の名前を順に並べる関数
+      - ヘッダの機械の種類を確かめる関数
+    - areka は、これを SHIORI/3.0 と v4 の両方に効かせる。
 
 ## Approach
 規約の本文は C ヘッダの冒頭の注釈を正本にする。Rust 版の doc と高水準層の doc はそれに合わせる。
