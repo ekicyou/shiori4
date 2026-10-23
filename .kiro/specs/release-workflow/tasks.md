@@ -217,7 +217,7 @@
   - spec はまだ completed に移さない
   - 完了の状態: main に release.yml と `doc/release-notes/v0.0.1.md` があり、定型 C（`-Version 0.0.1 -Target origin/main`）の 4 行が合格する
 
-- [ ] 9.3 （開発者）初版 0.0.1 の 3 クレートを手で公開する
+- [x] 9.3 （開発者）初版 0.0.1 の 3 クレートを手で公開する
   - 手順書の節「【初版のみ】初版 0.0.1 の手動公開」のとおり
   - 完了の状態: 定型 A で crates.io の 3 クレートが `0.0.1 あり`、集計が 3/4
 
@@ -245,3 +245,4 @@
 - settings.json の `Bash(git push origin v*)` は `*` が空白も含むので `--force`・`--delete`・refspec の push にも合う。`permissions.ask` で確認させ、`v*:*` は外した（開発者の判断 2026-10-23）。ask の規則の末尾に `:*` を置くと前方一致の意味になるので、コロンの後ろに文字を置く
 - 9.2: PR #4 を squash で統合（main の c71bdee）。作業ブランチは squash の前の履歴のまま残るので、以後のコミットを main に入れるときは main を取り込んでから PR にする
 - 9.1: 開発者の指示で、environment `release`（カスタムの規則、タグ `v*` だけ）と main の保護（強制 push と削除の禁止のみ。直接 push・レビューは縛らない）をエージェントが `gh api` で設定した。手順書の画面の手順と同じ結果になる
+- 9.3: 開発者が cargo login（トークンは `CARGO_HOME`=`c:\rust\cargo` の credentials.toml）、エージェントが main の先頭 c71bdee から `cargo publish --workspace` で 3 クレートを公開した。定型 A は 3/4・不明 0
