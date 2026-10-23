@@ -25,7 +25,7 @@
   - _Requirements: 1.3_
 
 - [ ] 2. SHIORI 側の規約の守り方（`shiori4_abi`）
-- [ ] 2.1 unload を始めたらそのインスタンスの Poster を無効にし、実行中の post・log を待つ門を作る
+- [x] 2.1 unload を始めたらそのインスタンスの Poster を無効にし、実行中の post・log を待つ門を作る
   - v4 の load がインスタンスと門をまとめた箱を作り、request・notify はその中のインスタンスを使う。v3 の箱は門を持たない
   - unload は「門を閉じる → 実行中の post・log が 0 になるまで待つ → インスタンスを Drop → 箱を解放」の順に行う
   - Poster は門を見てから ctx に触れ、閉じていれば ctx を読まずに `SHIORI_E_SHUTDOWN` を返す。Poster に任意スレッドから呼べる log を足し、閉じた後は何もしない。Poster から `Copy` を外し `Clone` を残す
@@ -150,3 +150,4 @@
 - テスト用 DLL のモードの値（MODE_V4=1・MODE_V3=2・既定 3）は `testdata/testghost/src/lib.rs` にだけある。モードを切り替えるタスクは `shiori4_host/src/test_dll.rs` に同じ値の定数を足し、`test_dll::lock()` を取ってから `testghost_set_mode` を呼ぶ
 - 既存コードは rustfmt の既定に合わせていない（rustfmt.toml なし）。`cargo fmt` は掛けず、周りの書き方に合わせる
 - この環境には C コンパイラが無い。C ヘッダの `SHIORI_STATIC_ASSERT` は読んで確かめる
+- 2.1: `ShioriHostPoster` から `Copy` を外した（移行は `.clone()`）。ワークスペースの中に暗黙のコピーは無かった。門は `shiori4_abi` の `PosterGate`（Mutex+Condvar）で、`ShioriHostHandle::new(api, gate)` は `pub(crate)`

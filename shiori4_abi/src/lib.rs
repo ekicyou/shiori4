@@ -57,6 +57,7 @@ use std::{
     ptr::{self, NonNull},
     str::Utf8Error,
     string::FromUtf8Error,
+    sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError},
 };
 
 // ============================================================
@@ -625,7 +626,9 @@ impl ShioriLoadMode {
 }
 
 /// ABI 層の trait。req と応答は、モードに応じた形式のまま受け渡す（このクレートでは解釈しない）
-/// unload は Drop で表す。Drop では、ShioriHostPoster を渡した別スレッドを止めて join すること
+/// unload は Drop で表す。unload を始めた時点で、そのインスタンスの ShioriHostPoster は無効になり
+/// post は SHIORI_E_SHUTDOWN を返す（log は何もしない）ので、持ち出したスレッドを join しなくてよい。
+/// Drop の中で使えるホストの口は ShioriHostHandle::log だけ（request は SHIORI_E_WRONG_THREAD になりうる）
 ///
 /// 通常は上位クレート（shiori4）のアダプタを通して実装する
 pub trait Shiori: Sized + 'static {
@@ -718,24 +721,31 @@ impl ShioriApi {
     }
 }
 
+/// shiori_load が返すインスタンスの実体。v4 は門を持ち、v3 は持たない
+struct Instance<S> {
+    gate: Option<Arc<PosterGate>>,
+    shiori: S,
+}
+
 unsafe extern "C" fn shiori_load<S: Shiori, const V: u32>(
     host: Option<NonNull<ShioriHostApi>>,
     dir: *const u8,
     dir_len: usize,
 ) -> *mut c_void {
     let r = catch_unwind(AssertUnwindSafe(|| -> Result<*mut c_void, ShioriStatus> {
-        let mode = if V >= SHIORI_ABI_VERSION {
+        let (mode, gate) = if V >= SHIORI_ABI_VERSION {
             let api: &ShioriHostApi = unsafe { host.ok_or(SHIORI_E_INVALID_ARG)?.as_ref() };
             if !api.is_valid() {
                 return Err(SHIORI_E_UNSUPPORTED);
             }
-            ShioriLoadMode::V4(unsafe { ShioriHostHandle::new(api) })
+            let gate = Arc::new(PosterGate::default());
+            (ShioriLoadMode::V4(unsafe { ShioriHostHandle::new(api, gate.clone()) }), Some(gate))
         } else {
-            ShioriLoadMode::V3 // host が渡されても無視する
+            (ShioriLoadMode::V3, None) // host が渡されても無視する
         };
         let dir = unsafe { shiori_str_arg(dir, dir_len)? };
-        let s = S::load(mode, dir)?;
-        Ok(Box::into_raw(Box::new(s)).cast())
+        let shiori = S::load(mode, dir)?;
+        Ok(Box::into_raw(Box::new(Instance { gate, shiori })).cast())
     }));
     match r {
         Ok(Ok(p)) => p,
@@ -747,8 +757,13 @@ unsafe extern "C" fn shiori_unload<S: Shiori>(inst: *mut c_void) {
     if inst.is_null() {
         return;
     }
-    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-        drop(Box::from_raw(inst as *mut S));
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let inst = unsafe { Box::from_raw(inst as *mut Instance<S>) };
+        // 門を閉じて実行中の post・log を待ってから S を Drop する（S の Drop の中の post も止まる）
+        if let Some(g) = &inst.gate {
+            g.close_and_wait();
+        }
+        drop(inst);
     }));
 }
 
@@ -762,7 +777,7 @@ unsafe extern "C" fn shiori_request<S: Shiori>(
         if inst.is_null() || out.is_null() {
             return Err(SHIORI_E_INVALID_ARG);
         }
-        let me = unsafe { &mut *(inst as *mut S) };
+        let me = unsafe { &mut (*(inst as *mut Instance<S>)).shiori };
         let req = unsafe { shiori_str_arg(req, len)? };
         let ShioriResponse { status, body } = me.request(req);
         unsafe { out.write(body) }; // 最後に書く。パニック時の out は空のまま
@@ -779,7 +794,7 @@ unsafe extern "C" fn shiori_notify<S: Shiori>(
         if inst.is_null() {
             return Err(SHIORI_E_INVALID_ARG);
         }
-        let me = unsafe { &mut *(inst as *mut S) };
+        let me = unsafe { &mut (*(inst as *mut Instance<S>)).shiori };
         let req = unsafe { shiori_str_arg(req, len)? };
         Ok(me.notify(req))
     })
@@ -866,17 +881,76 @@ impl Drop for ShioriInstance<'_> {
 
 /// 同期 request 用。生成はクレート内（shiori_load）だけ
 /// NonNull を含むので !Send かつ !Sync。複製しても有効期間は同じ（unload まで）
+/// unload（Shiori の Drop）の中で使えるのは log だけ。unload は load / request / notify の
+/// 期間に入らないので、request は SHIORI_E_WRONG_THREAD になりうる（規約 2）
 #[derive(Clone)]
 pub struct ShioriHostHandle {
     api: NonNull<ShioriHostApi>,
+    gate: Arc<PosterGate>,
 }
 
-/// post 専用。任意のスレッドへ持ち出せる
-/// unload の後は使ってはならない（Shiori の Drop で、持ち出したスレッドを join すること）
-#[derive(Clone, Copy)]
+/// post と log 用。任意のスレッドへ持ち出せる（複製は .clone() で書く）
+/// unload を始めた時点で無効になり、post は SHIORI_E_SHUTDOWN を返し、log は何もしない。
+/// そのため unload の後も動き続けるスレッドから呼んでも安全で、join は要らない
+#[derive(Clone)]
 pub struct ShioriHostPoster {
     ctx: *mut c_void,
     post: unsafe extern "C" fn(*mut c_void, *const u8, usize) -> ShioriStatus,
+    log: unsafe extern "C" fn(*mut c_void, i32, *const u8, usize),
+    gate: Arc<PosterGate>,
+}
+
+/// unload を始めたら閉じ、それまでに通った post・log が返るのを待つ門（インスタンスごとに 1 つ）
+#[derive(Default)]
+struct PosterGate {
+    state: Mutex<GateState>,
+    idle: Condvar,
+}
+
+#[derive(Default)]
+struct GateState {
+    /// 一度 true になったら戻らない
+    closed: bool,
+    /// 門を通ってホストの関数を呼んでいる最中の数
+    in_flight: usize,
+}
+
+/// Drop で in_flight を 1 つ減らす
+struct GateTicket<'a>(&'a PosterGate);
+
+impl PosterGate {
+    fn lock(&self) -> MutexGuard<'_, GateState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// 閉じていれば None
+    fn enter(&self) -> Option<GateTicket<'_>> {
+        let mut st = self.lock();
+        if st.closed {
+            return None;
+        }
+        st.in_flight += 1;
+        Some(GateTicket(self))
+    }
+
+    /// shiori_unload からだけ呼ぶ。先に閉じるので、待ちの間に新しい post は入らない
+    fn close_and_wait(&self) {
+        let mut st = self.lock();
+        st.closed = true;
+        while st.in_flight > 0 {
+            st = self.idle.wait(st).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+impl Drop for GateTicket<'_> {
+    fn drop(&mut self) {
+        let mut st = self.0.lock();
+        st.in_flight -= 1;
+        if st.in_flight == 0 {
+            self.0.idle.notify_all();
+        }
+    }
 }
 
 // SAFETY: ABI 規約 4 により、post は任意のスレッドから呼べる
@@ -886,8 +960,8 @@ unsafe impl Sync for ShioriHostPoster {}
 impl ShioriHostHandle {
     /// # Safety
     /// api は is_valid() を満たし、unload が返るまで有効であること
-    pub(crate) unsafe fn new(api: &ShioriHostApi) -> Self {
-        Self { api: NonNull::from(api) }
+    pub(crate) unsafe fn new(api: &ShioriHostApi, gate: Arc<PosterGate>) -> Self {
+        Self { api: NonNull::from(api), gate }
     }
 
     fn api(&self) -> &ShioriHostApi {
@@ -919,18 +993,26 @@ impl ShioriHostHandle {
 
     pub fn poster(&self) -> ShioriHostPoster {
         let api = self.api();
-        ShioriHostPoster { ctx: api.ctx, post: api.post }
+        ShioriHostPoster { ctx: api.ctx, post: api.post, log: api.log, gate: self.gate.clone() }
     }
 }
 
 impl ShioriHostPoster {
-    /// 204: 受付、400: 不正、SHIORI_E_SHUTDOWN: 終了中
+    /// 204: 受付、400: 不正、SHIORI_E_SHUTDOWN: 終了中（unload を始めた後を含む）
     pub fn post(&self, msg: &[u8]) -> ShioriStatus {
+        // 門を見てから ctx に触れる（閉じた後の ctx はホストが解放しているかもしれない）
+        let Some(_ticket) = self.gate.enter() else { return SHIORI_E_SHUTDOWN };
         unsafe { (self.post)(self.ctx, msg.as_ptr(), msg.len()) }
     }
 
     pub fn post_str(&self, msg: &str) -> ShioriStatus {
         self.post(msg.as_bytes())
+    }
+
+    /// 任意のスレッドから呼べる（規約 4）。unload を始めた後は何もしない
+    pub fn log(&self, level: i32, msg: &str) {
+        let Some(_ticket) = self.gate.enter() else { return };
+        unsafe { (self.log)(self.ctx, level, msg.as_ptr(), msg.len()) }
     }
 }
 
@@ -999,5 +1081,165 @@ mod tests {
         .join()
         .unwrap();
         assert_eq!(got.as_deref(), Ok("hello"));
+    }
+    // ---- unload と Poster の門 ----
+
+    use std::cell::RefCell;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    thread_local! {
+        // load したスレッドで Poster を受け取る（テストは別々のスレッドで並ぶので混ざらない）
+        static LOADED: RefCell<Option<ShioriHostPoster>> = const { RefCell::new(None) };
+        static POST_IN_DROP: RefCell<Option<ShioriStatus>> = const { RefCell::new(None) };
+    }
+
+    struct GateShiori {
+        poster: ShioriHostPoster,
+    }
+
+    impl Shiori for GateShiori {
+        fn load(mode: ShioriLoadMode, _dir: &str) -> Result<Self, ShioriStatus> {
+            let ShioriLoadMode::V4(h) = mode else { return Err(SHIORI_E_UNSUPPORTED) };
+            let poster = h.poster();
+            LOADED.with(|l| *l.borrow_mut() = Some(poster.clone()));
+            Ok(Self { poster })
+        }
+        fn request(&mut self, _req: &str) -> ShioriResponse {
+            ShioriResponse::no_content()
+        }
+    }
+
+    impl Drop for GateShiori {
+        fn drop(&mut self) {
+            let st = self.poster.post_str("in drop");
+            POST_IN_DROP.with(|d| *d.borrow_mut() = Some(st));
+        }
+    }
+
+    static GATE_API: ShioriApi = ShioriApi::new::<GateShiori, { SHIORI_ABI_VERSION }>();
+
+    #[derive(Default)]
+    struct Counters {
+        posts: AtomicUsize,
+        logs: AtomicUsize,
+        block: AtomicBool,
+        entered: AtomicBool,
+        release: AtomicBool,
+        post_returned: AtomicBool,
+    }
+
+    struct GateHost(Arc<Counters>);
+
+    impl ShioriHost for GateHost {
+        fn request(&self, _req: &[u8]) -> ShioriResponse {
+            ShioriResponse::no_content()
+        }
+        fn post(&self, _msg: &[u8]) -> ShioriStatus {
+            let c = &self.0;
+            c.posts.fetch_add(1, Ordering::SeqCst);
+            // 止めるのは最初の 1 回だけ（Drop の中の post などは止めない）
+            if c.block.swap(false, Ordering::SeqCst) {
+                c.entered.store(true, Ordering::SeqCst);
+                while !c.release.load(Ordering::SeqCst) {
+                    std::thread::yield_now();
+                }
+                c.post_returned.store(true, Ordering::SeqCst);
+            }
+            SHIORI_204_NO_CONTENT
+        }
+        fn log(&self, _level: i32, _msg: &str) {
+            self.0.logs.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    fn load_gate(host: &ShioriHostBox<GateHost>) -> (ShioriInstance<'_>, ShioriHostPoster) {
+        let inst = GATE_API.load(host, "/ghost").expect("load");
+        let poster = LOADED.with(|l| l.borrow_mut().take()).expect("poster");
+        (inst, poster)
+    }
+
+    #[test]
+    fn post_after_unload_returns_shutdown_without_touching_host() {
+        let c = Arc::new(Counters::default());
+        let host = ShioriHostBox::new(GateHost(c.clone()));
+        let (inst, poster) = load_gate(&host);
+        assert_eq!(poster.post_str("before"), SHIORI_204_NO_CONTENT);
+        assert_eq!(c.posts.load(Ordering::SeqCst), 1);
+        drop(inst);
+        // Shiori の Drop の中の post も門で止まる
+        assert_eq!(POST_IN_DROP.with(|d| d.borrow_mut().take()), Some(SHIORI_E_SHUTDOWN));
+        assert_eq!(poster.post_str("after"), SHIORI_E_SHUTDOWN);
+        assert_eq!(poster.clone().post(b"after"), SHIORI_E_SHUTDOWN);
+        assert_eq!(c.posts.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn unload_waits_for_post_in_flight() {
+        let c = Arc::new(Counters::default());
+        c.block.store(true, Ordering::SeqCst);
+        let host = ShioriHostBox::new(GateHost(c.clone()));
+        let (inst, poster) = load_gate(&host);
+        std::thread::scope(|s| {
+            let t = s.spawn(move || poster.post_str("slow"));
+            while !c.entered.load(Ordering::SeqCst) {
+                std::thread::yield_now();
+            }
+            let c2 = c.clone();
+            s.spawn(move || {
+                std::thread::sleep(Duration::from_millis(100));
+                c2.release.store(true, Ordering::SeqCst);
+            });
+            drop(inst); // unload
+            // unload が返った時点で、unload の前に入った post はホストから返っている
+            assert!(c.post_returned.load(Ordering::SeqCst));
+            assert_eq!(t.join().unwrap(), SHIORI_204_NO_CONTENT);
+        });
+    }
+
+    #[test]
+    fn thread_outliving_unload_is_safe() {
+        let c = Arc::new(Counters::default());
+        let host = ShioriHostBox::new(GateHost(c.clone()));
+        let (inst, poster) = load_gate(&host);
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop2 = stop.clone();
+        // join しないスレッド（unload の後も post・log を呼び続ける）
+        let t = std::thread::spawn(move || {
+            while !stop2.load(Ordering::SeqCst) {
+                poster.post_str("tick");
+                poster.log(0, "tick");
+                std::thread::yield_now();
+            }
+            // stop は unload の後に立つので、この post は必ず unload の後に走る
+            let last = poster.post_str("tick");
+            poster.log(0, "tick");
+            last
+        });
+        std::thread::sleep(Duration::from_millis(20));
+        drop(inst);
+        let posts = c.posts.load(Ordering::SeqCst);
+        let logs = c.logs.load(Ordering::SeqCst);
+        drop(host); // ctx を解放した後も、スレッドは ctx に触れない
+        std::thread::sleep(Duration::from_millis(20));
+        stop.store(true, Ordering::SeqCst);
+        assert_eq!(t.join().unwrap(), SHIORI_E_SHUTDOWN);
+        assert_eq!(c.posts.load(Ordering::SeqCst), posts);
+        assert_eq!(c.logs.load(Ordering::SeqCst), logs);
+    }
+
+    #[test]
+    fn poster_log_does_not_reach_host_after_unload() {
+        let c = Arc::new(Counters::default());
+        let host = ShioriHostBox::new(GateHost(c.clone()));
+        let (inst, poster) = load_gate(&host);
+        std::thread::scope(|s| {
+            s.spawn(|| poster.log(0, "from worker"));
+        });
+        assert_eq!(c.logs.load(Ordering::SeqCst), 1);
+        drop(inst);
+        poster.log(0, "after unload");
+        assert_eq!(c.logs.load(Ordering::SeqCst), 1);
     }
 }
