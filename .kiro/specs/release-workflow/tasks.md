@@ -212,7 +212,7 @@
   - 手順書の節「GitHub: environment `release`」のとおり、タグの規則 `v*` だけに限る。main のブランチ保護（推奨）も同じ節に従う
   - 完了の状態: environment `release` があり、Deployment branches and tags がタグ `v*` だけになっている（エージェントが `gh api` で読んで確かめる）
 
-- [ ] 9.2 本仕様の PR を作り、main に統合する
+- [x] 9.2 本仕様の PR を作り、main に統合する
   - 作業ブランチを push し、PR を作る。PR の CI（build.yml。job `release-scripts` の ubuntu での初回の実行を含む）が通ってから squash で統合する
   - spec はまだ completed に移さない
   - 完了の状態: main に release.yml と `doc/release-notes/v0.0.1.md` があり、定型 C（`-Version 0.0.1 -Target origin/main`）の 4 行が合格する
@@ -243,3 +243,4 @@
 - procedure.md の共有の節（定型 A・B の出力・呼び出し方）はファイルの末尾にある。段 4〜9 は段 3 とそれらの間に入れる（4.6・4.7）
 - procedure.md の初版の節はファイルの最後にあり、手順書（6）の節「後片付け（必須）」を名前で指す。6 はこの見出しをそのまま使うこと
 - settings.json の `Bash(git push origin v*)` は `*` が空白も含むので `--force`・`--delete`・refspec の push にも合う。`permissions.ask` で確認させ、`v*:*` は外した（開発者の判断 2026-10-23）。ask の規則の末尾に `:*` を置くと前方一致の意味になるので、コロンの後ろに文字を置く
+- 9.2: PR #4 を squash で統合（main の c71bdee）。作業ブランチは squash の前の履歴のまま残るので、以後のコミットを main に入れるときは main を取り込んでから PR にする
