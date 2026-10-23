@@ -40,7 +40,7 @@
   - _Requirements: 7.5_
 
 - [ ] 3. 規約の本文（C ヘッダの正本と Rust の写し）
-- [ ] 3.1 版・ABI 規約・スレッド規約 1〜7・load の規約・ホストのプロセスの節を書き、Rust の doc に同文を写す
+- [x] 3.1 版・ABI 規約・スレッド規約 1〜7・load の規約・ホストのプロセスの節を書き、Rust の doc に同文を写す
   - 設計の「規約の本文の案」を出発点に、C ヘッダの冒頭の注釈を書き直す（v4 の Charset、パニックの規約を言語によらない形で ABI 規約へ、公開シンボルの文の直し、規約 1〜7、load の規約、専用プロセスの注意）
   - `shiori4_abi` のクレートの doc を同じ番号・同じ言葉にする（C の `->` と Rust の `.` の差だけを許す）。旧 Rust の「規約 6（catch_unwind）」を ABI 規約へ移す
   - `ShioriHostApi` の request・log、`ShioriApi` の load の dir の注釈を、C ヘッダと Rust の両方で該当する規約を指すように直す
@@ -151,3 +151,4 @@
 - 既存コードは rustfmt の既定に合わせていない（rustfmt.toml なし）。`cargo fmt` は掛けず、周りの書き方に合わせる
 - この環境には C コンパイラが無い。C ヘッダの `SHIORI_STATIC_ASSERT` は読んで確かめる
 - 2.1: `ShioriHostPoster` から `Copy` を外した（移行は `.clone()`）。ワークスペースの中に暗黙のコピーは無かった。門は `shiori4_abi` の `PosterGate`（Mutex+Condvar）で、`ShioriHostHandle::new(api, gate)` は `pub(crate)`
+- 3.1: 規約の本文は scratchpad の conv.txt から splice.py で C ヘッダと `//!` の両方に流し込み、compare.py で同文を確かめた（`//!` の規約の節にはバッククォートを使わない）。3.2 も同じ手で節を足す
