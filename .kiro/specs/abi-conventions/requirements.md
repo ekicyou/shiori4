@@ -15,7 +15,8 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 ## Boundary Context
 - **In scope**:
   - C ヘッダの規約の注釈（正本）、`SHIORI_E_WRONG_THREAD`（-7）の定数（C と Rust）、Rust 版 `shiori4_abi` の doc。
-  - SHIORI 側の高水準層: `ShioriHostPoster` の無効化と、`Ghost`／`export_ghost!` まわりの doc。
+  - `shiori4_abi` の SHIORI 側の入口（`shiori_load`／`shiori_unload`）: `ShioriHostPoster`（`shiori4_abi` にあり、`shiori4` が再エクスポートする）の無効化。
+  - `shiori4`: `Ghost`／`export_ghost!` まわりの doc。
   - ホスト側の高水準層 `shiori4_host`: スレッドの検査と -7、load の dir の正規化、log と release の任意スレッド対応の確認、Charset を付けないこと、両方を持つ DLL の見る順と許可する口の種類、読み終えたライブラリから作る入口、ファイル名の候補とヘッダの機械の種類の確認、v3 互換モードの口。
   - 上の振る舞いのテスト。
 - **Out of scope**:
@@ -38,7 +39,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 #### Acceptance Criteria
 1. The C ヘッダ shall この spec の要件 2〜11 で定める規約の本文（要件 11 は発見の順の要約）を、冒頭の注釈に日本語で持つ（規約の正本）。
 2. The shiori4_abi shall クレート冒頭の doc に、C ヘッダと同じ番号・同じ言葉で同じ規約を持つ。
-3. The shiori4 と shiori4_host shall 規約に触れる doc（`Ghost`・`Shiori`・`ShioriHostPoster`・`Host`・`GhostRuntime` など）で、C ヘッダの規約と食い違う記述（「Drop で止めて join すること」「unload の中で post するスレッドをすべて止めてから返る」など）を持たない。
+3. The shiori4_abi・shiori4・shiori4_host と steering の `tech.md` shall 規約に触れる doc（`Ghost`・`Shiori`・`ShioriHostPoster`・`Host`・`GhostRuntime`・`tech.md` のスレッド規約など）で、C ヘッダの規約と食い違う記述（「Drop で止めて join すること」「unload の中で post するスレッドをすべて止めてから返る」など）を持たない。
 4. If C ヘッダと Rust の doc の一方にだけある規約がある（例: Rust にだけある「エクスポートする関数はパニックを SHIORI_E_PANIC に変換する」）, the C ヘッダ と shiori4_abi shall 両方に同じ規約を持つか、言語に固有の注意として区別して書く。
 5. The C ヘッダ と shiori4_abi shall 構造体のレイアウト（`SHIORI_STATIC_ASSERT` とコンパイル時の検査が確かめる大きさ・オフセット）を変えない。
 6. The C ヘッダ と shiori4_abi shall 既存の公開シンボル・関数テーブル・定数の値を変えず、足すのは定数と注釈（関数テーブルは末尾追加の規則に従う）だけにする。
@@ -51,7 +52,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 2. The C ヘッダ と shiori4_abi shall ABI エラー `SHIORI_E_WRONG_THREAD` を値 -7 で定義し、「規約 2 に反する `host->request` の呼び出し」を意味すると述べる。
 3. The C ヘッダ shall 「ホストは、規約 2 に反する呼び出しを見分けたら `SHIORI_E_WRONG_THREAD` を返してよい（out は空）」と述べる。
 4. The C ヘッダ shall スレッド規約 1 の「ホストが決めた単一のスレッド」が、プロセスで 1 つではなくインスタンスごとであること、同じ DLL の 2 つのインスタンスが別々のスレッドから呼ばれうること、`SHIORI_E_WRONG_THREAD` の判定もインスタンスごとであることを述べる。
-5. The shiori4 と shiori4_host shall `SHIORI_E_WRONG_THREAD` を、既存の `SHIORI_E_*` と同じく利用者が 1 クレートを use するだけで使えるように再エクスポートする。
+5. The shiori4 と shiori4_host shall `SHIORI_E_WRONG_THREAD` と既存のすべての `SHIORI_E_*`（今 `shiori4_host` の再エクスポートから漏れている `SHIORI_E_INVALID_UTF8` を含む）を、利用者が 1 クレートを use するだけで使えるように再エクスポートする。
 
 ### Requirement 3: ホスト側の高水準層による規約 2 の違反の検出
 **Objective:** As a ベースウェア実装者, I want `shiori4_host` が規約 2 の違反を見分けて -7 を返すこと, so that 自前でスレッドを検査しなくても規約を守れ、SHIORI 実装者も違反に気づける（論点 1・9）
@@ -59,7 +60,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 #### Acceptance Criteria
 1. When SHIORI が、そのインスタンスの load / request / notify を呼ばれているスレッドとは別のスレッドから `host->request` を呼ぶ, the shiori4_host shall `SHIORI_E_WRONG_THREAD` を返し、その要求を `Host` に渡さない。
 2. When SHIORI が、そのインスタンスの load / request / notify の処理中に、呼ばれているスレッドから `host->request` を呼ぶ, the shiori4_host shall これまでどおり要求を `Host` に振り分けて応答を返す。
-3. If SHIORI が、そのインスタンスの load / request / notify の処理中ではないときに `host->request` を呼ぶ, the shiori4_host shall `SHIORI_E_WRONG_THREAD` を返し、その要求を `Host` に渡さない。**【仮定】** 同じスレッドでも呼び出しの外なら -7 とする（未決の論点 3）。
+3. If SHIORI が、そのインスタンスの load / request / notify の処理中ではないときに `host->request` を呼ぶ, the shiori4_host shall `SHIORI_E_WRONG_THREAD` を返し、その要求を `Host` に渡さない。同じスレッドでも、呼び出しの外は規約 2 の期間の外なので -7 とする（論点 1）。
 4. While 同じプロセスで複数の `GhostRuntime` が別々のスレッドで動いている, the shiori4_host shall 判定をインスタンスごとに行い、あるインスタンスの正しい呼び出しを、別のインスタンスのスレッドを理由に拒否しない。
 5. The shiori4_host shall この検出のために、Host 実装者・Ghost 実装者に新しい手続き（スレッドの登録など）を求めない。
 
@@ -69,11 +70,11 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 #### Acceptance Criteria
 1. The C ヘッダ shall スレッド規約 5 から「SHIORI は unload の中で、post を呼ぶ自分のスレッドをすべて止めてから返る」という手段の指定を除き、「SHIORI は、unload が返った後に ShioriHostApi のどの関数も呼ばない」という結果の約束に置き換える。
 2. The C ヘッダ shall 「unload は長く止まらないこと。ホストは OS の終了の猶予の中で、各インスタンスの unload を呼ぶことがある」という注意を、時間の数字を書かず、SHIORI に join を求めない言い回しで持つ。
-3. When ホストがそのインスタンスの unload を始める, the SHIORI 側の高水準層 shall そのインスタンスから取り出したすべての `ShioriHostPoster` を無効にする。
-4. While `ShioriHostPoster` が無効である, the SHIORI 側の高水準層 shall その `post` の呼び出しでホストに触れず、`SHIORI_E_SHUTDOWN` を返す。
-5. When unload が返る, the SHIORI 側の高水準層 shall それ以後、そのインスタンスの `ShioriHostPoster` を通じて ShioriHostApi のどの関数も呼ばれない状態にしている（unload を始める前に始まっていた post の呼び出しも含む）。**【仮定】** 実行中の post の呼び出しが返るのを unload の中で待つことは、「join を求めない」に反しない（未決の論点 2）。
-6. The SHIORI 側の高水準層 shall Ghost 実装者に、unload（Drop）の中で post するスレッドを止めて join することを求めない。そのスレッドが unload の後も動き続けて post を呼んでも、`SHIORI_E_SHUTDOWN` が返るだけで安全である。
-7. The SHIORI 側の高水準層 shall `ShioriHostPoster` を使う既存の Ghost のコード（取り出し・複製・別スレッドへの持ち出し・`PendingTags::post`）を、書き換えなしでビルドできるように保つ。**【仮定】** 複製の性質（`Copy`）を保てない場合は設計で判断する（未決の論点 1）。
+3. When ホストがそのインスタンスの unload を始める, the shiori4_abi（`shiori_unload`） shall そのインスタンスから取り出したすべての `ShioriHostPoster` を無効にする。
+4. While `ShioriHostPoster` が無効である, the shiori4_abi shall その `post` の呼び出しでホストに触れず、`SHIORI_E_SHUTDOWN` を返す。
+5. When unload が返る, the shiori4_abi shall それ以後、そのインスタンスの `ShioriHostPoster` を通じて ShioriHostApi のどの関数も呼ばれない状態にしている（unload を始める前に始まっていた post の呼び出しも含む）。**【仮定】** 実行中の post の呼び出しが返るのを unload の中で待つことは、「join を求めない」に反しない（未決の論点 2）。
+6. The shiori4_abi と shiori4 shall Ghost 実装者・`Shiori` を直接実装する人に、unload（Drop）の中で post するスレッドを止めて join することを求めない。そのスレッドが unload の後も動き続けて post を呼んでも、`SHIORI_E_SHUTDOWN` が返るだけで安全である。
+7. The shiori4_abi shall `ShioriHostPoster` を使う既存の Ghost のコード（取り出し・複製・別スレッドへの持ち出し・`PendingTags::post`）を、書き換えなしでビルドできるように保つ。**【仮定】** 複製の性質（`Copy`）を保てない場合は設計で判断する（未決の論点 1）。
 
 ### Requirement 5: log と release のスレッド
 **Objective:** As a SHIORI 実装者・ベースウェア実装者, I want `host->log` と `ShioriBytes.release` を呼べるスレッドが決まっていること, so that ワーカースレッドからのログや、応答を別スレッドで捨てることを安心してできる（論点 3）
@@ -84,7 +85,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 3. When SHIORI が任意のスレッドから `host->log` を呼ぶ, the shiori4_host shall それを受けて `Host::log` に渡し、すぐ返る。
 4. The shiori4_host shall `Host::log` の doc で、任意のスレッドから呼ばれることを述べる。
 5. The shiori4_abi shall 自分が確保して渡す `ShioriBytes` の release が、どのスレッドから呼ばれても正しく解放されることを保つ。
-6. Where SHIORI 側の高水準層が別スレッドへ持ち出せるホストの口を持つ, the SHIORI 側の高水準層 shall そこから log も呼べるようにし、無効化（要件 4）の後は log でもホストに触れない。**【仮定】** 持ち出せる口に log を足す（未決の論点 6）。
+6. Where shiori4_abi が別スレッドへ持ち出せるホストの口（`ShioriHostPoster`）を持つ, the shiori4_abi shall そこから log も呼べるようにし、無効化（要件 4）の後は log でもホストに触れない。**【仮定】** 持ち出せる口に log を足す（未決の論点 6）。
 
 ### Requirement 6: notify の後回し
 **Objective:** As a SHIORI 実装者, I want notify をすぐ返して処理を後回しにしてよいかが決まっていること, so that ホストのスレッドを止めずに重い処理ができる（論点 4）
@@ -193,9 +194,9 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 6. The 3 クレート shall ubuntu・windows・macos の CI（test と clippy の `-D warnings`）を通す。
 
 ## 未決の論点（要件ディスカッションで決める）
-1. **`ShioriHostPoster` の置き場と `Copy`**: brief は「`shiori4` の `ShioriHostPoster`」と書くが、実体は `shiori4_abi` にあり `shiori4` が再エクスポートしている。無効化は `shiori4_abi` の側（unload の入口）で行うことになる。また、無効化の状態を共有するため `Copy` を外す必要が出うる（0.0.x での破壊的な変更）。
+1. **`ShioriHostPoster` の `Copy`**: （置き場は解決済み: 実体は `shiori4_abi` にあり、無効化は `shiori4_abi` の unload の入口で行う。要件 4 の主語を直した）無効化の状態を共有するため `Copy` を外す必要が出うる（0.0.x での破壊的な変更）。
 2. **実行中の post と unload の競合**: 「unload が返った後に呼ばない」を厳密に守るには、unload を始めた時点で実行中の post が返るのを待つ必要がある。これを「join を求めない」（論点 2・10）と両立するものとして認めるか。
-3. **呼び出しの外での `host->request`**: 同じスレッドでも load / request / notify の外で呼ばれたとき、`SHIORI_E_WRONG_THREAD` を返すか（仮定）、別の扱いにするか。
+3. ~~呼び出しの外での `host->request`~~（解決済み: 論点 1 の「その呼び出しが返るまでの間だけ」の外なので -7。要件 3.3）
 4. **規約 6（パニックの変換）の置き場**: Rust の doc にだけある規約 6 を C ヘッダの規約に入れるか、Rust に固有の注意として分けるか。
 5. **load の失敗の log の自動化**: 高水準層が `Ghost::load` の失敗を自動で log するか（仮定）、Ghost 実装者の義務として doc に書くだけにするか。パニックで失敗したときも log するか。
 6. **別スレッドからの log の口**: `ShioriHostHandle` は別スレッドへ持ち出せないので、論点 3 を高水準層で使えるようにするには、持ち出せる口（Poster など）に log を足す必要がある。足すか。
@@ -204,4 +205,4 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 9. **従来の口で解決したときの `shiori4_host` の返り値**: この spec では従来の SHIORI/3.0 の DLL を読まない。`loadu`・`load` で解決したときに、何を返すか（口の種類と開いたライブラリを返す、と仮定）。
 10. **C ヘッダに配布の決まりを書く場所**: ファイル名の決まり（論点 12）は ABI の関数・構造体を変えない。C ヘッダの注釈に書くか、`shiori4_host` の doc に書くか、別の文書に書くか（教科書の章は abi-textbook）。
 11. **ファイル名の候補の関数の入力**: 対象の OS・arch を引数で受けるか（areka の本体が別の arch の helper のために選ぶ場合）、今のプロセスの OS・arch だけか。
-12. **steering の更新**: `.kiro/steering/tech.md` の「スレッド規約」に「SHIORI は post するスレッドを止めて join してから返る」とある。この spec で直すか、完了時の同期に任せるか。
+12. ~~steering の更新~~（解決済み: `tech.md` のスレッド規約も同じ食い違いなので、この spec で直す対象に入れた。要件 1.3）
