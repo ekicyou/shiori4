@@ -16,5 +16,5 @@ cargo test
 `shiori4::Ghost` を実装し、`shiori4::export_ghost!(MyGhost);` でエクスポート（crate-type = ["cdylib"]）。
 
 ## ホストを作る
-`shiori4_host::Host` を実装し、`GhostRuntime::load(lib, ghost_dir, host)` で読み込む。
+`shiori4_host::Host` を実装し、`GhostRuntime::load(lib, ghost_dir, host)` で読み込む（`ghost_dir` は絶対パス）。
 `Host::wake` が呼ばれたらイベントループから `GhostRuntime::pump()` を呼ぶ。
