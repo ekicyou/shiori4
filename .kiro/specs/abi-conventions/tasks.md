@@ -138,7 +138,7 @@
   - _Boundary: SteeringUpdate_
   - _Requirements: 1.3_
 
-- [ ] 8.3 全体の検証と移行の記録
+- [x] 8.3 全体の検証と移行の記録
   - ワークスペースで `cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings` を通す
   - 依存を確かめる: `shiori4_abi`・`shiori4` は std だけ、`shiori4_host` は `libloading` だけで新しい外部の依存が無く、3 クレートの版が上がっていない。テスト用 cdylib がワークスペースの外にあり、package と clippy の対象にならない
   - リポジトリの doc と steering に、join を求める記述・相対の dir の例が残っていないことを検索で確かめる
