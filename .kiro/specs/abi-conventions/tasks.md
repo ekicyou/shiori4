@@ -33,7 +33,7 @@
   - 完了: テストで (a) unload の後の post が `SHIORI_E_SHUTDOWN` を返しホストの post が呼ばれない、(b) unload 前に入った post が返るまで unload が返らない、(c) unload の後も動き続けるスレッドの post・log が安全、(d) unload の後の Poster の log がホストに届かない、がすべて通り、ワークスペース全体がビルドできる
   - _Requirements: 1.3, 4.3, 4.4, 4.5, 4.6, 4.7, 5.6_
 
-- [ ] 2.2 v4 の load の失敗を、NULL を返す前にホストの log へ 1 行出す
+- [x] 2.2 v4 の load の失敗を、NULL を返す前にホストの log へ 1 行出す
   - dir の検査の失敗・Ghost の load の `Err`・パニックのどれでも、host が有効なら `SHIORI_LOG_ERROR` でステータスを含む英語の 1 行を出す
   - log の呼び出しも境界の保護の内側で行い、パニックを外へ出さない。host が無効なとき・v3 のときは出さない
   - 完了: テストで `Err` とパニックのそれぞれでホストの log にちょうど 1 行が届き、v3 の load の失敗では log が呼ばれないことが確かめられる

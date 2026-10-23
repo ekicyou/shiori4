@@ -732,6 +732,11 @@ unsafe extern "C" fn shiori_load<S: Shiori, const V: u32>(
     dir: *const u8,
     dir_len: usize,
 ) -> *mut c_void {
+    // 失敗の 1 行を出せる host（v4 で有効なものだけ）
+    let log_host = match host {
+        Some(h) if V >= SHIORI_ABI_VERSION => Some(unsafe { h.as_ref() }).filter(|a| a.is_valid()),
+        _ => None,
+    };
     let r = catch_unwind(AssertUnwindSafe(|| -> Result<*mut c_void, ShioriStatus> {
         let (mode, gate) = if V >= SHIORI_ABI_VERSION {
             let api: &ShioriHostApi = unsafe { host.ok_or(SHIORI_E_INVALID_ARG)?.as_ref() };
@@ -747,10 +752,18 @@ unsafe extern "C" fn shiori_load<S: Shiori, const V: u32>(
         let shiori = S::load(mode, dir)?;
         Ok(Box::into_raw(Box::new(Instance { gate, shiori })).cast())
     }));
-    match r {
-        Ok(Ok(p)) => p,
-        _ => ptr::null_mut(),
+    let msg = match r {
+        Ok(Ok(p)) => return p,
+        Ok(Err(st)) => format!("shiori load failed: status {st}"),
+        Err(_) => format!("shiori load failed: panic (status {SHIORI_E_PANIC})"),
+    };
+    if let Some(api) = log_host {
+        // ホストの log のパニックも境界の外へ出さない
+        let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+            (api.log)(api.ctx, SHIORI_LOG_ERROR, msg.as_ptr(), msg.len())
+        }));
     }
+    ptr::null_mut()
 }
 
 unsafe extern "C" fn shiori_unload<S: Shiori>(inst: *mut c_void) {
@@ -1241,5 +1254,73 @@ mod tests {
         drop(inst);
         poster.log(0, "after unload");
         assert_eq!(c.logs.load(Ordering::SeqCst), 1);
+    }
+
+    // ---- load の失敗の 1 行 ----
+
+    thread_local! {
+        static LOGGED: RefCell<Vec<(i32, String)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    struct FailShiori;
+
+    impl Shiori for FailShiori {
+        const SUPPORTS_V3: bool = true;
+        fn load(_mode: ShioriLoadMode, dir: &str) -> Result<Self, ShioriStatus> {
+            if dir.contains("panic") {
+                panic!("load panic");
+            }
+            Err(SHIORI_E_INVALID_ARG)
+        }
+        fn request(&mut self, _req: &str) -> ShioriResponse {
+            ShioriResponse::no_content()
+        }
+    }
+
+    struct LogHost;
+
+    impl ShioriHost for LogHost {
+        fn request(&self, _req: &[u8]) -> ShioriResponse {
+            ShioriResponse::no_content()
+        }
+        fn post(&self, _msg: &[u8]) -> ShioriStatus {
+            SHIORI_204_NO_CONTENT
+        }
+        fn log(&self, level: i32, msg: &str) {
+            LOGGED.with(|l| l.borrow_mut().push((level, msg.to_owned())));
+        }
+    }
+
+    static FAIL_V4: ShioriApi = ShioriApi::new::<FailShiori, { SHIORI_ABI_VERSION }>();
+    static FAIL_V3: ShioriApi = ShioriApi::new::<FailShiori, { SHIORI_ABI_VERSION_3 }>();
+
+    fn take_logged() -> Vec<(i32, String)> {
+        LOGGED.with(|l| std::mem::take(&mut *l.borrow_mut()))
+    }
+
+    #[test]
+    fn v4_load_failure_logs_one_line() {
+        let host = ShioriHostBox::new(LogHost);
+        assert!(FAIL_V4.load(&host, "/ghost").is_none());
+        assert_eq!(take_logged(), vec![(SHIORI_LOG_ERROR, "shiori load failed: status -1".to_owned())]);
+        assert!(FAIL_V4.load(&host, "/panic").is_none());
+        assert_eq!(
+            take_logged(),
+            vec![(SHIORI_LOG_ERROR, "shiori load failed: panic (status -3)".to_owned())]
+        );
+        // dir の検査の失敗（UTF-8 でない）も 1 行
+        let p = unsafe { (FAIL_V4.load)(Some(host.api_ptr()), [0xffu8].as_ptr(), 1) };
+        assert!(p.is_null());
+        assert_eq!(take_logged().len(), 1);
+    }
+
+    #[test]
+    fn v3_load_failure_does_not_log() {
+        let host = ShioriHostBox::new(LogHost);
+        assert!(FAIL_V3.load_v3("/ghost").is_none());
+        // v3 のテーブルに host を渡されても log しない
+        let p = unsafe { (FAIL_V3.load)(Some(host.api_ptr()), "/panic".as_ptr(), 6) };
+        assert!(p.is_null());
+        assert!(take_logged().is_empty());
     }
 }
