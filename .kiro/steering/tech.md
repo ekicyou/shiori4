@@ -9,7 +9,7 @@ shiori4_abi   … C ABI（関数テーブル・ShioriBytes・版・規約）。�
    ↑
 shiori4       … SHIORI 側の高水準層（Ghost, Adapter, Headers, Properties, PendingTags, host_protocol）
    ↑
-shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, post キュー, pump）
+shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, 読み込みの口 load_ghost, post キュー, pump）
 ```
 
 - ホストと SHIORI が共有するメッセージ名（`ID: property`, `Tag`, `OnHostComplete` など）は `shiori4::host_protocol` に置き、ホスト側はそれを再エクスポートして使う
@@ -33,14 +33,15 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, post キュ�
 - 所有権が移るのは `out` の `ShioriBytes` だけ。確保した側の `release` で解放する
 - 構造体は末尾にだけ追加する。追加する関数ポインタは `Option<unsafe extern "C" fn(..)>`。受け手は `struct_size` で判定する
 - 戻り値: 0 以上は SHIORI/3.0 のステータスコード、負は ABI エラー（`SHIORI_E_*`）
-- エクスポートする関数は `catch_unwind` で包み、パニックを `SHIORI_E_PANIC` にする
+- エクスポートする関数は、例外・パニックを境界の外へ出さず `SHIORI_E_PANIC` を返す（Rust では `catch_unwind` で包む）
 - 規約を変えたら、`shiori4_abi/src/lib.rs` 冒頭の `//!` と C ヘッダのコメントを**両方**直す
 
 ### スレッド規約
 - `request` / `notify` はホストが決めた単一スレッドから。`GhostRuntime` は `!Send`、呼び出しは `&mut self` で型として強制する
+- `host.request` を呼べるのは、load / request / notify を呼ばれているスレッドから、その呼び出しの間だけ（v4）。違反には `SHIORI_E_WRONG_THREAD`（-7）を返してよい
 - `host.request` の処理中に SHIORI を呼び返さない（`SHIORI_E_REENTRANT`）。`Host` のメソッドは `&self` だけでランタイムに触れない
-- `post` は任意スレッドから。ホストはコピーしてキューに積み、イベントループ（`pump`）から届ける
-- unload は `Drop` で表す。SHIORI は post するスレッドを止めて join してから返る
+- `post` と `log` は任意スレッドから。ホストはコピーしてすぐ返る（post はキューに積み、イベントループ（`pump`）から届ける）
+- unload は `Drop` で表す。unload が返った後、SHIORI はホストを呼ばない。高水準層は unload を始めた時点で Poster を無効にするので、join は要らない
 
 ### Unsafe
 - `unsafe` は ABI 層に閉じ込め、上位層には安全な型（`ShioriOwnedBytes`, `ShioriInstance`, `ShioriHostHandle` など）だけを見せる
@@ -51,8 +52,9 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, post キュ�
 - コメントとドキュメントは日本語。規約はクレート冒頭の `//!` に番号付きで書き、実装側から「規約 N」として参照する
 
 ### Testing
-- 各クレートの `lib.rs` 末尾の `#[cfg(test)] mod tests` に置く
+- 各ファイル末尾の `#[cfg(test)] mod tests` に置く（`shiori4_host` は役割ごとのファイルにそれぞれ持つ）
 - ホスト側のテストは `GhostRuntime::from_static` でテスト用 `Ghost` を DLL なしに直結して、往復を検証する
+- DLL を通すテストは `shiori4_host/src/test_dll.rs` の `dll_path()` が作るテスト用 cdylib（`testdata/testghost/`）を読む。DLL の状態はプロセスに 1 つなので `lock()` を取ってから使う
 
 ### 公開とバージョン
 - 版はルート `Cargo.toml` の **3 か所**だけに書く: `[workspace.package] version` と、`[workspace.dependencies]` の `shiori4_abi`・`shiori4` の `version`。3 つは常に同じ値にする（`0.0.x` の版要求は完全一致なので、直し忘れると依存解決で落ちる）

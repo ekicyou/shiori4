@@ -131,7 +131,7 @@
   - _Depends: 5.4, 6, 7.2_
   - _Requirements: 11.2, 12.1, 13.1, 14.3_
 
-- [ ] 8.2 (P) steering の `tech.md` を規約に合わせる
+- [x] 8.2 (P) steering の `tech.md` を規約に合わせる
   - スレッド規約の「join してから返る」を結果の約束（unload の後はホストを呼ばない。高水準層が Poster を無効にするので join は要らない）に直し、`host.request` の期間と -7、post と log は任意スレッド、を足す
   - Testing にテスト用 cdylib の使い方を 1 行足す
   - 完了: `tech.md` に join を求める記述が無く、-7 とテスト用 cdylib に触れている
