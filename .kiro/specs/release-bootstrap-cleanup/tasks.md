@@ -1,15 +1,16 @@
 # Implementation Plan
 
-- [ ] 1. 撤去の前に v0.0.1 が 4/4 であることを確かめる
+- [x] 1. 撤去の前に v0.0.1 が 4/4 であることを確かめる
   - 状態の照会（定型コマンド A、`-Version 0.0.1`）を実行し、タグ・crates.io の 3 クレート・GitHub Release がそろって公開済み 4/4、`不明` が 0 であることを確かめる。満たさなければ何も削らずに止まり、出力を示す
   - 完了の状態: 照会の出力の `集計` の行が `4/4`・`不明 0` で、その行を Implementation Notes に記録してある
   - _Requirements: 1.1, 1.2_
 
 - [ ] 2. 初版の判定・経路・節を削る
-- [ ] 2.1 (P) リリーススキルから初版の判定と経路を削る
+- [x] 2.1 (P) リリーススキルから初版の判定と経路を削る
   - procedure.md の判定表から行 S2 を消し、段 2 の表の `Requirements` から `14.2` を外し、ファイルの最後の節「初版の経路【初版のみ】」を消す。ほかの行（S0・S1・S3〜S9）の条件と次の手は変えない
   - SKILL.md の段 2 の「S2【初版のみ】は…」の 1 行を消す
-  - 完了の状態: `git grep -n -E 'S2|初版の経路|【初版のみ】' -- .claude/skills/release` が空で、判定表は S0・S1・S3〜S9 の 9 行のまま条件が変わっていない
+  - S2 は F2・F5 と同じく欠番として、判定表のあとの注記と SKILL.md の段 2 の要約に 1 か所ずつ書く
+  - 完了の状態: `git grep -n -E 'S2|初版の経路|【初版のみ】' -- .claude/skills/release` が欠番の注記の 2 行だけで、判定表は S0・S1・S3〜S9 の 9 行のまま条件が変わっていない
   - _Boundary: .claude/skills/release/procedure.md, .claude/skills/release/SKILL.md_
   - _Depends: 1_
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
@@ -31,3 +32,4 @@
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 2.2_
 
 ## Implementation Notes
+- 1: 定型 A（`-Version 0.0.1`）が `集計 | 0.0.1 の公開済み 4/4 | 不明 0`（タグ・3 クレート・GitHub Release、run 39888963308）
