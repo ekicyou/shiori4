@@ -826,10 +826,15 @@ unsafe extern "C" fn shiori_unload<S: Shiori>(inst: *mut c_void) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         let inst = unsafe { Box::from_raw(inst as *mut Instance<S>) };
         // 門を閉じて実行中の post・log を待ってから S を Drop する（S の Drop の中の post も止まる）
-        if let Some(g) = &inst.gate {
+        let gate = inst.gate.clone();
+        if let Some(g) = &gate {
             g.close_and_wait();
         }
         drop(inst);
+        // S の中から外へ持ち出された ShioriHostHandle も、ここから先はホストに触れない
+        if let Some(g) = &gate {
+            g.lock().unloaded = true;
+        }
     }));
 }
 
@@ -946,7 +951,8 @@ impl Drop for ShioriInstance<'_> {
 // ============================================================
 
 /// 同期 request 用。生成はクレート内（shiori_load）だけ
-/// NonNull を含むので !Send かつ !Sync。複製しても有効期間は同じ（unload まで）
+/// NonNull を含むので !Send かつ !Sync。複製しても有効期間は同じ（unload まで）。
+/// unload が返った後に残っていても、request は SHIORI_E_SHUTDOWN を返し、log は何もしない
 /// unload（Shiori の Drop）の中で使えるのは log だけ。unload は load / request / notify の
 /// 期間に入らないので、request は SHIORI_E_WRONG_THREAD になりうる（規約 2）
 #[derive(Clone)]
@@ -979,6 +985,8 @@ struct GateState {
     closed: bool,
     /// 門を通ってホストの関数を呼んでいる最中の数
     in_flight: usize,
+    /// unload が S を Drop し終えた。これより後、ShioriHostHandle はホストの表に触れない
+    unloaded: bool,
 }
 
 /// Drop で in_flight を 1 つ減らす
@@ -1006,6 +1014,10 @@ impl PosterGate {
         while st.in_flight > 0 {
             st = self.idle.wait(st).unwrap_or_else(PoisonError::into_inner);
         }
+    }
+
+    fn is_unloaded(&self) -> bool {
+        self.lock().unloaded
     }
 }
 
@@ -1036,7 +1048,11 @@ impl ShioriHostHandle {
     }
 
     /// Err になるのは ABI 層のエラーだけ。400 や 500 は Ok(ShioriOwnedResponse) で返る
+    /// unload が返った後は SHIORI_E_SHUTDOWN（ホストに触れない）
     pub fn request(&self, req: &[u8]) -> Result<ShioriOwnedResponse, ShioriStatus> {
+        if self.gate.is_unloaded() {
+            return Err(SHIORI_E_SHUTDOWN);
+        }
         let api = self.api();
         let mut out = ShioriBytes::empty();
         let st = unsafe { (api.request)(api.ctx, req.as_ptr(), req.len(), &mut out) };
@@ -1052,12 +1068,29 @@ impl ShioriHostHandle {
         self.request(req.as_bytes())
     }
 
+    /// unload が返った後は何もしない
     pub fn log(&self, level: i32, msg: &str) {
+        if self.gate.is_unloaded() {
+            return;
+        }
         let api = self.api();
         unsafe { (api.log)(api.ctx, level, msg.as_ptr(), msg.len()) }
     }
 
     pub fn poster(&self) -> ShioriHostPoster {
+        if self.gate.is_unloaded() {
+            // 門は閉じているので、この Poster は ctx にも関数にも触れない
+            unsafe extern "C" fn dead_post(_: *mut c_void, _: *const u8, _: usize) -> ShioriStatus {
+                SHIORI_E_SHUTDOWN
+            }
+            unsafe extern "C" fn dead_log(_: *mut c_void, _: i32, _: *const u8, _: usize) {}
+            return ShioriHostPoster {
+                ctx: std::ptr::null_mut(),
+                post: dead_post,
+                log: dead_log,
+                gate: self.gate.clone(),
+            };
+        }
         let api = self.api();
         ShioriHostPoster { ctx: api.ctx, post: api.post, log: api.log, gate: self.gate.clone() }
     }
@@ -1307,6 +1340,48 @@ mod tests {
         drop(inst);
         poster.log(0, "after unload");
         assert_eq!(c.logs.load(Ordering::SeqCst), 1);
+    }
+
+    thread_local! {
+        static HANDLE: RefCell<Option<ShioriHostHandle>> = const { RefCell::new(None) };
+    }
+
+    struct HandleShiori;
+
+    impl Shiori for HandleShiori {
+        fn load(mode: ShioriLoadMode, _dir: &str) -> Result<Self, ShioriStatus> {
+            let ShioriLoadMode::V4(h) = mode else { return Err(SHIORI_E_UNSUPPORTED) };
+            HANDLE.with(|s| *s.borrow_mut() = Some(h.clone()));
+            Ok(Self)
+        }
+        fn request(&mut self, _req: &str) -> ShioriResponse {
+            ShioriResponse::no_content()
+        }
+    }
+
+    impl Drop for HandleShiori {
+        fn drop(&mut self) {
+            // unload の中ではまだ log が届く
+            HANDLE.with(|s| s.borrow().as_ref().unwrap().log(0, "in drop"));
+        }
+    }
+
+    static HANDLE_API: ShioriApi = ShioriApi::new::<HandleShiori, { SHIORI_ABI_VERSION }>();
+
+    #[test]
+    fn handle_kept_past_unload_does_not_touch_host() {
+        let c = Arc::new(Counters::default());
+        let host = ShioriHostBox::new(GateHost(c.clone()));
+        let inst = HANDLE_API.load(&host, "/ghost").expect("load");
+        drop(inst);
+        assert_eq!(c.logs.load(Ordering::SeqCst), 1); // Drop の中の 1 行
+        let h = HANDLE.with(|s| s.borrow_mut().take()).expect("handle");
+        drop(host); // ホストの表を解放した後も、h はそれに触れない
+        h.log(0, "after unload");
+        assert_eq!(h.request_str("GET\r\n").err(), Some(SHIORI_E_SHUTDOWN));
+        assert_eq!(h.poster().post_str("after unload"), SHIORI_E_SHUTDOWN);
+        assert_eq!(c.logs.load(Ordering::SeqCst), 1);
+        assert_eq!(c.posts.load(Ordering::SeqCst), 0);
     }
 
     // ---- load の失敗の 1 行 ----

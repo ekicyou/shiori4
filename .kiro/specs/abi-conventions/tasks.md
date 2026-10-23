@@ -157,3 +157,4 @@
 - 5.3: テスト用 DLL のモードは `test_dll::set_mode(&lib, mode)` で、開いているライブラリに対して設定する（すべてのハンドルを閉じると DLL が外れてモードが既定に戻るため）。subagent の継ぎはぎのスクリプトが `\r\n` のエスケープを壊したことがある。文字列のエスケープは diff で確かめる
 - 7.1: ライブラリからの入口の共通部分は lib.rs の非公開 `unsafe fn library_entry(lib, dir, version)`（dir の検査 → `shiori_get_api` → テーブルの検査）。v3.rs は子モジュールなので `normalize_dir` と `FromLibraryError` の非公開フィールドを直接使える
 - 8.1: `from_library` は `libloading::Library` を受ける。利用者が版を合わせずに使えるよう、`shiori4_host` は `pub use libloading;` で再エクスポートする（利用者の判断で足した）
+- 完了時にその場で解決: `ShioriHostHandle` を thread_local などで unload の後まで持ち出すと、解放済みのホストの表に safe なコードから触れられた（main からある問題）。門に「unload 済み」の印を足し、その後の request は SHIORI_E_SHUTDOWN、log・poster は何もしないようにした（テスト `handle_kept_past_unload_does_not_touch_host`）
