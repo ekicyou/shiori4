@@ -69,7 +69,8 @@ pub use shiori4::shiori4_abi::{
     SHIORI_LOG_ERROR, SHIORI_LOG_INFO, SHIORI_LOG_WARN,
 };
 use shiori4::shiori4_abi::{
-    ShioriGetApiFn, ShioriHost, ShioriHostBox, ShioriInstance, SHIORI_GET_API_SYMBOL,
+    ShioriBytes, ShioriGetApiFn, ShioriHost, ShioriHostBox, ShioriInstance, SHIORI_E_WRONG_THREAD,
+    SHIORI_GET_API_SYMBOL,
 };
 
 mod v3;
@@ -321,10 +322,35 @@ struct Bridge<H> {
     host: Arc<H>,
     tx: mpsc::Sender<Msg>,
     shutdown: Arc<AtomicBool>,
+    /// 持ち主のスレッド（with_api を呼んだスレッド）
+    owner: std::thread::ThreadId,
+    /// SHIORI の load / request / notify を呼んでいる間だけ true（規約 2 の期間）
+    in_call: AtomicBool,
+}
+
+/// 規約 2 の期間の印を立て、Drop で下ろす
+struct CallScope<'a>(&'a AtomicBool);
+
+impl<'a> CallScope<'a> {
+    fn new(flag: &'a AtomicBool) -> Self {
+        // 他のスレッドは owner との比較で必ず -7 になるので、印の順序は Relaxed で足りる
+        flag.store(true, Ordering::Relaxed);
+        Self(flag)
+    }
+}
+
+impl Drop for CallScope<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
 }
 
 impl<H: Host> ShioriHost for Bridge<H> {
     fn request(&self, req: &[u8]) -> ShioriResponse {
+        // 規約 2: 持ち主のスレッドで、load / request / notify の処理中だけ受ける
+        if std::thread::current().id() != self.owner || !self.in_call.load(Ordering::Relaxed) {
+            return ShioriResponse::with_status(SHIORI_E_WRONG_THREAD, ShioriBytes::empty());
+        }
         let Ok(text) = std::str::from_utf8(req) else {
             return ShioriResponse::bad_request();
         };
@@ -481,9 +507,15 @@ impl<H: Host> GhostRuntime<H> {
             host: Arc::clone(&host),
             tx,
             shutdown: Arc::clone(&shutdown),
+            owner: std::thread::current().id(),
+            in_call: AtomicBool::new(false),
         });
 
-        let inst = api.load(&host_box, dir).ok_or(LoadError::LoadFailed)?;
+        let inst = {
+            let _scope = CallScope::new(&host_box.host().in_call);
+            api.load(&host_box, dir)
+        }
+        .ok_or(LoadError::LoadFailed)?;
         // SAFETY: instance が参照するのは api（lib が生きている間有効）と host_box の中身（ヒープ上で
         // 位置が変わらない）。どちらも Drop で instance より後に解放する
         let instance = unsafe { std::mem::transmute::<ShioriInstance<'_>, ShioriInstance<'static>>(inst) };
@@ -520,7 +552,10 @@ impl<H: Host> GhostRuntime<H> {
         if self.poisoned {
             return Err(SHIORI_E_PANIC);
         }
-        let r = self.instance.request(headers);
+        let r = {
+            let _scope = CallScope::new(&self.host_box.host().in_call);
+            self.instance.request(headers)
+        };
         if matches!(r, Err(SHIORI_E_PANIC)) {
             self.poisoned = true;
         }
@@ -532,7 +567,10 @@ impl<H: Host> GhostRuntime<H> {
         if self.poisoned {
             return Err(SHIORI_E_PANIC);
         }
-        let r = self.instance.notify(headers);
+        let r = {
+            let _scope = CallScope::new(&self.host_box.host().in_call);
+            self.instance.notify(headers)
+        };
         if matches!(r, Err(SHIORI_E_PANIC)) {
             self.poisoned = true;
         }
@@ -718,11 +756,160 @@ mod tests {
             host: Arc::new(TestHost { woken: AtomicUsize::new(0) }),
             tx: mpsc::channel().0,
             shutdown: Arc::new(AtomicBool::new(false)),
+            owner: std::thread::current().id(),
+            in_call: AtomicBool::new(true),
         };
         let r = ShioriHost::request(&b, b"ID: unknown\r\n");
         assert_eq!(r.status, 400);
         let _ = r.into_owned();
         // Command のない post は 400
         assert_eq!(ShioriHost::post(&b, b"Tag: 1\r\n"), SHIORI_400_BAD_REQUEST);
+    }
+
+    // ---- 規約 2（ThreadGuard） ----
+
+    /// property と request が呼ばれた回数と、log で届いた文を数える
+    #[derive(Default)]
+    struct CountHost {
+        calls: AtomicUsize,
+        logs: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl Host for CountHost {
+        fn property(&self, name: &str) -> Option<String> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            Some(format!("v:{name}"))
+        }
+
+        fn request(&self, _req: &Headers<'_>) -> Option<ShioriResponse> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            None
+        }
+
+        fn on_post(&self, _post: Post) {}
+
+        fn log(&self, _level: i32, msg: &str) {
+            self.logs.lock().unwrap().push(msg.to_owned());
+        }
+    }
+
+    const PROP_REQ: &[u8] = b"ID: property\r\nReference0: name\r\n";
+
+    fn count_bridge(in_call: bool) -> Bridge<CountHost> {
+        Bridge {
+            host: Arc::new(CountHost::default()),
+            tx: mpsc::channel().0,
+            shutdown: Arc::new(AtomicBool::new(false)),
+            owner: std::thread::current().id(),
+            in_call: AtomicBool::new(in_call),
+        }
+    }
+
+    #[test]
+    fn request_from_other_thread_is_wrong_thread() {
+        // 持ち主のスレッドが処理中でも、別スレッドからの request は -7 で Host に渡らない
+        let b = count_bridge(true);
+        let r = std::thread::scope(|s| s.spawn(|| ShioriHost::request(&b, PROP_REQ).into_owned()).join().unwrap());
+        assert_eq!(r.status, SHIORI_E_WRONG_THREAD);
+        assert!(r.body.is_empty());
+        assert_eq!(b.host.calls.load(Ordering::Relaxed), 0);
+        // 持ち主のスレッドからなら通る
+        let r = ShioriHost::request(&b, PROP_REQ).into_owned();
+        assert_eq!(r.status, 200);
+        assert_eq!(b.host.calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn request_outside_call_is_wrong_thread() {
+        let b = count_bridge(false);
+        let r = ShioriHost::request(&b, PROP_REQ).into_owned();
+        assert_eq!(r.status, SHIORI_E_WRONG_THREAD);
+        assert!(r.body.is_empty());
+        assert_eq!(b.host.calls.load(Ordering::Relaxed), 0);
+    }
+
+    /// load・request・notify の中で property を取り、別スレッドから log を送るゴースト
+    struct GuardGhost {
+        props: Properties,
+        poster: Option<ShioriHostPoster>,
+        at_load: String,
+    }
+
+    fn value(props: &mut Properties, name: &str) -> String {
+        match props.get(name) {
+            Lookup::Ready(v) => v.to_owned(),
+            _ => "?".to_owned(),
+        }
+    }
+
+    impl Ghost for GuardGhost {
+        fn load(host: Option<ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+            let poster = host.as_ref().map(|h| h.poster());
+            let mut props = Properties::new(host);
+            let at_load = value(&mut props, "load");
+            Ok(Self { props, poster, at_load })
+        }
+
+        fn request(&mut self, req: &Headers<'_>) -> ShioriResponse {
+            match req.id() {
+                Some("OnLog") => {
+                    let p = self.poster.clone().unwrap();
+                    std::thread::spawn(move || p.log(SHIORI_LOG_INFO, "from worker")).join().unwrap();
+                    ShioriResponse::no_content()
+                }
+                _ => {
+                    let v = format!("{}|{}", self.at_load, value(&mut self.props, "req"));
+                    HeaderWriter::new().push("Value", &v).into_response()
+                }
+            }
+        }
+
+        fn notify(&mut self, _req: &Headers<'_>) -> ShioriStatus {
+            if value(&mut self.props, "notify") == "v:notify" { SHIORI_200_OK } else { SHIORI_500_INTERNAL_SERVER_ERROR }
+        }
+    }
+
+    static GUARD_API: ShioriApi = ShioriApi::new::<Adapter<GuardGhost>, { SHIORI_ABI_VERSION }>();
+
+    fn guard_runtime() -> GhostRuntime<CountHost> {
+        GhostRuntime::from_static(&GUARD_API, "/ghost", CountHost::default()).expect("load")
+    }
+
+    #[test]
+    fn property_inside_load_request_notify() {
+        let mut rt = guard_runtime();
+        let r = rt.request("ID: OnBoot\r\n").expect("abi");
+        assert!(r.body.as_str().unwrap().contains("Value: v:load|v:req"), "{:?}", r.body.as_str());
+        drop(r);
+        assert_eq!(rt.notify("ID: OnTest\r\n"), Ok(SHIORI_200_OK));
+        // 呼び出しが返った後は印が下りている
+        let r = ShioriHost::request(rt.host_box.host(), PROP_REQ).into_owned();
+        assert_eq!(r.status, SHIORI_E_WRONG_THREAD);
+    }
+
+    #[test]
+    fn two_runtimes_on_two_threads() {
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|s| {
+            for _ in 0..2 {
+                s.spawn(|| {
+                    let mut rt = guard_runtime();
+                    barrier.wait();
+                    for _ in 0..100 {
+                        let r = rt.request("ID: OnBoot\r\n").expect("abi");
+                        assert!(r.body.as_str().unwrap().contains("Value: v:load|v:req"));
+                    }
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn poster_log_from_other_thread_reaches_host() {
+        let mut rt = guard_runtime();
+        let r = rt.request("ID: OnLog\r\n").expect("abi");
+        assert_eq!(r.status, 204);
+        drop(r);
+        assert_eq!(*rt.host().logs.lock().unwrap(), ["from worker"]);
     }
 }

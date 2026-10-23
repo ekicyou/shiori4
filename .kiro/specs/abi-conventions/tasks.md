@@ -63,7 +63,7 @@
   - _Requirements: 1.3, 6.3, 7.7, 9.3, 9.4, 9.5_
 
 - [ ] 5. ホスト側の規約の守り方と `from_library`（`shiori4_host` の lib.rs）
-- [ ] 5.1 (P) 規約 2 に反する `host->request` に `SHIORI_E_WRONG_THREAD` を返す
+- [x] 5.1 (P) 規約 2 に反する `host->request` に `SHIORI_E_WRONG_THREAD` を返す
   - ブリッジに持ち主のスレッドと処理中の印を持たせ、ランタイムが SHIORI の load・request・notify を呼ぶ間だけ印を立てる（Drop で下ろす小さな値で）
   - request の先頭の 1 つの判定で、持ち主のスレッドでないか印が立っていなければ -7 と空の out を返し、`Host` のどのメソッドも呼ばない。振り分けの本体には触れない
   - post・log はスレッドを見ない
@@ -152,3 +152,4 @@
 - この環境には C コンパイラが無い。C ヘッダの `SHIORI_STATIC_ASSERT` は読んで確かめる
 - 2.1: `ShioriHostPoster` から `Copy` を外した（移行は `.clone()`）。ワークスペースの中に暗黙のコピーは無かった。門は `shiori4_abi` の `PosterGate`（Mutex+Condvar）で、`ShioriHostHandle::new(api, gate)` は `pub(crate)`
 - 3.1: 規約の本文は scratchpad の conv.txt から splice.py で C ヘッダと `//!` の両方に流し込み、compare.py で同文を確かめた（`//!` の規約の節にはバッククォートを使わない）。3.2 も同じ手で節を足す
+- 5.1: `SHIORI_E_WRONG_THREAD` は shiori4_host の非公開の `use shiori4::shiori4_abi::{..}` に入れた。5.4 で `pub use` に足すときは非公開の側から外す
