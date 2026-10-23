@@ -8,16 +8,16 @@
 - 設定をやり直すとき（リポジトリの改名・移管、新しいクレートの追加など）や、設定の食い違いを疑うときにも、この手順書を使う。
 - 設定に入れる名前（リポジトリ・ワークフローのファイル名・environment・クレート名と公開の順）は、末尾の「名前の対応表」にまとめてある。各設定画面には、表の値をそのまま写す。
 - **認証情報・ID の値はリポジトリに書かない。** このリポジトリは公開されている。API トークンの値・crates.io や GitHub の画面に出る ID を、ファイル・Issue・PR・コミットメッセージに書かない。
-- GitHub の secrets は使わない。crates.io へは Trusted Publishing（GitHub の OIDC から 30 分のトークン）で認証し、長期の認証情報をどこにも置かない。初版の手動公開に使う API トークンも、後片付けで失効させる。
+- GitHub の secrets は使わない。crates.io へは Trusted Publishing（GitHub の OIDC から 30 分のトークン）で認証し、長期の認証情報をどこにも置かない。クレートを手で公開するときに使う API トークンも、後片付けで失効させる。
 
 全体の流れ:
 
 1. GitHub に公開専用の environment `release` を作る（節「GitHub: environment `release`」）
-2. 本仕様の PR（`release.yml`・リリーススキル・この手順書・初版の見どころ `doc/release-notes/v0.0.1.md` を含む）を main に統合する
-3. 初版 0.0.1 の 3 クレートを API トークンで手で公開する（下の初版 0.0.1 の手動公開の節）
-4. 3 クレートに Trusted Publisher を登録する（節「crates.io: Trusted Publisher」）
-5. `/release` で初版のリリースタグと GitHub Release をそろえる（下の初版 0.0.1 のリリースの節）
-6. 後片付けをする（節「後片付け（必須）」）
+2. 公開対象のクレートが crates.io にまだ無ければ、手で公開する（節「新しいクレートの初回公開」）
+3. クレートに Trusted Publisher を登録する（節「crates.io: Trusted Publisher」）
+4. 後片付けをする（節「後片付け（必須）」）
+
+リポジトリの改名・移管で設定をやり直すときは 1 と 3 を、新しいクレートを足すときは 2〜4 を行う。
 
 ## GitHub: environment `release`
 
@@ -34,41 +34,6 @@
 **推奨**: main のブランチ保護（Settings →「Branches」または「Rules」で、main への変更に PR を必須にする）。リリースタグを付けるコミットは main から到達できることをリリース CI が確かめるので、main を PR 経由でしか変えられないと、公開される中身がレビューを通ったものに限られる。
 
 タグの作成を制限するルールセットは求めない（リリースタグの形・版・main からの到達・見どころは、リリース CI の verify が確かめる）。
-
-## 【初版のみ】初版 0.0.1 の手動公開
-
-0.0.1 のためだけの節である。v0.0.1 が 4/4 になった後、後続の spec `release-bootstrap-cleanup` が削る。
-
-Trusted Publishing のトークンでは、crates.io にまだ無いクレートを作れない。そのため初版 0.0.1 の 3 クレートは、開発者が API トークンで依存の順に手で公開する。
-
-前提: 本仕様の PR が main に統合済みである（`doc/release-notes/v0.0.1.md` を含む）。
-
-1. 節「新しいクレートの初回公開」の手順 1 と同じく、crates.io の「Account Settings」→「API Tokens」で、スコープ `publish-new` の API トークンを作る。値はどこにも書かない。
-2. main の先頭を手元に取る。
-
-   ```bash
-   git fetch origin main
-   git switch --detach origin/main
-   ```
-
-3. 公開する前に、ワークスペースの全体で中身を確かめる。
-
-   ```bash
-   cargo package --workspace
-   ```
-
-   単独の `cargo package -p <クレート>` は、下位のクレートが crates.io に無いうちは依存を解決できず失敗する。`--workspace` で確かめる。
-4. 1 のトークンを環境変数 `CARGO_REGISTRY_TOKEN` に入れ、3 クレートを 1 回で公開する（cargo 1.90 以上。依存の順 `shiori4_abi` → `shiori4` → `shiori4_host` に公開される）。
-
-   ```bash
-   cargo publish --workspace
-   ```
-
-5. 途中で失敗したら、公開できなかった残りのクレートを `cargo publish -p <クレート>` で依存の順に 1 つずつ出す。下位のクレートが crates.io の索引に現れてから、次のクレートを出す。
-6. crates.io で 3 クレートの 0.0.1 が見えることを確かめる。
-
-- トークンは、節「後片付け（必須）」まで失効させない（初版のリリースで CI の認証が通らなかったとき、手で直す余地を残すため）。
-- 手で公開してから初版のリリースまでの間に、クレートの中身を変える PR を main に入れない。公開した後、すぐに Trusted Publisher の登録と初版のリリースへ進む。
 
 ## crates.io: Trusted Publisher
 
@@ -93,23 +58,11 @@ Trusted Publishing のトークンでは、crates.io にまだ無いクレート
 - owner は数値の ID で照合される。リポジトリを改名・移管したら、3 件とも作り直す。
 - 設定が合っているかは、CI から公開するまで確かめきれない。3 件の設定画面の値を「名前の対応表」と目で照合しておく。
 
-## 【初版のみ】初版 0.0.1 のリリース
-
-0.0.1 のためだけの節である。v0.0.1 が 4/4 になった後、後続の spec `release-bootstrap-cleanup` が削る。
-
-手で公開した 0.0.1 に、リリースタグ `v0.0.1` と GitHub Release をそろえ、リリース CI の配線を確かめる。
-
-1. `/release` を実行する。スキルは状態を初版（判定表 S の S2）と判定し、版の決定と版の更新を飛ばして、main の先頭に `v0.0.1` を付けて push する。
-2. GitHub の「Actions」→「Release」の実行の report の Summary で、3 クレートが `skipped`（手で公開済みのため飛ばした）、GitHub Release が `published` であることを確かめる。スキルも同じ規則で完了を判定し、報告する。
-3. step `Auth crates.io` が成功したこと（トークンの交換が通ったこと）を確かめる。交換はクレートを指定しないので、クレートごとの公開の権限は、CI から公開する次の版で初めて確かめられる。
-
-`Auth crates.io` が失敗したら、environment `release` と 3 クレートの Trusted Publisher を「名前の対応表」と照合する。直した後は、失敗した job を再実行する。
-
 ## 後片付け（必須）
 
-初版のリリースで CI の認証が通ったのを確かめた後に、次を **必ず** 行う。手元に残った長期の認証情報での公開の経路を閉じるためのものである。エージェントは行わず、開発者が行う。
+API トークンでクレートを手で公開した後（新しいクレートの初回公開・緊急時の手動公開）、Trusted Publisher を登録したら、次を **必ず** 行う。手元に残った長期の認証情報での公開の経路を閉じるためのものである。エージェントは行わず、開発者が行う。
 
-1. **Trusted Publisher を照合する。** crates.io の画面で、3 クレートそれぞれの Trusted Publisher の値を「名前の対応表」と照合する（初版の CI は、トークンの交換が通ったことしか確かめられないため）。
+1. **Trusted Publisher を照合する。** crates.io の画面で、対象のクレートの Trusted Publisher の値を「名前の対応表」と照合する（値が合っているかは、CI から公開するまで確かめきれないため）。
 2. **「Trusted Publishing のみ」を有効にする。** 3 クレートそれぞれの crates.io の設定画面（Trusted Publishing の項）で、Trusted Publishing だけで公開を受け付け、トークンでの公開を拒む設定（Require trusted publishing for all new versions）を有効にする。
 3. **API トークンを失効させる。** 手動公開に使った API トークンを、crates.io の「Account Settings」→「API Tokens」で失効（Revoke）させる。
 4. **手元から消す。** 開発機の環境変数 `CARGO_REGISTRY_TOKEN` を消し、`cargo login` で保存していたなら `cargo logout` で消す。
