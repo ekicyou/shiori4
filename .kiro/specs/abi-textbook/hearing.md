@@ -91,3 +91,6 @@ README は 1 と 2 と、各文書への道案内だけで足りる（A）。
   - 要望の中身: 読み終えたライブラリから `GhostRuntime` を作る公開の入口を足す（例 `from_library`）。v4 でなかったときは、エラーと一緒にライブラリを返す（少なくとも `NotShiori4`。`Unsupported` も返すとよい）。
   - 理由: areka の helper は 1 つの exe で SHIORI/3.0 と v4 を受け持つ。読み込みのときに初期化をする古い SHIORI があるので、同じ DLL を 2 回読みたくない。
   - 中身は、非公開の `with_api(.., lib: Option<Library>)` にすでにある。
+  - areka の材料（2026-10-23）: `LoadFailed`（v4 の load が NULL）は「v4 の SHIORI が初期化に失敗した」と読み、SHIORI/3.0 として読み直さない。読めなかったゴーストとして扱う。
+    - 理由: `shiori_get_api` を持つ DLL は、v4 だと宣言している。その失敗を旧来の口で取り繕うと、二重の初期化を招くか、作者の意図と違う動きになる。
+    - したがって、ライブラリを返すのは `NotShiori4` と `Unsupported` だけで足りる。
