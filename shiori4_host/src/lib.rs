@@ -1270,6 +1270,31 @@ mod tests {
         assert!(matches!(r, Err(LoadError::LoadFailed)));
     }
 
+    struct FailLogHost(std::sync::Arc<std::sync::Mutex<Vec<(i32, String)>>>);
+
+    impl Host for FailLogHost {
+        fn property(&self, _name: &str) -> Option<String> {
+            None
+        }
+
+        fn on_post(&self, _post: Post) {}
+
+        fn log(&self, level: i32, msg: &str) {
+            self.0.lock().unwrap().push((level, msg.to_owned()));
+        }
+    }
+
+    #[test]
+    fn load_failure_reason_reaches_host_log() {
+        let logs = std::sync::Arc::default();
+        let r = GhostRuntime::from_static(&FAIL_API, GHOST_DIR, FailLogHost(std::sync::Arc::clone(&logs)));
+        assert!(matches!(r, Err(LoadError::LoadFailed)));
+        let logs = logs.lock().unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].0, shiori4::SHIORI_LOG_ERROR);
+        assert!(logs[0].1.contains("500"), "{:?}", logs[0].1);
+    }
+
     fn test_lib() -> libloading::Library {
         unsafe { libloading::Library::new(crate::test_dll::dll_path()) }.expect("テスト用 DLL を開けない")
     }
