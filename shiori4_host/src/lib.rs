@@ -105,6 +105,7 @@ use shiori4::shiori4_abi::{
 mod v3;
 pub use v3::V3Runtime;
 mod discover;
+pub use discover::{load_ghost, load_ghost_with, EntryKind, LoadedGhost};
 mod dist;
 pub use dist::{machine_matches, shiori_file_candidates, TargetArch, TargetOs};
 #[cfg(test)]
@@ -440,7 +441,8 @@ impl<H: Host> ShioriHost for Bridge<H> {
 pub enum LoadError {
     /// ライブラリを開けなかった
     Library(libloading::Error),
-    /// shiori_get_api がない（旧 SHIORI の可能性）
+    /// 許可された口が見つからない。版を決めて読む口では shiori_get_api がない（旧 SHIORI の可能性）。
+    /// 発見の口（[`load_ghost_with`]）では、許可された口が DLL に 1 つも無い
     NotShiori4,
     /// 要求した版に対応していない
     Unsupported(ShioriStatus),
@@ -454,7 +456,7 @@ impl fmt::Display for LoadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Library(e) => write!(f, "failed to open SHIORI library: {e}"),
-            Self::NotShiori4 => f.write_str("shiori_get_api not found (legacy SHIORI?)"),
+            Self::NotShiori4 => f.write_str("no allowed SHIORI entry point found"),
             Self::Unsupported(s) => write!(f, "unsupported SHIORI ABI version (status {s})"),
             Self::InvalidPath => f.write_str("ghost directory is not an absolute path or not valid UTF-8"),
             Self::LoadFailed => f.write_str("SHIORI load failed"),
@@ -1184,6 +1186,11 @@ mod tests {
     #[test]
     fn invalid_path_display_mentions_absolute() {
         assert!(LoadError::InvalidPath.to_string().contains("absolute"));
+    }
+
+    #[test]
+    fn not_shiori4_display_is_no_allowed_entry() {
+        assert_eq!(LoadError::NotShiori4.to_string(), "no allowed SHIORI entry point found");
     }
 
     // ---- from_library（要件 7.6・12.1〜12.4） ----
