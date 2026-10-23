@@ -38,3 +38,16 @@ pasta（`C:\home\maz\git\pasta`）のリリースの仕組みを下敷きにし�
 - [x] crate-publish-ready -- 3 クレートを crates.io に出せる形にし（版の一本化・path+version 依存・メタデータ・各クレートの README・ライセンス整合・`cargo package` の通過）、PR の CI（build.yml、3 OS・cargo-deny）で守る。Dependencies: none
 - [x] release-workflow -- タグ push で検査・公開・GitHub Release を行う release.yml と公開スクリプト、初回セットアップの手順書、リリースノートの約束、`/release` スキル、workflow.md の更新。仕組みを main に統合した後、開発者の準備（environment・初版の手動公開・Trusted Publisher・後片付け）と `/release` による v0.0.1 のリリースまでを、この spec の中で行ってから閉じる。Dependencies: crate-publish-ready
 - [x] release-bootstrap-cleanup -- v0.0.1 を 4/4 で出し終えた後、`/release` と手順書から初版のためだけの判定・経路を削る。Dependencies: release-workflow（v0.0.1 のリリースを含む）
+- [ ] abi-conventions -- shiori4_abi.h の規約を、SHIORI 実装者（pasta）とベースウェア実装者（areka）の意見で締める（スレッドの意味・`SHIORI_E_WRONG_THREAD`・unload の結果の約束・log と release のスレッド・notify の後回し・load の失敗理由と 2 つ目のインスタンス・load の dir の形・v4 の Charset）。Rust 側の型と高水準層をそれに合わせる。Dependencies: none
+- [ ] host-protocol -- 暫定の `host_protocol` を、ホスト側プロトコル仕様として確定させる（getproperty / setproperty・post の語彙 SEND / NOTIFY と宛先・割り込み・拒否の返し方・プロパティ名の決まり・v4 の要求ヘッダの語彙・version・OnHostComplete の届け方と Reference の並び）。pasta と areka が上流として参照する正本。Dependencies: none
+
+## Phase 2: v4 の規約とホスト側プロトコルの確定
+
+v0.0.1 の公開の後、SHIORI 実装者（pasta、`SHIORI4:pasta` セッション）とベースウェア実装者（areka、`SHIORI4:areka` セッション）が main 72cff0b の案を読み、意見を出した（2026-10-23）。合意した語は **shiori4 を 3 者の正本** とし、areka の spec `shiori4-api`（areka リポジトリ）は host-protocol を上流として参照する。
+
+- **Why this split**: ABI 層（バイト列の運搬と、スレッド・所有権・寿命の規約）とプロトコル層（運ぶ中身の語彙）は、product.md の方針どおり分ける。ABI を小さく安定に保ち、語彙はその上で増やす。abi-conventions は `shiori4_abi`（と各クレートの規約の守り方）、host-protocol は `shiori4::host_protocol` と `shiori4_host` の組み込みの処理を持つ
+- **Shared seams to watch**:
+  - 拒否の返し方で 403 を ABI の定数に足すと決まったら、定数の追加は abi-conventions の `shiori4_abi` に入れる（host-protocol は使う側）
+  - どちらも `shiori4/src/lib.rs`・`shiori4_host/src/lib.rs` に触れる。並べて進めるときは片方を先に統合する
+  - property の改名（`property` → `getproperty`）は 0.0.1 の動きを壊す唯一の変更。0.0.x のうちに入れる
+- **Release**: 2 本を統合した後、`/release` で 0.0.2 を出す（spec ではない）。0.0.2 は CI からの初めての公開で、1 回の認証で 3 クレートを出せるかと 401・403 の分類も確かめる
