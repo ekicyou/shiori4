@@ -221,7 +221,7 @@
   - 手順書の節「【初版のみ】初版 0.0.1 の手動公開」のとおり
   - 完了の状態: 定型 A で crates.io の 3 クレートが `0.0.1 あり`、集計が 3/4
 
-- [ ] 9.4 （開発者）3 クレートに Trusted Publisher を登録する
+- [x] 9.4 （開発者）3 クレートに Trusted Publisher を登録する
   - 手順書の節「crates.io: Trusted Publisher」と「名前の対応表」のとおり
   - 完了の状態: 3 クレートの Trusted Publisher の値が名前の対応表と一致する（開発者が画面で確かめる）
 
@@ -248,3 +248,4 @@
 - 9.3: 開発者が cargo login（トークンは `CARGO_HOME`=`c:\rust\cargo` の credentials.toml）、エージェントが main の先頭 c71bdee から `cargo publish --workspace` で 3 クレートを公開した。定型 A は 3/4・不明 0
 - 9.5: `/release` を S2【初版のみ】で実行し、`v0.0.1`（c71bdee）を push。リリース CI 39888963308 は success、3 クレート `skipped`・GitHub Release `published`、定型 A 4/4・不明 0。手順との食い違い 2 点: (1) spec の作業ブランチは main に無いコミット（tasks.md・steering）を持つので段 1 の手順 3 で止まる。main の先頭から作った別の作業ツリーで実行した（版の更新の無い初版だから成り立つ。以後のリリースもリリース専用のブランチで行う前提を手順に書くか検討） (2) PowerShell ツールは呼び出しごとに作業ディレクトリが戻るので、定型コマンドの前に `Set-Location` が要った（段 7 の手順 2 は `--repo` を足した）
 - 9.6: 開発者が後片付けを済ませた。エージェントは、手元の credentials.toml にトークンが無いこと・環境変数が空なこと・crates.io の API で 3 クレートとも `trustpub_only=true` であることを確かめた。トークンの失効と Trusted Publisher の値は認証が要るので画面での開発者の確認による
+- 9.4: 開発者が 3 クレートに登録した。9.5 の CI で step `Auth crates.io` が成功し、トークンの交換が通ったことで確かめた
