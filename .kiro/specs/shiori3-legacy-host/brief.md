@@ -35,29 +35,26 @@ DLL に触る芯だけを shiori4_host に置く。プロセスの起こし方�
    - request の戻り値は、NULL なら失敗とする。それ以外は len バイトを写してから、ホストが `GlobalFree` する。NUL は探さず、長さで読む。
    - 試験のために、確保と解放を数えられるようにする（P）。
 4. **unload**（A）: `unload()`（戻り値は見ない）→ `FreeLibrary` の順。
-5. （欠番。BOOL の読み方は、裁定を待つ論点 d に移した）
+5. （欠番。BOOL の読み方は、下の「開発者が裁定した論点」の d）
 6. **エラーのダイアログ**（A）: `LoadLibraryW` の間だけ `SetThreadErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX)` で止める。DLL は絶対パスで読み、`SetDllDirectory` は使わない。
 7. **load の dir の形**（A の勧め。abi-conventions 論点 6 に揃える）: 絶対パス・`\` の区切り・末尾に `\`。`dir + "file"` と書く古い SHIORI が壊れないようにする。
 8. **1 つのモジュールに 1 インスタンス**（P）: 従来の ABI にはハンドルが無い。同じモジュールで load を 2 回呼ばないことを、文書と口の形で守る。2 体目は、別のファイルか別のプロセスで読む。
-9. **見る順**（abi-conventions 論点 13）: 両方を持つ DLL では、先に `shiori_get_api` を見る。そのうえで、従来の口だけで読むと明示して選べる入口も持つ（P。同じ DLL で 2 つの経路を試すため）。
+9. **発見の順**（開発者の裁定。abi-conventions 論点 13）: `shiori_get_api` → `loadu` → `load` の順に探し、最初に見つかった口で解決する。`shiori_get_api` を持つ DLL は、失敗しても従来の口へフォールバックしない。
+   - 従来の口だけで読むと明示して選ぶ入口（P の要望）は、発見の順と食い違うので、置くかどうかを要件の段で確かめる。
 10. **ホストに残すもの**（A）: プロセスを起こすこと、IPC、待ち時間、強制終了、カレントディレクトリの決め方。
 
-## 裁定を待つ論点
-- **a. 本文の文字コード**: 2 者の要望が少し違う。
-  - areka: 本文はバイトのまま受け渡す口（`&[u8]` を渡して `Vec<u8>` を受け取る）を必ず用意してほしい。areka は ukadoc の決まり（Charset ヘッダでの切り替え・`forceencoding`・表せない文字を `&#NNNN;` にする）を、親の側でもう持っている。
-  - pasta: 要求に `Charset: UTF-8` を付け、応答の Charset を見て解釈してほしい（Shift_JIS で返す古い SHIORI も読めると、なお良い）。
-  - 開発者の方針: 口は `&str`／`String` が望ましい。ANSI のエンコーダーは shiori4_host に抱え込まない。
-  - 推奨:
-    - 芯の口はバイト列にする。
-    - その上に `&str`／`String` の口を、任意の便利な層として重ねる。変換は Win32 の API（`MultiByteToWideChar`・`WideCharToMultiByte`）に任せる。
-- **b. 応答の末尾の NUL**（A）: 応答の len に NUL を含める DLL がある。推奨: 芯の口は長さのまま返す。文字列の層で、末尾の NUL を落とす。
-- **d. load／loadu の戻り値（BOOL）の読み方**（A。最初の要望を取り消して改めた）:
-  - Rust の `bool` を返す DLL（pasta）は、EAX の下位 1 バイトしか書かない。32bit 全体を読むと、上位 24bit の不定値のせいで、false を成功と読み違える。
-  - 下位 1 バイトだけを読むと、C の DLL が Win32 の BOOL として、下位 1 バイトが 0 で上位が非 0 の値（例 0x100）を返したときに、失敗と読む。正典どおり TRUE(1)／FALSE(0) を返す限り、問題は無い。
-  - areka は、わざと下位 1 バイトで読んでいる（`crates/shiori-host32-helper/src/shiori_proxy.rs:206-211`）。
-  - 推奨: 下位 1 バイトで読み、この限界を文書に書く（areka と同じ）。
-  - pasta も推奨に賛成した（2026-10-23）。pasta の `-> bool` は既知の不具合で、pasta の spec が BOOL を i32 に直す。それでも、直る前の pasta と同じ書き方の SHIORI を読めるよう、ホストの側の守りとして下位 1 バイトで読む。
-- **c. SHIORI/2.x の見分け**（A）: SHIORI/3.0 の要求に 400 しか返さない DLL（2.x の口しか無いもの）の見分け。推奨: この spec の外にする（areka の spec `shiori2-protocol` が持つ）。
+## 開発者が裁定した論点（2026-10-23）
+- **方針: 中身の通信には関与しない**。このリポジトリが支えるのは、インターフェースの変換と取得までである。やり取りされる文字列の中身（ヘッダ・Charset・語彙）は解釈しない。shiori4_host が求めてよいのは、文字列の層で UTF-8 であることだけ。
+- **a. 本文の受け渡し**:
+  - 芯の口はバイト列にする（`&[u8]` を渡して `Vec<u8>` を受け取る）。
+  - その上に `&str`／`String` の口を、任意の便利な層として重ねる。この層は UTF-8 であることを確かめるだけで、Charset を見ての変換はしない。Shift_JIS などの本文を扱うホストは、芯の口を使う。
+  - pasta の「応答の Charset を見て解釈してほしい」は採らない。文字コードの方針はホストが持つ。
+  - Win32 の文字コードの変換を使うのは、`load` に渡す dir（CP_ACP）だけになる。
+- **b. 応答の末尾の NUL**: 芯の口は長さのまま返す。文字列の層で、末尾の NUL を落とす。
+- **c. SHIORI/2.x の見分け**: この spec の外にする（areka の spec `shiori2-protocol` が持つ）。
+- **d. load／loadu の戻り値（BOOL）**: 元の C ABI に準拠する。BOOL は 32bit の int で、0 以外を真と読む。
+  - Rust の `bool` を返す DLL（直す前の pasta など）は、上位 24bit が不定なので誤読されうる。これは SHIORI の側の不具合で、SHIORI が直す（pasta は自分の spec で i32 に直す予定）。
+  - areka と pasta が勧めた「下位 1 バイトで読む」守りは採らない。
 
 ## Scope
 - **In**:

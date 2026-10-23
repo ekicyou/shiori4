@@ -41,7 +41,9 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 
 ## 開発者が承認した論点（2026-10-23。ヒアリングの論点 b・d・e から）
 13. **両方を持つ DLL**（P・A）: SHIORI/3.0 の書き出し（load・request・unload）と `shiori_get_api` の両方を持つことを許す。
-    - ホストは先に `shiori_get_api` を見る。4 を試し、だめなら 3 を試す。どちらも NULL なら、SHIORI/3.0 の書き出しで読む。
+    - **発見の順**（2026-10-23 開発者の裁定で改めた）: ホストは書き出しを `shiori_get_api` → `loadu` → `load` の順に探し、最初に見つかった口で解決する。
+      - `shiori_get_api` が見つかったら、その DLL は shiori4 の DLL として扱う。4 を試し、だめなら 3 を試す。どちらも NULL なら、読めなかったゴーストとして扱う。`loadu`・`load` へはフォールバックしない（論点 15 と同じく、二重の初期化を避けるため）。
+      - `shiori_get_api` が無いときだけ、従来の SHIORI/3.0 の口（`loadu`、無ければ `load`）で読む（shiori3-legacy-host）。
     - `shiori_get_api` を知らない古いホストは、今までどおり読める。
 14. **カレントディレクトリ**（A）: 規約では決めない。「カレントディレクトリはホスト次第で、SHIORI は頼らずに load の dir を使う」と一行書く。
 15. **読み終えたライブラリから作る入口**（A の正式な要望）: `shiori4_host` に足す。
