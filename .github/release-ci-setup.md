@@ -1,6 +1,6 @@
 # リリース CI の一度だけの準備
 
-リリース CI（`.github/workflows/release.yml`）が crates.io へ認証して公開できるようにするための、設定の手順書。節の順が実施の順になっている。ほかの文書と CI の案内は、この手順書の節を番号でなく見出しの名前で指す。
+リリース CI（`.github/workflows/release.yml`）が crates.io へ認証して公開できるようにするための、設定の手順書。実施の順は「全体の流れ」による。ほかの文書と CI の案内は、この手順書の節を番号でなく見出しの名前で指す。
 
 ## 位置づけと全体の流れ
 
@@ -60,10 +60,10 @@
 
 ## 後片付け（必須）
 
-API トークンでクレートを手で公開した後（新しいクレートの初回公開・緊急時の手動公開）、Trusted Publisher を登録したら、次を **必ず** 行う。手元に残った長期の認証情報での公開の経路を閉じるためのものである。エージェントは行わず、開発者が行う。
+API トークンでクレートを手で公開したら（新しいクレートの初回公開・緊急時の手動公開）、次を **必ず** 行う（新しいクレートは Trusted Publisher を登録した後に）。手順 3・4 は、手で公開した節の中で済ませていればそれでよい。手元に残った長期の認証情報での公開の経路を閉じるためのものである。エージェントは行わず、開発者が行う。
 
 1. **Trusted Publisher を照合する。** crates.io の画面で、対象のクレートの Trusted Publisher の値を「名前の対応表」と照合する（値が合っているかは、CI から公開するまで確かめきれないため）。
-2. **「Trusted Publishing のみ」を有効にする。** 3 クレートそれぞれの crates.io の設定画面（Trusted Publishing の項）で、Trusted Publishing だけで公開を受け付け、トークンでの公開を拒む設定（Require trusted publishing for all new versions）を有効にする。
+2. **「Trusted Publishing のみ」を有効にする。** 対象のクレートの crates.io の設定画面（Trusted Publishing の項）で、Trusted Publishing だけで公開を受け付け、トークンでの公開を拒む設定（Require trusted publishing for all new versions）を有効にする。
 3. **API トークンを失効させる。** 手動公開に使った API トークンを、crates.io の「Account Settings」→「API Tokens」で失効（Revoke）させる。
 4. **手元から消す。** 開発機の環境変数 `CARGO_REGISTRY_TOKEN` を消し、`cargo login` で保存していたなら `cargo logout` で消す。
 
