@@ -16,7 +16,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 2. **unload の約束**（P2）: 規約 5 の「post するスレッドをすべて止めてから返る」は手段の指定なのでやめる。代わりに結果を約束する:「unload が返った後に ShioriHostApi のどの関数も呼ばない」。`shiori4` の `ShioriHostPoster` は、unload を始めた時点で無効になり、以後は host に触れず `SHIORI_E_SHUTDOWN` を返す。こうすれば、Ghost 実装者が join しなくても守れる（今の doc の「Drop で止めて join すること」を改める）。
 3. **log と release のスレッド**（P3）: `host->log` は post と同じく任意のスレッドから呼べる（ホストはコピーしてすぐ返る）。`ShioriBytes.release` も、どのスレッドから呼んでもよい。
 4. **notify の後回し**（P5）: notify を即 204 で返し、処理を後で行う実装は合法とする。後回しにした処理の中では `host->request` を使えない（post を使う）、と注記する。
-5. **load の失敗**（P6）: 失敗するときは、NULL を返す前に `host->log` で理由を出す。SHIORI は 2 つ目のインスタンスを拒否してよい（NULL ＋ log）。拒否されたホストは、ゴーストごとに別のプロセスで読むか、拒否を受け入れる。
+5. **load の失敗**（P6）: 失敗するときは、NULL を返す前に `host->log` で理由を出す（v4。v3 は host が NULL なので、SHIORI 自身のログに出す。論点 16）。SHIORI は 2 つ目のインスタンスを拒否してよい（NULL ＋ log）。拒否されたホストは、ゴーストごとに別のプロセスで読むか、拒否を受け入れる。
 6. **load の dir の形**（A5）: v4 も v3 互換も「絶対パス・OS の区切り・末尾に区切りあり・UTF-8」とする（SSP が SHIORI/3.0 の load に渡す形に合わせる）。 pasta も 3 者会談で問題なしと確認した（PathBuf で使い、末尾の区切りの有無に関係なく動く）。
 7. **v4 の Charset**（A6）: v4 は UTF-8 固定なので、ホストは Charset ヘッダを付けなくてよい。付いていても SHIORI は無視する。応答にも付けない。
 

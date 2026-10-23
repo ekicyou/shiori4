@@ -40,6 +40,7 @@ SHIORI 実装者（pasta）にとって v4 の最大の利点は「SHIORI から
    - 値の改行は取り除く（エスケープして残すことはしない）。改行を含む値が要るプロパティが出たら、別の名前で足す。
 5. **v4 の要求ヘッダの語彙**（A7・P7。3 者会談で確定）:
    - v4 のヘッダの名前と意味は SHIORI/3.0（ukadoc）と同じ。
+   - ホストが送るイベント（OnBoot・OnSecondChange などの ID と Reference の並び）と、SHIORI の応答のヘッダ（Value・ValueNotify・Marker・ErrorLevel・ErrorDescription など）の名前と意味も、ukadoc の SHIORI/3.0 と同じ。違いは、開始行が無いことと Charset が無いことだけ（pasta の最終確認より）。
    - 必須: ID・Sender（ベースウェアの名前）・SenderType（ukadoc の語）・SecurityLevel（`local` / `external` の 2 語だけ）・SecurityOrigin（ukadoc の形。`null` か起点）。
    - 状況による: Status（伝える状態があるときだけ。ukadoc の語・カンマ区切り）・BaseID（ukadoc が定めるイベントだけ）・Reference*。
    - Charset は付けない（abi-conventions）。
