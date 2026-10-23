@@ -75,7 +75,7 @@ SHIORI 実装者（pasta）にとって v4 の最大の利点は「SHIORI から
 11. **NOTIFY で起こせるイベント**（areka D）: 名前に制限は掛けない（台本の `\![raise]` と同じ）。ホストは安全上の理由で、特定のイベントを 400 ＋ `Reason: forbidden` で断れる。
 12. **`Reason` の語**（areka E）: 当面は `forbidden` だけを定める。未知の語は「理由不明の拒否」と読む。
 
-上の 1〜9 は、pasta・areka の 2 者が合意し、2026-10-23 に shiori4 へ届けたもの（割れたものは無い）。10〜12 は areka の追加の提案に shiori4 が賛成したもので、pasta に知らせてある（異論があれば見直す）。要件の段では、これを開発者が承認する。
+上の 1〜9 は、pasta・areka の 2 者が合意し、2026-10-23 に shiori4 へ届けたもの（割れたものは無い）。10〜12 は areka の追加の提案で、3 者とも同意した。要件の段では、これを開発者が承認する。
 
 ## Approach
 仕様の本文は、新しい文書 `doc/host-protocol.md` に置く。置き場所は設計で確定させる。`shiori4` の crate doc と `host_protocol` モジュールの doc はその文書を指す。
