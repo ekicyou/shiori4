@@ -203,7 +203,7 @@
   - 完了の状態: 上の 3 種の確かめがすべて通った出力がある
   - _Requirements: 14.6, 16.7, 2.3_
 
-- [ ] 9. 初版 0.0.1 のリリース
+- [x] 9. 初版 0.0.1 のリリース
   - 手順書（`.github/release-ci-setup.md`）の「位置づけと全体の流れ」を、その順に実施する。開発者の作業は開発者が行い、エージェントは手順の案内と結果の確かめだけを受け持つ（アカウントの設定・トークンの作成・手での公開をエージェントは行わない）
   - kiro-complete は統合と spec の完了を一度に行うので、本仕様の PR の統合だけを 9.2 で先に行い、spec の完了（kiro-complete）は 9.6 の後に行う
   - _Requirements: 14.1, 14.2, 14.4, 14.5, 15.1, 15.4, 15.5_
@@ -230,7 +230,7 @@
   - 完了の状態: リリース CI の結果表で 3 クレートが `skipped`・GitHub Release が `published`、定型 A が 4/4・不明 0。手順と食い違った点は報告に書く
   - _Depends: 9.1, 9.2, 9.3, 9.4_
 
-- [ ] 9.6 （開発者）後片付けをする
+- [x] 9.6 （開発者）後片付けをする
   - 手順書の節「後片付け（必須）」のとおり（Trusted Publisher の照合・Trusted Publishing のみの有効化・API トークンの失効・手元から消す）
   - 完了の状態: 開発者が 4 項目の完了を伝える。その後に kiro-complete で本仕様を完了する
   - _Depends: 9.5_
@@ -247,3 +247,4 @@
 - 9.1: 開発者の指示で、environment `release`（カスタムの規則、タグ `v*` だけ）と main の保護（強制 push と削除の禁止のみ。直接 push・レビューは縛らない）をエージェントが `gh api` で設定した。手順書の画面の手順と同じ結果になる
 - 9.3: 開発者が cargo login（トークンは `CARGO_HOME`=`c:\rust\cargo` の credentials.toml）、エージェントが main の先頭 c71bdee から `cargo publish --workspace` で 3 クレートを公開した。定型 A は 3/4・不明 0
 - 9.5: `/release` を S2【初版のみ】で実行し、`v0.0.1`（c71bdee）を push。リリース CI 39888963308 は success、3 クレート `skipped`・GitHub Release `published`、定型 A 4/4・不明 0。手順との食い違い 2 点: (1) spec の作業ブランチは main に無いコミット（tasks.md・steering）を持つので段 1 の手順 3 で止まる。main の先頭から作った別の作業ツリーで実行した（版の更新の無い初版だから成り立つ。以後のリリースもリリース専用のブランチで行う前提を手順に書くか検討） (2) PowerShell ツールは呼び出しごとに作業ディレクトリが戻るので、定型コマンドの前に `Set-Location` が要った（段 7 の手順 2 は `--repo` を足した）
+- 9.6: 開発者が後片付けを済ませた。エージェントは、手元の credentials.toml にトークンが無いこと・環境変数が空なこと・crates.io の API で 3 クレートとも `trustpub_only=true` であることを確かめた。トークンの失効と Trusted Publisher の値は認証が要るので画面での開発者の確認による
