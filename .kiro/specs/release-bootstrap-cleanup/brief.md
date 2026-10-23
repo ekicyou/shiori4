@@ -12,6 +12,16 @@ release-workflow は、手で公開した初版 0.0.1 にタグと GitHub Releas
   - `.github/release-ci-setup.md` の、0.0.1 に固有の記述（初版の手動公開の後にタグを push する流れ、初版の確認）
 - 撤去してよいのは、v0.0.1 が 4/4（3 クレート ＋ GitHub Release）で公開済みになった後である
 
+## 申し送り（release-workflow より）
+- 上の Current State は release-workflow の着手前の見込みで、実装とずれている。実際の初版の経路の置き場所は次のとおり（`git grep -n '【初版のみ】'` で見つかる）:
+  - `.claude/skills/release/procedure.md` の判定表 S の行 `S2【初版のみ】` と、ファイルの末尾の節「初版の経路【初版のみ】」
+  - `.claude/skills/release/SKILL.md` の段 2 の入口の 1 行
+  - `.github/release-ci-setup.md` の節「【初版のみ】初版 0.0.1 の手動公開」と「【初版のみ】初版 0.0.1 のリリース」
+- 印の無い 0.0.1 に固有の記述もある。`.github/release-ci-setup.md` の「位置づけと全体の流れ」の手順 2・3・5、冒頭の「初版の手動公開に使う API トークン」の言い回し、節「後片付け（必須）」の冒頭、Trusted Publisher の節の「手動公開の後に行う」。grep では出ないので読んで直す
+- `release-state.ps1`（定型 A）と補助スクリプトのテストは初版の判定を持たない（設計どおり）。削る対象にならない
+- 撤去の後は S2 の状態が S9 に当たって止まる（release-workflow の design.md「初版の経路【初版のみ】」の撤去の後）
+- v0.0.1 は 2026-10-23 に 4/4（3 クレート skipped・GitHub Release published、リリース CI 39888963308）で出し終えた。撤去の前提は満たしている
+
 ## Desired Outcome
 - `/release` の判定と経路に初版のためのものが無く、「タグが無いのに公開済みがある」状態は例外なく止まる
 - 手順書は、新しいクレートを足すときの初回の手動公開（release-workflow の要件 15.7）を残したまま、0.0.1 に固有の流れを持たない
