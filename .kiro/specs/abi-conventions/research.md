@@ -114,3 +114,90 @@
   - `libloading` で `loadu`／`load` の有無だけを見るとき、Windows の 32bit の DLL を 64bit のプロセスで開こうとすると開けない（`Library::new` が失敗する）。発見の前に機械の種類を確かめる順にするか。
   - ARM64EC・ARM64X の PE の見分け方。
   - Windows で `LoadLibrary` 時の DllMain の副作用（発見のためだけに開く場合）。
+
+## 6. 設計フェーズの調査と決定（2026-10-23）
+
+### 6.1 使ったスキルと指針
+- `kiro-spec-design`（`rules/design-principles.md`・`design-discovery-light.md`・`design-synthesis.md`・`design-review-gate.md`）。種類は **Extension** とし、軽い発見（既存の拡張点・互換・統合の危険）で進めた。新しい外部の依存は無いので、外部の技術の調査は事実の確認（下の 6.2）に限った。
+- steering の `product.md`・`tech.md`・`structure.md`、隣の spec の brief（host-protocol・shiori3-legacy-host）を読んだ。
+
+### 6.2 調査の記録
+
+#### Poster の門（要件 4）
+- **Context**: `ShioriHostPoster` は `Copy` で生ポインタだけを持ち、無効化の印を置く場所が無い。unload の後に動き続けるスレッドが ctx（解放済みの `ShioriHostBox`）に触れると解放後の呼び出しになる。
+- **Findings**:
+  - `shiori_load` が返すポインタを `Box<S>` から非公開の箱 `Instance<S> { gate, shiori }` に替えれば、`shiori_unload` が門に届く。テーブルの関数（`shiori_request`／`shiori_notify`）は同じクレートの中なので、形を変えずに箱の中の `S` を使える。ABI の形は変わらない。
+  - 待ちの道具は std の `Mutex<{closed, in_flight}>` ＋ `Condvar` にした。`RwLock<bool>`（post は読み、unload は書き）でも書けるが、std の `RwLock` は OS によって書き手が飢えうる（優先の方針は OS 次第と std の doc にある）。閉じた印を先に立てる `Mutex` 方式なら、閉じた後に新しい post が入らないので待ちが必ず終わる。
+  - 門を見る前に ctx を読まない順にすれば、ctx の解放後も門（`Arc`）だけを読んで `SHIORI_E_SHUTDOWN` を返せる。
+  - `ShioriHostHandle`（`!Send`）は門を見ない。unload の中（`S` の Drop）ではホストの ctx はまだ有効で、Ghost が Drop で同期の request や log をしても安全なため。
+- **Implications**: `ShioriHostPoster` から `Copy` が外れる（議題 1 で確定）。Poster に `log` を足す（議題 5）。
+
+#### -7 の検出（要件 3）
+- **Context**: 判定には「呼んだスレッド」と「呼び出しの最中か」の 2 つが要る。load の最中（`with_api` の中）も期間に含める。
+- **Findings**:
+  - `GhostRuntime` は `!Send` なので、作ったスレッド（`with_api` を呼んだスレッド）がそのまま持ち主のスレッドになる。`Bridge` に `owner: ThreadId` を作るときに入れ、`in_call: AtomicBool` を `GhostRuntime` が立て下ろしすれば足りる（案 A）。
+  - 持ち主以外のスレッドは `owner` との比較で必ず外れるので、`in_call` の読みの順序は判定に効かない。`Relaxed` で足りる。
+  - 案 B（スレッドローカルの「いま呼んでいるインスタンス」の積み上げ）は、入れ子も正しく扱えるが、案 A でも印が `Bridge` ごとにあるので入れ子は正しく分かれる。案 B は不要。
+- **Implications**: `Bridge::request` の先頭に 1 つの `if` を置くだけで済み、host-protocol が作り直す振り分けの本体に触れない。
+
+#### dir の正規化（要件 8）
+- **Findings**: Rust の `Path::is_absolute` は Windows で「接頭辞と根の両方がある」ときだけ真で、`\ghost`（根だけ）・`C:ghost`（接頭辞だけ）は偽になる（std の doc）。議題 7 の決定どおり、これで相対パスを断れる。`\?\` の形では `/` は区切りでないので、置き換えない。
+- **Implications**: `normalize_dir(&Path) -> Result<String, LoadError>` の 1 関数を、dir を受けるすべての口で使う。
+
+#### 機械の種類（要件 14）
+- **Sources**: Microsoft の PE フォーマットの文書（Machine の値・ARM64EC と ARM64X の説明）、ELF の仕様（`e_machine`: EM_X86_64 = 62・EM_AARCH64 = 183）、Apple の `mach-o/loader.h`・`mach-o/fat.h`（CPU_TYPE_X86_64 = 0x01000007・CPU_TYPE_ARM64 = 0x0100000C、FAT_MAGIC 0xCAFEBABE・FAT_MAGIC_64 0xCAFEBABF）、`file(1)` の magic（0xCAFEBABE の次の値で Java の class とユニバーサルを見分ける）。
+- **Findings**:
+  - 0xCAFEBABE の次の 4 バイトは、Java の class では minor<<16 | major（major は 45 以上）なので、Java 8 なら 52 のような小さい値にもなる。gap 分析の「arch の数が小さい」はそのままでは足りず、`file(1)` と同じく 1〜30 に限ってユニバーサルとみなす。
+  - ARM64EC の DLL は PE の Machine が 0x8664（x64）を名乗り、arm64 のネイティブのプロセスでは読めない。ARM64X は 0xAA64 を名乗り、arm64 と x64（EC）の両方のプロセスで読める。ヘッダのとおりに判定すると、ARM64EC は X64、ARM64X は Arm64 になる。x64 のプロセスで ARM64X を「合わない」と判定するのは偽の否定（安全側）。brief は ARM64EC を除くとしているので、特別扱いはしない。
+  - 64bit のプロセスで 32bit の DLL を `LoadLibrary` すると `ERROR_BAD_EXE_FORMAT`（193）で失敗し、`libloading` は `LoadError::Library` になる。読み込みの前に機械の種類を確かめる順は、配布の決まり（14.7）としてホストの手順にした。
+- **Implications**: std の `File`・`Read`・`Seek` だけで書く。読む量は先頭 4 KiB と PE の `e_lfanew` の先 6 バイトに限る。
+
+#### テスト用の DLL（要件 15.5）
+- **Context**: 発見の順・`from_library`・`V3Runtime::from_library` は `libloading::Library` を要るので、本物の DLL が要る。
+- **Findings**:
+  - テストの実行ファイル自身を開く方法（`Library::this()`）は、Rust の実行ファイルが `#[no_mangle]` の関数を動的に書き出さないので使えない。
+  - cdylib をワークスペースのメンバーにして dev-dependency にしても、その成果物のパスを安定に得る手段は無い（artifact dependencies は unstable）。
+  - テストの中から `env!("CARGO")` で `cargo build --manifest-path testdata/testghost/Cargo.toml --target-dir target/testghost` を 1 回呼ぶのが、3 OS で同じに動く。テスト用の cdylib に自前の `[workspace]` を持たせればルートのワークスペースの外になり、`cargo package --workspace`・clippy・deny・CI の設定に影響しない。
+  - DLL の状態（v4／v3 を出すモード）はプロセスに 1 つなので、DLL を使うテストはロックで直列にする。
+  - `shiori_get_api` の無いライブラリには OS のライブラリ（`kernel32.dll`・`libc.so.6`・`/usr/lib/libSystem.B.dylib`）を使う。
+- **Implications**: 新しいメンバーも CI の変更も要らない。CI の時間は数十秒延びる見込み。
+
+#### 隣の spec との統合
+- host-protocol は `Bridge` の組み込みの振り分け・`accept_post` の既定・`Completer` を作り直し、`Headers` などを便利関数のモジュールへ移す。この spec の `lib.rs` の変更は、`Bridge` のフィールドと `request` の先頭の門・再エクスポートの列・doc・テストに限り、新しいコードは別ファイル（`v3.rs`・`discover.rs`・`dist.rs`・`test_dll.rs`）に置く。
+- shiori3-legacy-host は、`LoadedGhost::Legacy { entry, library }` と、許可する口の種類（`EntryKind`）・dir の正規化を前提にする。
+
+### 6.3 設計の総合（synthesis）
+- **一般化**: 「4 → 3 → SHIORI/3.0」の発見は、`GhostRuntime::from_library` と `V3Runtime::from_library` を順に呼び、`NotShiori4` で返ったライブラリだけを従来の口へ回す合成として書ける。発見の口は新しい読み込みの仕組みを持たず、要件 12・13 の入口の上に載る。dir の正規化も 1 関数を全口で共有する。
+- **作るか採るか**:
+  - ヘッダの読み取りは `object`／`goblin` を採らず std で書く（新しい依存を足さない制約。読むのは数フィールドだけ）。
+  - ライブラリを開くのは既存の `libloading` をそのまま使う。
+  - 門は std の `Mutex`＋`Condvar`。外部の同期のクレートは要らない。
+- **簡素化**:
+  - 許可する口の集合は専用のビット集合の型を作らず `&[EntryKind]` にする（既定は `EntryKind::ALL`）。
+  - 「許可された口が見つからない」は新しい変種を足さず `LoadError::NotShiori4` の意味を広げる。
+  - v3 の応答が UTF-8 でないときは新しいエラー型を作らず、既存の `SHIORI_E_INVALID_UTF8` を返す。
+  - `V3Runtime` は request だけを持つ（v3 の request は NOTIFY の全文も受けるので notify の口は要らない）。
+  - 従来の口の種類は専用の enum を作らず `EntryKind`（`Loadu`／`Load`）を使う。
+  - C ヘッダと `//!` の一致を自動で比べる仕組みは作らず、レビューで突き合わせる。
+  - 発見の口は機械の種類を自動で確かめない（ホストの手順。x86 のホストなど `TargetArch` に無い arch でも発見の口を使えるようにするため）。
+
+### 6.4 設計の決定（要約。詳しくは design.md）
+
+| 決定 | 選んだもの | 退けたもの |
+|---|---|---|
+| Poster の無効化 | Arc の門（`Instance<S>` に門を持たせ、unload で閉じて実行中の 1 回分を待つ） | 漏らす門・高水準層だけで包む |
+| 待ちの道具 | `Mutex`＋`Condvar` | `RwLock`（書き手の飢え）・スピン |
+| -7 の検出 | `Bridge` に持ち主の `ThreadId` と `AtomicBool` の印 | スレッドローカルの積み上げ |
+| ファイルの分け方 | 混合（規約の守り方は `lib.rs`、新しい口と純粋な関数は別ファイル） | `lib.rs` に全部・全部を分ける |
+| 許可する口の型 | `&[EntryKind]` | ビット集合の新しい型 |
+| `from_library` の失敗 | `FromLibraryError`（非公開のフィールドで「ライブラリを返すのは読み直せる失敗だけ」を守る） | `(LoadError, Option<Library>)` のタプル・`LoadError` に変種を足す |
+| v3 の口 | `V3Runtime::request(&str) -> Result<String, ShioriStatus>` | 新しいエラー型・notify の口 |
+| 機械の種類 | std だけの読み取り、ヘッダのとおりに判定 | 依存の追加・ARM64EC の特別扱い |
+| テスト用の DLL | ワークスペースの外の cdylib をテストの中で `cargo build` | メンバーの cdylib・`build.rs`・artifact dependencies |
+| 統合の順 | 未定（仮定: この spec が先） | — |
+
+### 6.5 危険と対策
+- **unload の待ちでの停止**: ホストの post の実装（`Host::accept_post`・`Host::wake`）が unload を呼んでいるスレッドを待つと止まる。規約 4（コピーしてすぐ返る）をホストの義務とし、`Host` の doc に明記する。`GhostRuntime` の Drop は unload の前に `shutdown` を立てるので、新しい post は `accept_post`・`wake` まで進まない。
+- **テストの中の `cargo build`**: 外の環境変数を引き継ぐ・CI の時間が延びる。`--target-dir` を明示し、`OnceLock` で 1 回にする。
+- **host-protocol との衝突**: 同じ 2 ファイル。`lib.rs` の変更を最小にし、後から統合する側が門とテストを保つ。
+- **相対パスの dir を渡していた既存のホスト**: `InvalidPath` で落ちるようになる。破壊的な変更としてリリースノートに載せ、`shiori4_host` の `//!` の例を絶対パスに直す。
