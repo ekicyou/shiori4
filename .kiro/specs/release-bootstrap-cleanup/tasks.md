@@ -1,0 +1,33 @@
+# Implementation Plan
+
+- [ ] 1. 撤去の前に v0.0.1 が 4/4 であることを確かめる
+  - 状態の照会（定型コマンド A、`-Version 0.0.1`）を実行し、タグ・crates.io の 3 クレート・GitHub Release がそろって公開済み 4/4、`不明` が 0 であることを確かめる。満たさなければ何も削らずに止まり、出力を示す
+  - 完了の状態: 照会の出力の `集計` の行が `4/4`・`不明 0` で、その行を Implementation Notes に記録してある
+  - _Requirements: 1.1, 1.2_
+
+- [ ] 2. 初版の判定・経路・節を削る
+- [ ] 2.1 (P) リリーススキルから初版の判定と経路を削る
+  - procedure.md の判定表から行 S2 を消し、段 2 の表の `Requirements` から `14.2` を外し、ファイルの最後の節「初版の経路【初版のみ】」を消す。ほかの行（S0・S1・S3〜S9）の条件と次の手は変えない
+  - SKILL.md の段 2 の「S2【初版のみ】は…」の 1 行を消す
+  - 完了の状態: `git grep -n -E 'S2|初版の経路|【初版のみ】' -- .claude/skills/release` が空で、判定表は S0・S1・S3〜S9 の 9 行のまま条件が変わっていない
+  - _Boundary: .claude/skills/release/procedure.md, .claude/skills/release/SKILL.md_
+  - _Depends: 1_
+  - _Requirements: 2.1, 2.2, 2.3, 2.4_
+
+- [ ] 2.2 (P) 一度だけの準備の手順書から 0.0.1 に固有の流れを削る
+  - 節「【初版のみ】初版 0.0.1 の手動公開」「【初版のみ】初版 0.0.1 のリリース」を消す
+  - 冒頭の箇条の「初版の手動公開に使う API トークン」、全体の流れ（environment → 新しいクレートの初回公開 → Trusted Publisher → 後片付けの 4 手順と、やり直し・新しいクレートのときに使う手順の 1 行）、節「後片付け（必須）」の冒頭と手順 1 を、初版を前提にしない言い回しに直す。見出しの名前は変えない
+  - 完了の状態: `git grep -n -E '【初版のみ】|初版|0\.0\.1|本仕様の PR' -- .github/release-ci-setup.md` が空で、`release.yml`・`publish-crate.ps1`・procedure.md が名前で指す 4 つの節（名前の対応表・新しいクレートの初回公開・2 つ目以降のクレートの認証だけが失敗したとき・後片付け（必須））が見出しとして実在する
+  - _Boundary: .github/release-ci-setup.md_
+  - _Depends: 1_
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
+
+- [ ] 3. 撤去の後の整合と回帰を確かめる
+  - `git grep -n '【初版のみ】' -- ':!.kiro/specs'` が空であること、`git diff --stat origin/main` が上の 3 ファイルと spec の文書だけであることを確かめる
+  - 状態の照会（版の指定なし）の出力を撤去の後の判定表に上から当て、S3（リリース済み・段 3 から）に当たること、タグ無し・公開済みが 0/4 以外の状態が S9 に当たることを確かめる
+  - 補助スクリプトのテスト、`cargo test --all`、`cargo clippy --all-targets --workspace -- -D warnings` を通す
+  - 完了の状態: 上の確かめがすべて通った出力がある
+  - _Depends: 2.1, 2.2_
+  - _Requirements: 4.1, 4.2, 4.3, 4.4, 2.2_
+
+## Implementation Notes
