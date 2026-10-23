@@ -69,6 +69,12 @@
 //!   （ホストの窓・プロセスの状態を共有すること）を前提にしない
 //! - host.request は IPC を往復することがあり、遅くなりうる
 //!
+//! # DLL の口と発見の順
+//! - 1 つの DLL が、SHIORI/3.0 の書き出し（load・request・unload）と shiori_get_api の両方を持ってよい
+//! - ホストは書き出しを shiori_get_api → loadu → load の順に探し、最初に見つかった口で解決する。
+//!   shiori_get_api が見つかったら 4、だめなら 3 を試す。どちらも NULL なら読めなかったものとして扱い、
+//!   loadu・load へは進まない。解決した口の load が失敗しても、ほかの口へは進まない
+//!
 //! # post の完了通知（v4）
 //! - 受付 ID は SHIORI が発行し、Tag ヘッダとしてメッセージに入れる（登録してから post する）
 //! - post の戻り値は受付可否だけ（204: 受付、400: 不正、SHIORI_E_SHUTDOWN: 終了中）
@@ -76,6 +82,20 @@
 //!   - post の呼び出し中や host.request の処理中には届けない（イベントループから届ける）
 //!   - unload を始めたら、そのインスタンス宛ての未配送イベントは破棄する
 //! - Tag を付けない post は「結果は不要」を意味する
+//!
+//! # 配布の決まり（DLL の選び方）
+//! - descript.txt の shiori,<名前> から名前の幹を取る（例 shiori,pasta.dll → pasta）
+//! - ホストは、ホストの OS と arch ごとに次の順で探す
+//!   - Windows x64: <幹>.x64.dll → <幹>.dll
+//!   - Windows arm64: <幹>.arm64.dll →（x64 のプロセスを起こせるホストだけ）<幹>.x64.dll → <幹>.dll
+//!   - Linux x64: lib<幹>.x64.so → lib<幹>.so
+//!   - Linux arm64: lib<幹>.arm64.so → lib<幹>.so
+//!   - macOS: lib<幹>.dylib（ユニバーサルバイナリを推奨）
+//! - 接尾辞は x64・arm64 の 2 つだけ。x86 は作らない。接尾辞なしの Windows の DLL が、
+//!   32bit の SHIORI/3.0 を担う
+//! - Linux と macOS は lib の付いた名前だけを探す。macOS は arch の接尾辞を持たない
+//! - ホストは選んだファイルの機械の種類をヘッダ（PE・ELF・Mach-O）で確かめ、合わなければ次の候補へ
+//!   進み、候補が尽きたらそのゴーストを読めなかったものとして扱う。これは SHIORI/3.0 と v4 の両方に使える
 
 use std::{
     borrow::Cow,
