@@ -39,6 +39,19 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
     - 背景: areka は v4 の DLL も同じプロセスでは読まず、SHIORI ごとに helper のプロセスを起こして、その中で shiori4_host を使う。
     - 論点 8（同じプロセスでの 2 つ目の load）は、ほかのホストのための規約として残す。
 
+## 開発者の裁定を待つ論点
+12. **arch ごとの SHIORI の名前**（areka の提案。2026-10-23。pasta にも送付済み）: ゴーストが arch ごとの SHIORI を同梱するときの名前の決まりを、shiori4 の正本に置くかどうか。
+    - areka の形: descript.txt の `shiori,pasta.dll` に対し、ホストは arch の接尾辞つきの名前から先に探す。
+      - x64 の Windows: `pasta.x64.dll` → `pasta.dll`
+      - arm64 の Windows: `pasta.arm64.dll` → `pasta.x64.dll` → `pasta.dll`
+    - 接尾辞は `x64`・`arm64` の 2 つ。`x86` は作らない（接尾辞なしの名前が、SSP の読む 32bit の SHIORI/3.0 を担う）。
+    - ホストは PE ヘッダも確かめ、名前と食い違えば次の候補へ進む。areka は SHIORI/3.0 と v4 の両方に効かせる。
+    - shiori4 の推奨: 規約は「ゴーストの配布の決まり（DLL の選び方）」として載せる。置き場所は abi-conventions。
+      - ABI の関数・構造体は変えない。
+      - Windows の分だけを確定させ、.so／.dylib の名前は、要る利用者が出るまで決めない。
+      - `shiori4_host` に選び方の関数を足すかは、要件の段で決める。
+    - 裁定が要る理由: ABI の外（descript.txt とファイルの選び方）へ、この spec の範囲が広がるため。
+
 ## Approach
 規約の本文は C ヘッダの冒頭の注釈を正本にする。Rust 版の doc と高水準層の doc はそれに合わせる。
 
