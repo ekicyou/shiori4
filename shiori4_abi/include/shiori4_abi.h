@@ -81,6 +81,7 @@ typedef int32_t ShioriStatus;
 #define SHIORI_E_REENTRANT     (-4)
 #define SHIORI_E_SHUTDOWN      (-5)
 #define SHIORI_E_INVALID_UTF8  (-6)
+#define SHIORI_E_WRONG_THREAD  (-7)  /* 規約 2 に反する host->request の呼び出し */
 
 #define SHIORI_IS_SUCCESS(s)    ((s) >= 200 && (s) < 300)
 #define SHIORI_IS_ABI_ERROR(s)  ((s) < 0)

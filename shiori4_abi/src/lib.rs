@@ -93,6 +93,8 @@ pub const SHIORI_E_PANIC: ShioriStatus = -3;
 pub const SHIORI_E_REENTRANT: ShioriStatus = -4;
 pub const SHIORI_E_SHUTDOWN: ShioriStatus = -5;
 pub const SHIORI_E_INVALID_UTF8: ShioriStatus = -6;
+/// 規約 2 に反する host.request の呼び出し（out は空）
+pub const SHIORI_E_WRONG_THREAD: ShioriStatus = -7;
 
 // ---- ログレベル ----
 pub const SHIORI_LOG_ERROR: i32 = 1;
@@ -310,6 +312,11 @@ impl ShioriOwnedBytes {
         self.0.to_vec()
     }
 }
+
+// SAFETY: スレッド規約 6 により、release はどのスレッドから呼んでもよい。
+// Sync は付けない（共有して読む用途は要件に無い）。
+// ShioriOwnedResponse は status と ShioriOwnedBytes だけなので自動で Send になる。
+unsafe impl Send for ShioriOwnedBytes {}
 
 impl Deref for ShioriOwnedBytes {
     type Target = ShioriBytes;
@@ -959,3 +966,38 @@ const _: () = {
     assert!(offset_of!(ShioriApi, notify) == 8 + 3 * w);
     assert!(size_of::<ShioriApi>() == 8 + 4 * w);
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_codes_keep_their_values() {
+        assert_eq!(SHIORI_E_INVALID_ARG, -1);
+        assert_eq!(SHIORI_E_UNSUPPORTED, -2);
+        assert_eq!(SHIORI_E_PANIC, -3);
+        assert_eq!(SHIORI_E_REENTRANT, -4);
+        assert_eq!(SHIORI_E_SHUTDOWN, -5);
+        assert_eq!(SHIORI_E_INVALID_UTF8, -6);
+        assert_eq!(SHIORI_E_WRONG_THREAD, -7);
+    }
+
+    #[test]
+    fn owned_bytes_can_be_released_on_another_thread() {
+        fn assert_send<T: Send>() {}
+        assert_send::<ShioriOwnedBytes>();
+        assert_send::<ShioriOwnedResponse>();
+
+        // 自分が確保したバイト列（release_vec）を別スレッドへ送り、そこで解放する
+        let owned = unsafe { ShioriOwnedBytes::from_raw(ShioriBytes::copy_from_str("hello")) };
+        let resp = ShioriOwnedResponse { status: SHIORI_200_OK, body: owned };
+        let got = std::thread::spawn(move || {
+            let s = resp.body.as_str().map(str::to_owned);
+            drop(resp);
+            s
+        })
+        .join()
+        .unwrap();
+        assert_eq!(got.as_deref(), Ok("hello"));
+    }
+}
