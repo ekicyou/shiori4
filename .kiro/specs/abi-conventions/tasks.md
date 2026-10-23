@@ -9,7 +9,7 @@
   - _Boundary: AbiConstants, OwnedSend_
   - _Requirements: 1.6, 2.2, 5.5, 5.7_
 
-- [ ] 1.2 (P) DLL を読むテストのためのテスト用 cdylib と、それを作って場所を返すテスト専用の仕組みを用意する
+- [x] 1.2 (P) DLL を読むテストのためのテスト用 cdylib と、それを作って場所を返すテスト専用の仕組みを用意する
   - ワークスペースの外（自前の `[workspace]`、公開しない）に、`shiori4` だけに path で依存する cdylib を置く
   - その DLL は自前の `shiori_get_api` で v4／v3 のテーブルをモードによって出し分け、モードを設定する書き出しと、呼ばれないダミーの `loadu`・`load` の書き出しを持つ。Ghost の load は dir に `fail` を含むと失敗する
   - `shiori4_host` のテスト専用モジュールが、テストの中で cargo を呼んで 1 テストバイナリにつき 1 回だけ DLL を作り、場所を返す（`--target-dir` を明示し、子の cargo から `CARGO_BUILD_TARGET` を外す）。DLL のモードを守るロックも持つ
@@ -145,3 +145,8 @@
   - 動きが変わる 4 点（Poster の `Copy`、dir の `InvalidPath`、-7、エラーの意味の広がり）と移行の仕方を、実装のコミットと PR の本文に書ける形にまとめる
   - 完了: 上のコマンドがローカルで成功し、依存と版の確認と検索の結果に問題が無い
   - _Requirements: 1.3, 15.1, 15.2, 15.3, 15.4, 15.5, 15.6_
+
+## Implementation Notes
+- テスト用 DLL のモードの値（MODE_V4=1・MODE_V3=2・既定 3）は `testdata/testghost/src/lib.rs` にだけある。モードを切り替えるタスクは `shiori4_host/src/test_dll.rs` に同じ値の定数を足し、`test_dll::lock()` を取ってから `testghost_set_mode` を呼ぶ
+- 既存コードは rustfmt の既定に合わせていない（rustfmt.toml なし）。`cargo fmt` は掛けず、周りの書き方に合わせる
+- この環境には C コンパイラが無い。C ヘッダの `SHIORI_STATIC_ASSERT` は読んで確かめる

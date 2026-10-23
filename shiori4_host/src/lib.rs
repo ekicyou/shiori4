@@ -72,6 +72,9 @@ use shiori4::shiori4_abi::{
     ShioriGetApiFn, ShioriHost, ShioriHostBox, ShioriInstance, SHIORI_GET_API_SYMBOL,
 };
 
+#[cfg(test)]
+mod test_dll;
+
 // ============================================================
 // ホスト実装者が実装する trait
 // ============================================================
