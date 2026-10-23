@@ -385,7 +385,7 @@ impl PosterGate {
 **Implementation Notes**
 - Integration: 既存の Ghost のコード（`h.poster()`・別スレッドへの move・`PendingTags::post(&poster, ..)`）は書き換えなしでビルドできる。暗黙のコピー（`let p2 = p;` の後に `p` を使う）だけが `.clone()` に直る。破壊的な変更なので、実装のコミットと PR の本文に移行の仕方（`.clone()` で複製する）を書く。0.0.2 のリリースで `/release` が見どころ `doc/release-notes/v0.0.2.md` を書くとき、`doc/release-notes/README.md` の決まり 4（動きが変わる点はすべて載せる）に従って載せる（要件 4.7 の「リリースノートに書く」はここで満たす）。
 - Validation: `shiori4_abi` の新しい `mod tests` で、(a) unload の後の post が `SHIORI_E_SHUTDOWN` を返しホストの post が呼ばれない、(b) unload を始める前に入った post が返るまで unload が返らない、(c) 別スレッドで unload の後も動き続けるスレッドの post・log が安全、(d) unload の後の Poster の log がホストに届かない、を確かめる。
-- Risks: ホストの post の実装が、unload を呼んでいるスレッドを待つと止まる（例: `Host::wake` が UI スレッドへの同期の送信をする）。規約 4（コピーしてすぐ返る）でホストの義務とし、`Host::wake`・`Host::accept_post` の doc に「unload を呼ぶスレッドを待たないこと」を書く。
+- Risks: ホストの post・log の実装が、unload を呼んでいるスレッドを待つと止まる（例: `Host::wake` や `Host::log` が UI スレッドへの同期の送信をする）。規約 4（コピーしてすぐ返る）でホストの義務とし、`Host::log`・`Host::wake`・`Host::accept_post` の doc に書く（HostDocs。設計議題 2）。`shiori4_host` の `Bridge::post` は shutdown の後は門前払いするので、危ないのは shutdown の瞬間にすでにホストの中にいた 1 回だけである。
 
 #### LoadFailureLog
 
@@ -444,7 +444,7 @@ unsafe impl Send for ShioriOwnedBytes {}
 | Requirements | 1.3, 2.5, 5.3, 5.4, 9.2 |
 
 - 再エクスポートに `SHIORI_E_WRONG_THREAD`・`SHIORI_E_INVALID_UTF8` を足す。新しい公開の型（`V3Runtime`・`FromLibraryError`・`EntryKind`・`LoadedGhost`・`load_ghost`・`load_ghost_with`・`TargetOs`・`TargetArch`・`shiori_file_candidates`・`machine_matches`）をクレート直下に `pub use` する。
-- `Host` の doc: 呼ばれるスレッドの表で `log` を「任意のスレッド」へ移す（5.4）。`accept_post`・`wake` に「unload を呼ぶスレッドを待たないこと」を足す。
+- `Host` の doc: 呼ばれるスレッドの表で `log` を「任意のスレッド」へ移す（5.4）。`log`・`accept_post`・`wake` に「`GhostRuntime` を Drop するスレッドを同期で待たないこと（規約 4: コピーしてすぐ返る。待つと unload の門の待ちと互いに待ち合って止まる）」を足す。コードの手当て（`Bridge::log` を shutdown の後に捨てるなど）はしない。Ghost の Drop の中の log を失うため（設計議題 2）。
 - `//!` の「規約との対応」: 規約 2（-7 の検出）、規約 5（Drop の順。SHIORI は join しない）、load の規約（dir の検査と正規化）、Charset を付けないことを足す。例の `GhostRuntime::load("ghost/master/shiori.dll", "ghost/master", ..)` は、dir が絶対パスでないと `InvalidPath` になるので、絶対パスを組み立てる形に直す。
 - `GhostRuntime` の Drop のコメント「SHIORI は自分のスレッドを止めてから返る」を「unload が返った後、SHIORI はホストを呼ばない（規約 5）」に直す。
 - Charset（9.2）: `Bridge` の応答と `Completer` の完了通知は今も Charset を付けない。テストで守る（`Bridge` の組み込みの応答と `Completer::complete` の見出しに `Charset` が無いこと）。host-protocol が `Bridge` を作り直すときも、この表明を保つ。
@@ -539,7 +539,7 @@ impl From<FromLibraryError> for LoadError { /* ライブラリを捨てる */ }
 - `LoadFailed` でライブラリを返さない理由を doc に書く（12.4）:「v4 の SHIORI が初期化に失敗したので読み直さない。`shiori_get_api` を持つ DLL は v4 だと宣言しているので、旧来の口で取り繕うと二重の初期化か作者の意図と違う動きになる」。
 - 不変条件「ライブラリを返すのは読み直せる失敗だけ」は、フィールドを非公開にして型の中で守る。
 - `GhostRuntime::load` は「ライブラリを開く → `from_library` → ライブラリを捨てて `LoadError` にする」に書き換えてよい（形と結果は同じ）。
-- `InvalidPath` でライブラリを返すのは、要件 12.2 が挙げていない追加である（仮定。OPEN QUESTION）。
+- `InvalidPath` でもライブラリを返す。dir の検査は初期化の前に失敗するので、読み直しても二重の初期化にならず、呼び出し側は dir を直して同じライブラリでやり直せる（設計議題 3。要件 12.2 に足した）。
 
 #### V3Runtime
 
@@ -616,7 +616,7 @@ pub fn load_ghost_with<H: Host>(lib_path: impl AsRef<OsStr>, ghost_dir: impl AsR
   - 従来の口は `lib.get(b"loadu\0")`・`lib.get(b"load\0")` で有無だけを見る。呼ばない（11.5）。
 - エラー: dir → `InvalidPath`（ライブラリを開く前）。開けない → `Library`。許可された口が 1 つも無い → `NotShiori4`（doc を「許可された口が見つからない」に広げる。新しい変種は足さない）。
 - 古いホストへの影響（11.9）: 発見はホスト側の決まりで、DLL 側に追加の義務を課さない。`shiori_get_api` を知らないホストは従来の口で読める。テスト用 cdylib に両方の口を持たせ、`allowed = [Loadu, Load]` で従来の口に解決できることで確かめる。
-- 発見の口は機械の種類を確かめない。ホストは「配布の決まり」に従い、`machine_matches` で確かめてから渡す（決定。OPEN QUESTION）。
+- 発見の口は機械の種類を確かめない。ホストは「配布の決まり」に従い、`machine_matches` で確かめてから渡す。合わない DLL を渡されたら `LoadError::Library` になる（設計議題 4）。
 
 **Implementation Notes**
 - Validation（TestFixture を使う）: 既定で V4／モードで v4 を NULL にすると V3／v4・v3 とも NULL で `Unsupported`（`loadu` があっても進まない）／v4 の load が NULL で `LoadFailed`（v3 にも従来の口にも進まない）／`[V3]` で V3／`[Loadu, Load]` で `Legacy { Loadu }`／`[Load]` で `Legacy { Load }`／`[]` で `NotShiori4`／`shiori_get_api` の無い OS のライブラリ（Windows `kernel32.dll`、Linux `libc.so.6`、macOS `/usr/lib/libSystem.B.dylib`）で `NotShiori4`／相対の dir で `InvalidPath`。
@@ -650,7 +650,7 @@ pub fn shiori_file_candidates(name: &str, os: TargetOs, arch: TargetArch, can_sp
 /// 読み込みも初期化もしない。形式が違う・壊れている・短い → Ok(false)。開けない・読めない → Err
 pub fn machine_matches(path: impl AsRef<Path>, arch: TargetArch) -> std::io::Result<bool>;
 ```
-- 名前の幹: 末尾の `.dll`（ASCII の大文字小文字を区別しない）を 1 つ落とした残り。ほかの加工はしない（仮定。OPEN QUESTION）。
+- 名前の幹: 値を最後の `/` か `\` で「ディレクトリの部分」と「名前の部分」に分ける。名前の部分から末尾の `.dll`（ASCII の大文字小文字を区別しない）を 1 つ落とした残りが幹である。候補は、ディレクトリの部分をそのまま前に付け、名前の部分にだけ表の規則を当てる（例 `bin/pasta.dll` → `bin/pasta.x64.dll`・`bin/libpasta.so`）。ディレクトリの部分の区切りは書き換えない（設計議題 6）。
 - 候補の表（14.1 の順。`can_spawn_x64` は Windows arm64 でだけ効く。macOS では arch を見ない）:
 
   | os, arch | 候補 |
@@ -670,7 +670,7 @@ pub fn machine_matches(path: impl AsRef<Path>, arch: TargetArch) -> std::io::Res
   | Mach-O 単体 | magic 0xFEEDFACF（LE で格納） の cputype | 0x01000007 | 0x0100000C |
   | Mach-O ユニバーサル | 0xCAFEBABE（fat_arch 20 バイト）／0xCAFEBABF（fat_arch_64 32 バイト）、BE。nfat_arch が 1〜30 のときだけユニバーサルとみなし（Java の class ファイルと見分ける）、arch の表に指定の cputype があれば合う（14.6） | 0x01000007 | 0x0100000C |
 
-- ARM64EC の DLL は Machine が 0x8664 なので X64 として扱い、ARM64X の DLL は 0xAA64 なので Arm64 として扱う（ヘッダの表すとおり。特別扱いしない。OPEN QUESTION）。
+- ARM64EC の DLL は Machine が 0x8664 なので X64 として扱い、ARM64X の DLL は 0xAA64 なので Arm64 として扱う（ヘッダの表すとおり。特別扱いしない。設計議題 5）。`machine_matches` の doc に 2 つの例外を書く: x64 の実機では ARM64EC の DLL が「合う」と出ても読めない（`LoadError::Library`）、ARM の Windows で x64 として動くプロセスでは ARM64X の DLL が「合わない」と出る。
 - すべての読み取りは範囲を確かめ、パニックしない（14.5）。
 
 **Implementation Notes**
@@ -695,7 +695,7 @@ pub fn machine_matches(path: impl AsRef<Path>, arch: TargetArch) -> std::io::Res
 - 公開と CI: ワークスペースの外（自前の `[workspace]`）に置くので、`cargo package --workspace`・`cargo clippy --workspace`・`cargo deny` の対象にならない。CI の設定は変えない。
 
 **Implementation Notes**
-- Risks: テストの中の `cargo build` は 3 OS の CI の時間を数十秒延ばす。外の `cargo test` の環境変数（`CARGO_TARGET_DIR`・`RUSTFLAGS` など）を引き継ぐので、`--target-dir` を明示する。CI ではすでにビルド済みの `shiori4` を path で使うだけでネットワークは要らない（OPEN QUESTION で代案を挙げる）。
+- Risks: テストの中の `cargo build` は 3 OS の CI の時間を数十秒延ばす。外の `cargo test` の環境変数（`CARGO_TARGET_DIR`・`RUSTFLAGS` など）を引き継ぐので、`--target-dir` を明示し、子の cargo から `CARGO_BUILD_TARGET` を外す（出力の場所がずれないように）。CI ではすでにビルド済みの `shiori4` を path で使うだけでネットワークは要らない。この方式で確定した。ワークスペースのメンバーにする案は `cargo test` が cdylib をテストより先に作る保証が無く、シンボルの探索を差し替える案は本物の書き出しの名前の誤りを捕まえられないため採らない（設計議題 1）。
 
 ### .kiro/steering
 

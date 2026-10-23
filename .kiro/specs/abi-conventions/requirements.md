@@ -158,7 +158,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 
 #### Acceptance Criteria
 1. The shiori4_host shall 読み終えたライブラリから `GhostRuntime` を作る公開の入口を持ち、今の `GhostRuntime::load` の形と振る舞いは変えない。
-2. If その入口が `NotShiori4`（`shiori_get_api` が無い）か `Unsupported`（要求した版に対応しない）で失敗する, the shiori4_host shall エラーと一緒にライブラリをホストに返し、ホストが別の版や SHIORI/3.0 として読み直せるようにする。
+2. If その入口が `NotShiori4`（`shiori_get_api` が無い）か `Unsupported`（要求した版に対応しない）か `InvalidPath`（dir の検査の失敗。初期化の前なので読み直せる。設計議題 3）で失敗する, the shiori4_host shall エラーと一緒にライブラリをホストに返し、ホストが別の版や SHIORI/3.0 として読み直せるようにする。
 3. If その入口が `LoadFailed`（v4 の load が NULL）で失敗する, the shiori4_host shall ライブラリを返さない。
 4. The shiori4_host shall `LoadFailed` のときにライブラリを返さない理由（「v4 の SHIORI が初期化に失敗したので読み直さない。`shiori_get_api` を持つ DLL は v4 だと宣言しているので、旧来の口で取り繕うと二重の初期化か作者の意図と違う動きになる」）を doc に書く。
 

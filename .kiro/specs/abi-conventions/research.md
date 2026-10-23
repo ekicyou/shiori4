@@ -201,3 +201,14 @@
 - **テストの中の `cargo build`**: 外の環境変数を引き継ぐ・CI の時間が延びる。`--target-dir` を明示し、`OnceLock` で 1 回にする。
 - **host-protocol との衝突**: 同じ 2 ファイル。`lib.rs` の変更を最小にし、後から統合する側が門とテストを保つ。
 - **相対パスの dir を渡していた既存のホスト**: `InvalidPath` で落ちるようになる。破壊的な変更としてリリースノートに載せ、`shiori4_host` の `//!` の例を絶対パスに直す。
+
+## 7. 設計ディスカッションの決定（2026-10-23、全議題を推奨案で確定）
+| 議題 | 決定 | 根拠 |
+|---|---|---|
+| 1 テスト用 DLL | `testdata/testghost/` をテストの中の `cargo build` で作る。子の cargo から `CARGO_BUILD_TARGET` を外す | 安定版で別クレートの cdylib をテストより先に確実に作らせる方法がほかに無い（artifact dependencies は nightly） |
+| 2 unload の待ちで止まる危険 | コードは変えず、`Host::log`・`accept_post`・`wake` の doc に「Drop するスレッドを同期で待たない」と書く | 規約 4 がすでに求めている。`Bridge::log` を捨てると Ghost の Drop の中の log を失う |
+| 3 `from_library` の `InvalidPath` | ライブラリを返す（要件 12.2 に足した） | 初期化の前の失敗なので、読み直しても二重の初期化にならない |
+| 4 発見の口と機械の種類 | 確かめない | ファイルを選ぶのはホスト側の責任。`machine_matches` を先に使う |
+| 5 ARM64EC・ARM64X | ヘッダどおり。doc に 2 つの例外を書く | 作者は `x64` を別に置くので実害が小さい。CHPE の解析は割に合わない |
+| 6 ディレクトリ付きの `shiori,` | 最後の区切りで分け、名前の部分にだけ規則を当てる | `lib` がディレクトリの前に付く誤りを防ぐ |
+| 7 公開の型の形 | 設計どおり（`V3Runtime::request` だけ、`NotShiori4` を広げる、`Legacy` は `EntryKind`） | 型と変種を増やさない。`Legacy` を作るのはこのクレートだけ |
