@@ -3,7 +3,8 @@
   "created_at": "2026-10-23T07:23:40Z",
   "updated_at": "2026-10-23T10:30:00Z",
   "language": "ja",
-  "phase": "tasks-generated",
+  "phase": "completed",
+  "completed_at": "2026-10-23T15:03:29Z",
   "approvals": {
     "requirements": {
       "generated": true,
