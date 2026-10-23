@@ -156,4 +156,4 @@
 - 5.2: dir の検査と正規化は shiori4_host の非公開 `normalize_dir(&Path) -> Result<String, LoadError>`。テストの dir は OS ごとの定数 `GHOST_DIR` を使う
 - 5.3: テスト用 DLL のモードは `test_dll::set_mode(&lib, mode)` で、開いているライブラリに対して設定する（すべてのハンドルを閉じると DLL が外れてモードが既定に戻るため）。subagent の継ぎはぎのスクリプトが `\r\n` のエスケープを壊したことがある。文字列のエスケープは diff で確かめる
 - 7.1: ライブラリからの入口の共通部分は lib.rs の非公開 `unsafe fn library_entry(lib, dir, version)`（dir の検査 → `shiori_get_api` → テーブルの検査）。v3.rs は子モジュールなので `normalize_dir` と `FromLibraryError` の非公開フィールドを直接使える
-- 8.1: `from_library` は `libloading::Library` を受けるが、`shiori4_host` は `libloading` を再エクスポートしていない（設計に記述なし）。自分でライブラリを開く利用者は libloading の版を合わせる必要がある。再エクスポートするかは利用者の判断を仰ぐ
+- 8.1: `from_library` は `libloading::Library` を受ける。利用者が版を合わせずに使えるよう、`shiori4_host` は `pub use libloading;` で再エクスポートする（利用者の判断で足した）

@@ -142,6 +142,8 @@ use std::{
 };
 
 pub use shiori4;
+// from_library が受ける Library の型を、利用者が版を合わせずに使えるようにする
+pub use libloading;
 pub use shiori4::{host_protocol, HeaderWriter, Headers};
 pub use shiori4::shiori4_abi::{
     shiori_is_abi_error, shiori_is_success, ShioriApi, ShioriOwnedBytes, ShioriOwnedResponse,
