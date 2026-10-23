@@ -76,6 +76,59 @@
 //!     [-1, -2, -3, -4, -5, -6, -7],
 //! );
 //! ```
+//!
+//! # DLL の選び方と読み方
+//! - 配布の決まり: `shiori_file_candidates` が descript.txt の `shiori,` の値から探すファイル名を順に並べ、
+//!   `machine_matches` がファイルの機械の種類を確かめる（どちらも DLL を読まない）。
+//!   今のプロセスの OS・arch は `TargetOs::CURRENT`・`TargetArch::CURRENT`。決まりの本文は C ヘッダの「配布の決まり」
+//! - 発見の順と許可: `load_ghost` は `shiori_get_api`（4 → 3）→ `loadu` → `load` の順に口を探し、
+//!   `LoadedGhost` で結果を返す。`load_ghost_with` は許可する口（`EntryKind`）を選べる
+//! - 読み終えたライブラリからの入口: `GhostRuntime::from_library`。`NotShiori4`・`Unsupported`・`InvalidPath`
+//!   では `FromLibraryError` がライブラリを返すので、別の版で読み直せる
+//! - v3 互換モードの口: `V3Runtime`（SHIORI/3.0 の全文を文字列で渡し、応答の全文を受け取る。post は無い）
+//!
+//! ```
+//! use shiori4_host::{shiori_file_candidates, TargetArch, TargetOs};
+//!
+//! assert_eq!(
+//!     shiori_file_candidates("pasta.dll", TargetOs::Windows, TargetArch::Arm64, true),
+//!     ["pasta.arm64.dll", "pasta.x64.dll", "pasta.dll"],
+//! );
+//! ```
+//!
+//! ```no_run
+//! use shiori4_host::*;
+//! # struct MyHost;
+//! # impl Host for MyHost { fn on_post(&self, _post: Post) {} }
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let dir = std::env::current_exe()?.parent().expect("exe dir").join("ghost").join("master");
+//! let (os, arch) = (TargetOs::CURRENT.expect("os"), TargetArch::CURRENT.expect("arch"));
+//! // 候補のうち、在って機械の種類が合う最初のファイルを選ぶ
+//! let path = shiori_file_candidates("shiori.dll", os, arch, false)
+//!     .into_iter()
+//!     .map(|name| dir.join(name))
+//!     .find(|p| machine_matches(p, arch).unwrap_or(false))
+//!     .ok_or("no shiori")?;
+//! match load_ghost_with(&path, &dir, MyHost, &[EntryKind::V4, EntryKind::V3])? {
+//!     LoadedGhost::V4(mut rt) => { rt.request("ID: OnBoot\r\n").map_err(|s| format!("ABI error: {s}"))?; }
+//!     LoadedGhost::V3(mut rt) => {
+//!         let res = rt.request("GET SHIORI/3.0\r\nID: OnBoot\r\n\r\n").map_err(|s| format!("ABI error: {s}"))?;
+//!         # drop(res);
+//!     }
+//!     LoadedGhost::Legacy { entry, .. } => println!("従来の口 {entry:?} はこのクレートでは読まない"),
+//! }
+//! # Ok(())
+//! # }
+//!
+//! // GhostRuntime::from_library が Unsupported で返したライブラリを、v3 互換モードで読み直す
+//! fn retry_v3(e: FromLibraryError, dir: &std::path::Path) -> Result<V3Runtime, LoadError> {
+//!     match e.into_parts() {
+//!         (LoadError::Unsupported(_), Some(lib)) => Ok(V3Runtime::from_library(lib, dir)?),
+//!         (e, _) => Err(e),
+//!     }
+//! }
+//! ```
 
 use std::{
     ffi::OsStr,
