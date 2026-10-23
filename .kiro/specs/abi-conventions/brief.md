@@ -72,7 +72,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
     - areka は、これを SHIORI/3.0 と v4 の両方に効かせる。
 
 16. **v3 の load の失敗と、shiori4_host の v3 の口**（開発者の裁定。2026-10-23）:
-    - ABI の段では、v3 の load は失敗の理由を返さない。NULL を返すだけで、今の規約のまま。v3 互換モードは、主に Windows 以外のベースウェアに SHIORI/3.0 の口を出すためのものである。
+    - ABI の段では、v3 の load は失敗の理由を返さない。NULL を返すだけで、今の規約のまま。v3 互換モードは、Windows 以外のベースウェアを組みたい人のために、HGLOBAL に依存しない SHIORI/3.0 の口を用意したものである（roadmap の Phase 2「v3 互換モードの位置づけ」）。従来の SHIORI/3.0 の DLL（HGLOBAL の load・unload・request）を shiori4_host で読むことは、この spec に含めない（後の別 spec の候補）。
     - `shiori4_host` に、v3 互換モードで DLL を読む小さな口を足す（例 `V3Runtime`。名前は設計で決める）。
       - SHIORI/3.0 の要求の全文を渡し、応答の全文を受け取る。post と完了通知は無い。
       - load が NULL を返したら `Err(LoadError::LoadFailed)` を返す。理由は付かない。

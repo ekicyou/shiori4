@@ -51,4 +51,8 @@ v0.0.1 の公開の後、SHIORI 実装者（pasta、`SHIORI4:pasta` セッショ
   - 拒否の返し方は 400 ＋ `Reason: forbidden` に決まった（3 者会談）。ABI の定数は足さない
   - どちらも `shiori4/src/lib.rs`・`shiori4_host/src/lib.rs` に触れる。並べて進めるときは片方を先に統合する
   - property の改名（`property` → `getproperty`）は 0.0.1 の動きを壊す唯一の変更。0.0.x のうちに入れる
+- **v3 互換モードの位置づけ**（開発者の方針。2026-10-23）: v3 互換モード（`shiori_get_api(3)`）は、Windows 以外のベースウェアを組みたい人のために、HGLOBAL に依存しない SHIORI/3.0 の口を用意したものである。従来の SHIORI/3.0 の DLL（HGLOBAL の load・unload・request）を置き換えるものではない。
+- **後の spec の候補**: shiori4_host で、従来の SHIORI/3.0 の DLL（load・unload・request、と loadu）を読む口。Phase 2 の 3 本とは別の spec にする。
+  - 論点: 従来の DLL は Windows の 32bit が中心である。shiori4_host に ANSI のエンコーダーを抱え込みたくない。
+  - 方針の候補: Windows だけに限り、文字コードの変換は Win32 の API（MultiByteToWideChar・WideCharToMultiByte）に任せる。
 - **Release**: abi-conventions と host-protocol を統合した後、`/release` で 0.0.2 を出す（spec ではない）。0.0.2 は CI からの初めての公開で、1 回の認証で 3 クレートを出せるかと 401・403 の分類も確かめる
