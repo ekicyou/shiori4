@@ -71,6 +71,19 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
       - ヘッダの機械の種類を確かめる関数
     - areka は、これを SHIORI/3.0 と v4 の両方に効かせる。
 
+16. **v3 の load の失敗と、shiori4_host の v3 の口**（開発者の裁定。2026-10-23）:
+    - ABI の段では、v3 の load は失敗の理由を返さない。NULL を返すだけで、今の規約のまま。v3 互換モードは、主に Windows 以外のベースウェアに SHIORI/3.0 の口を出すためのものである。
+    - `shiori4_host` に、v3 互換モードで DLL を読む小さな口を足す（例 `V3Runtime`。名前は設計で決める）。
+      - SHIORI/3.0 の要求の全文を渡し、応答の全文を受け取る。post と完了通知は無い。
+      - load が NULL を返したら `Err(LoadError::LoadFailed)` を返す。理由は付かない。
+      - `from_library` が `Unsupported` で返したライブラリを、そのまま渡せる（論点 13 の「4 → 3 → SHIORI/3.0」の順を、DLL を 2 回読まずに書ける）。
+17. **読み込みの持ち場**（開発者の方針。2026-10-23）:
+    - `shiori4_abi` は型と定数だけを持ち、ライブラリの読み込みはしない（今も依存は無い）。
+    - 読み込みは `shiori4_host` が持つ。
+      - OS ごとの違いのうち、ライブラリを開く所は `libloading` が吸収する。
+      - ファイル名の候補（論点 12）と、ヘッダの機械の種類の確認（PE・ELF・Mach-O）は、`shiori4_host` が OS ごとに作る。
+    - `shiori4_host` の口は、v4 も v3 も `&str`／`String` で受け渡す。バイト列と UTF-8 の検査は口の内側で扱う。v4 の `GhostRuntime::request(&str)` は、すでにこの形である。
+
 ## Approach
 規約の本文は C ヘッダの冒頭の注釈を正本にする。Rust 版の doc と高水準層の doc はそれに合わせる。
 
@@ -84,7 +97,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、`shior
 - **In**:
   - `shiori4_abi`: C ヘッダの規約の注釈、`SHIORI_E_WRONG_THREAD` の定数（C と Rust）、Rust 版の doc。
   - `shiori4`: `ShioriHostPoster` の無効化と、その doc。
-  - `shiori4_host`: スレッドの検査と -7、load の dir の正規化、log と release の任意スレッド対応の確認、両方を持つ DLL の見る順（論点 13）、読み終えたライブラリから作る入口（論点 15）。
+  - `shiori4_host`: スレッドの検査と -7、load の dir の正規化、log と release の任意スレッド対応の確認、両方を持つ DLL の見る順（論点 13）、読み終えたライブラリから作る入口（論点 15）、ファイル名の候補とヘッダの確認（論点 12）、v3 の口（論点 16）。
   - 上の 3 つのテスト。
 - **Out**:
   - 運ぶ中身の語彙（property・post のコマンド・必ず付けるヘッダ・version・OnHostComplete）。これは host-protocol。
