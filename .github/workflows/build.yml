@@ -65,3 +65,11 @@ jobs:
             fi
           done
           exit "$failed"
+
+  release-scripts:
+    name: release-scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Release scripts test
+        run: pwsh -NoProfile -File .github/scripts/release/release-scripts-test.ps1

@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__github__merge_pull_request",
+      "Bash(git fetch:*)",
+      "Bash(git merge --no-edit origin/main)",
+      "Bash(git merge origin/main:*)",
+      "Bash(git merge --abort)",
+      "Bash(git push -u origin HEAD)",
+      "Bash(git tag -a:*)",
+      "Bash(git push origin v*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run rerun:*)"
+    ],
+    "ask": [
+      "Bash(git push *-f*)",
+      "Bash(git push *+*)",
+      "Bash(git push *-d*)",
+      "Bash(git push *:refs/*)",
+      "Bash(git push *:*main*)",
+      "Bash(git push *:v*)",
+      "Bash(git tag *-f*)",
+      "Bash(git tag *-d*)"
+    ]
+  },
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "release スキル（/release）での、版の更新の PR の作成と squash マージ、リリースタグ（vX.Y.Z）の作成と push、リリース CI（release.yml）の実行の閲覧と失敗した job の再実行（gh run rerun）を許可する。手元からのクレートの公開・GitHub Release の作成は行わない。",
+      "gh pr merge による pull request の default ブランチ（main 等）への squash マージを許可する。self-created PR を含み、kiro-complete の完了フローでの自動マージを想定する。"
+    ]
+  }
+}

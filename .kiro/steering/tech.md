@@ -58,12 +58,24 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, post キュ�
 - 版はルート `Cargo.toml` の **3 か所**だけに書く: `[workspace.package] version` と、`[workspace.dependencies]` の `shiori4_abi`・`shiori4` の `version`。3 つは常に同じ値にする（`0.0.x` の版要求は完全一致なので、直し忘れると依存解決で落ちる）
 - 共通メタデータ（`edition`・`rust-version`・`authors`・`license`・`repository`・`homepage`・`keywords`）も `[workspace.package]` に置き、各クレートは `<field>.workspace = true` で受け継ぐ。クレート固有なのは `name` と `description` だけ
 - ライセンスは **MIT だけ**。各クレートのディレクトリにルート `LICENSE` の写しを置く（`license-file` は使わない）
+- 公開はリリースタグ `vX.Y.Z` の push で動くリリース CI（`.github/workflows/release.yml`）だけが行う。段は `verify` → `gate` → `publish-crates` → `github-release` → `report`。開発者は `/release` で版の更新からタグの push・見届けまでを行う
+- crates.io への公開の順は依存順の `shiori4_abi` → `shiori4` → `shiori4_host`（1 つずつ。公開済みの版は飛ばす）
+- 認証は crates.io の Trusted Publishing（OIDC）。environment `release` の job で、1 回の実行につき 1 回だけ auth してトークン（30 分）を取り、3 クレートの公開に使う。API トークンは持たない
+- 手元から公開しない（`cargo publish` を手で打たない）。例外は初回の手動公開と緊急時の手動公開だけで、手順は `.github/release-ci-setup.md` に従う
 
 ### CI
-`.github/workflows/build.yml` が `main` への push・PR・手動（`workflow_dispatch`）で走り、`workflow_call` で他のワークフローからも呼べる。ジョブは 3 種:
+`.github/workflows/build.yml` が `main` への push・PR・手動（`workflow_dispatch`）で走り、`workflow_call` で他のワークフローからも呼べる。ジョブは 4 種:
 - **test**: ubuntu / windows / macos で `cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings`
 - **deny**: `cargo deny check`（設定はルートの `deny.toml`。ライセンスの許可・勧告・取得元）
 - **package**: `cargo package --workspace` と中身の検査（`shiori4_abi` に C ヘッダが入るか、各クレートの `LICENSE` がルートと同じか）
+- **release-scripts**: リリースの補助スクリプトのテスト（`pwsh -NoProfile -File .github/scripts/release/release-scripts-test.ps1`）
+
+`.github/workflows/release.yml` はリリースタグ `v[0-9]+.[0-9]+.[0-9]+` の push だけで走る。job は次の 5 つで、上流が失敗すると後続は走らない（`report` だけは常に走る）:
+- **verify**: タグの形・タグと `[workspace.package] version` の一致・タグのコミットが main から到達できること・見どころ `doc/release-notes/vX.Y.Z.md` の有無
+- **gate**: build.yml を `workflow_call` で呼び、全検査をタグのコミットで通す
+- **publish-crates**: crates.io への公開（environment `release`・Trusted Publishing）
+- **github-release**: GitHub Release を作る（本文は見どころ＋詳しいリリースノート。書き込みの権限はこの job だけ）
+- **report**: 公開先ごとの結果を 1 枚の表にまとめる
 
 ## Development Environment
 
