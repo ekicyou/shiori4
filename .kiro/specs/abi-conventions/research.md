@@ -107,7 +107,7 @@
   - Poster の `Copy` を外すか（未決 1）、unload の中で実行中の post を待つか（未決 2）。
   - 呼び出しの外の `host->request` の扱い（未決 3）。
   - 従来の口で解決したときの返り値（未決 9）と、許可の集合の型。
-  - dir の正規化の細部（未決 8）。`std::path::absolute`（Rust 1.79 で安定。MSRV 1.85 で使える）は `\\?\` を付けず、存在も確かめないので、仮定の振る舞いに近い。
+  - dir の正規化（議題 7 で確定）: 相対パスは `Path::is_absolute()` で断り（`InvalidPath`）、`std::path::absolute` は使わない。正規化は区切りと末尾の区切りの見た目だけで、ファイルシステムに触れない。`from_static` のテストの `"/ghost"` は Windows で絶対でないので、OS ごとの絶対パスに直す。
   - ファイル名の決まりを書く場所（未決 10）。
 - **Research Needed**:
   - DLL を読む口のテストの方法: ワークスペースにテスト用の cdylib を足すか、`build.rs`／`tests/` で作るか、`cargo test` の 3 OS の CI でどう読ませるか。両方の口を持つ DLL（`shiori_get_api` ＋ `loadu`／`load`）の作り方。
