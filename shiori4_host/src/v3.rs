@@ -242,6 +242,10 @@ mod tests {
     struct NoHost;
 
     impl Host for NoHost {
+        fn name(&self) -> &str {
+            "nohost"
+        }
+
         fn on_post(&self, _post: Post) {}
     }
 

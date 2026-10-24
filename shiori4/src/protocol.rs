@@ -123,7 +123,6 @@ impl HeaderWriter {
 // ============================================================
 
 // 文書（doc/host-protocol.md）の第 8 章と同じ綴り
-pub const ID_PROPERTY: &str = "property";
 pub const ID_GETPROPERTY: &str = "getproperty";
 pub const ID_SETPROPERTY: &str = "setproperty";
 pub const ID_HOST_COMPLETE: &str = "OnHostComplete";
@@ -352,11 +351,7 @@ impl Properties {
 
     pub fn get(&mut self, name: &str) -> Lookup<'_> {
         if let Some(h) = &self.host {
-            let req = HeaderWriter::new()
-                .push("ID", ID_PROPERTY)
-                .push("Reference0", name)
-                .finish();
-            match h.request_str(&req) {
+            match h.request_str(&getproperty_request(name)) {
                 Ok(r) if r.status == SHIORI_200_OK => {
                     let value = r
                         .body
@@ -729,7 +724,7 @@ mod tests {
         }
     }
 
-    /// property: Reference0 が "a" なら 200 + Value、それ以外は 204。
+    /// getproperty: Reference0 が "a" なら 200 + Value、それ以外は 204。
     /// setproperty: Reference0 が "ok" なら 204、"deny" なら 400 + forbidden、"bad" なら 400、それ以外は 500。
     /// post は全文を覚え、`Command: fail` を含めば 400 で断る
     #[derive(Default)]
@@ -741,7 +736,7 @@ mod tests {
         fn request(&self, req: &[u8]) -> ShioriResponse {
             let h = Headers::parse(std::str::from_utf8(req).unwrap());
             match (h.id(), h.reference(0)) {
-                (Some(ID_PROPERTY), Some("a")) => HeaderWriter::new().push(HEADER_VALUE, "1").into_response(),
+                (Some(ID_GETPROPERTY), Some("a")) => HeaderWriter::new().push(HEADER_VALUE, "1").into_response(),
                 (Some(ID_SETPROPERTY), Some("ok")) => ShioriResponse::no_content(),
                 (Some(ID_SETPROPERTY), Some("deny")) => rejection_response(Some(REASON_FORBIDDEN)),
                 (Some(ID_SETPROPERTY), Some("bad")) => rejection_response(None),

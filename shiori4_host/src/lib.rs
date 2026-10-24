@@ -19,10 +19,15 @@
 //! struct MyHost;
 //!
 //! impl Host for MyHost {
-//!     fn property(&self, name: &str) -> Option<String> {
-//!         match name {
-//!             "baseware.name" => Some("MyBase".into()),
-//!             _ => None,
+//!     fn name(&self) -> &str {
+//!         "MyBase"
+//!     }
+//!     fn request(&self, req: &str) -> ShioriResponse {
+//!         let h = protocol::Headers::parse(req);
+//!         match (h.id(), h.reference(0)) {
+//!             (Some(protocol::ID_GETPROPERTY), Some("baseware.name")) => protocol::getproperty_response(Some("MyBase")),
+//!             (Some(protocol::ID_GETPROPERTY), _) => protocol::getproperty_response(None),
+//!             _ => ShioriResponse::bad_request(),
 //!         }
 //!     }
 //!     fn on_post(&self, post: Post) {
@@ -51,7 +56,7 @@
 //! # 規約との対応
 //! - 規約 1（単一スレッド）: `GhostRuntime` が `!Send` で、呼び出しは `&mut self`
 //! - 規約 2（host.request の期間）: load / request / notify を呼んでいるスレッドで、その呼び出しの
-//!   間だけ `Host::property`・`Host::request` に渡す。外れた呼び出しには SHIORI_E_WRONG_THREAD を返す
+//!   間だけ `Host::request` に渡す。外れた呼び出しには SHIORI_E_WRONG_THREAD を返す
 //! - 規約 3（再入禁止）: `Host` のメソッドは `&self` しか持たず、ランタイムに触れない。
 //!   `Host` の中から `GhostRuntime` を呼べるような共有（Rc<RefCell<..>> 等）はしないこと
 //! - 規約 4（post・log）: ホスト側では post をコピーしてキューに積むだけ。`on_post` は pump の中で
@@ -99,7 +104,7 @@
 //! ```no_run
 //! use shiori4_host::*;
 //! # struct MyHost;
-//! # impl Host for MyHost { fn on_post(&self, _post: Post) {} }
+//! # impl Host for MyHost { fn name(&self) -> &str { "MyBase" } fn on_post(&self, _post: Post) {} }
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let dir = std::env::current_exe()?.parent().expect("exe dir").join("ghost").join("master");
@@ -176,30 +181,27 @@ mod test_dll;
 /// ホスト（ベースウェア）の実装者が実装する trait
 ///
 /// すべて `&self` で呼ばれる。呼ばれるスレッドはメソッドごとに異なるので注意:
-/// - `property` / `request`         : SHIORI のスレッド（= GhostRuntime を使っているスレッド）
+/// - `request`                      : SHIORI のスレッド（= GhostRuntime を使っているスレッド）
 /// - `accept_post` / `wake` / `log` : 任意のスレッド（SHIORI のワーカーからも呼ばれる）
 /// - `on_post`                      : GhostRuntime::pump を呼んだスレッド
 ///
 /// 任意のスレッドから呼ばれる `accept_post`・`wake`・`log` は、`GhostRuntime` を Drop するスレッドを
 /// 同期で待たないこと（規約 4: コピーしてすぐ返る。待つと unload の門の待ちと互いに待ち合って止まる）
 pub trait Host: Send + Sync + 'static {
-    /// プロパティ取得（`ID: property` / `Reference0: <名前>`）に答える
-    /// None なら 204（存在しない）。値に含まれる改行は取り除かれる
-    fn property(&self, _name: &str) -> Option<String> {
-        None
+    /// ホストの名前（要求の `Sender` に載せる名前。例 "areka"）。芯は使わない
+    fn name(&self) -> &str;
+
+    /// 同期の要求（SHIORI のスレッド、規約 2 の期間）に答える。req は原文（ヘッダ部分）。
+    /// 戻り値はそのまま SHIORI に返る。既定はどの要求にも 400（このホストでは扱えない）
+    fn request(&self, _req: &str) -> ShioriResponse {
+        ShioriResponse::bad_request()
     }
 
-    /// 組み込み以外の同期リクエストを処理する。None なら組み込みの処理に回す
-    /// （組み込み: property。それ以外は 400）
-    fn request(&self, _req: &Headers<'_>) -> Option<ShioriResponse> {
-        None
-    }
-
-    /// post を受け付けるかを、その場で判定する（任意のスレッドから呼ばれる。軽く保つこと）
+    /// post を受け付けるかを、その場で判定する（任意のスレッドから呼ばれる。軽く保つこと）。msg は原文
     /// `GhostRuntime` を Drop するスレッドを同期で待たないこと（規約 4）
-    /// 既定では `Command` ヘッダがあれば受け付ける。false なら SHIORI に 400 を返す
-    fn accept_post(&self, req: &Headers<'_>) -> bool {
-        req.get(protocol::HEADER_COMMAND).is_some()
+    /// 既定ではすべて受け付ける。false なら SHIORI に 400 を返す
+    fn accept_post(&self, _msg: &str) -> bool {
+        true
     }
 
     /// 受け付けた post を処理する（pump の中で呼ばれる）
@@ -450,22 +452,7 @@ impl<H: Host> ShioriHost for Bridge<H> {
         let Ok(text) = std::str::from_utf8(req) else {
             return ShioriResponse::bad_request();
         };
-        let h = Headers::parse(text);
-        if let Some(r) = self.host.request(&h) {
-            return r;
-        }
-        match h.id() {
-            Some(id) if id == protocol::ID_PROPERTY => match h.reference(0) {
-                Some(name) => match self.host.property(name) {
-                    Some(v) => HeaderWriter::new()
-                        .push(protocol::HEADER_VALUE, &v)
-                        .into_response(),
-                    None => ShioriResponse::no_content(),
-                },
-                None => ShioriResponse::bad_request(),
-            },
-            _ => ShioriResponse::bad_request(),
-        }
+        self.host.request(text)
     }
 
     fn post(&self, msg: &[u8]) -> ShioriStatus {
@@ -475,7 +462,7 @@ impl<H: Host> ShioriHost for Bridge<H> {
         let Ok(text) = std::str::from_utf8(msg) else {
             return SHIORI_400_BAD_REQUEST;
         };
-        if !self.host.accept_post(&Headers::parse(text)) {
+        if !self.host.accept_post(text) {
             return SHIORI_400_BAD_REQUEST;
         }
         // msg は呼び出し中だけ有効なのでコピーして積む
@@ -918,9 +905,22 @@ mod tests {
         woken: AtomicUsize,
     }
 
+    /// getproperty に便利関数で答える。value が値を引く（None なら 204）。getproperty 以外は 400
+    fn answer_getproperty(req: &str, value: impl FnOnce(&str) -> Option<String>) -> ShioriResponse {
+        let h = Headers::parse(req);
+        match (h.id(), h.reference(0)) {
+            (Some(protocol::ID_GETPROPERTY), Some(name)) => protocol::getproperty_response(value(name).as_deref()),
+            _ => protocol::rejection_response(None),
+        }
+    }
+
     impl Host for TestHost {
-        fn property(&self, name: &str) -> Option<String> {
-            (name == "name").then(|| "さくら".to_owned())
+        fn name(&self) -> &str {
+            "test"
+        }
+
+        fn request(&self, req: &str) -> ShioriResponse {
+            answer_getproperty(req, |name| (name == "name").then(|| "さくら".to_owned()))
         }
 
         fn on_post(&self, post: Post) {
@@ -971,20 +971,107 @@ mod tests {
         assert!(!s.send(Event::notify("ID: OnTest\r\n")));
     }
 
-    #[test]
-    fn unknown_host_request_is_400() {
+    /// 規約 2 の期間の中の Bridge と、post が積まれるキュー
+    fn bridge<H: Host>(host: H, in_call: bool) -> (Bridge<H>, mpsc::Receiver<Msg>) {
+        let (tx, rx) = mpsc::channel();
         let b = Bridge {
-            host: Arc::new(TestHost { woken: AtomicUsize::new(0) }),
-            tx: mpsc::channel().0,
+            host: Arc::new(host),
+            tx,
             shutdown: Arc::new(AtomicBool::new(false)),
             owner: std::thread::current().id(),
-            in_call: AtomicBool::new(true),
+            in_call: AtomicBool::new(in_call),
         };
-        let r = ShioriHost::request(&b, b"ID: unknown\r\n");
-        assert_eq!(r.status, 400);
-        let _ = r.into_owned();
-        // Command のない post は 400
-        assert_eq!(ShioriHost::post(&b, b"Tag: 1\r\n"), SHIORI_400_BAD_REQUEST);
+        (b, rx)
+    }
+
+    /// request と accept_post に届いた原文を覚える。request には 500 + `X: y` で答える
+    #[derive(Default)]
+    struct RecordHost {
+        reject: bool,
+        requests: std::sync::Mutex<Vec<String>>,
+        accepts: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl Host for RecordHost {
+        fn name(&self) -> &str {
+            "record"
+        }
+
+        fn request(&self, req: &str) -> ShioriResponse {
+            self.requests.lock().unwrap().push(req.to_owned());
+            ShioriResponse::with_status(SHIORI_500_INTERNAL_SERVER_ERROR, "X: y\r\n")
+        }
+
+        fn accept_post(&self, msg: &str) -> bool {
+            self.accepts.lock().unwrap().push(msg.to_owned());
+            !self.reject
+        }
+
+        fn on_post(&self, _post: Post) {}
+    }
+
+    /// name と on_post だけを実装する（ほかは既定）
+    struct DefaultHost;
+
+    impl Host for DefaultHost {
+        fn name(&self) -> &str {
+            "default"
+        }
+
+        fn on_post(&self, _post: Post) {}
+    }
+
+    #[test]
+    fn bridge_passes_request_verbatim() {
+        let (b, _rx) = bridge(RecordHost::default(), true);
+        let reqs = ["ID: x-unknown\r\nfoo:  bar \r\nReference0: a\r\n", "ID: getproperty\r\nReference0: name\r\n", ""];
+        for req in reqs {
+            let r = ShioriHost::request(&b, req.as_bytes()).into_owned();
+            // 芯は getproperty にも答えず、Host の応答をそのまま返す
+            assert_eq!(r.status, SHIORI_500_INTERNAL_SERVER_ERROR);
+            assert_eq!(r.body.as_str().unwrap(), "X: y\r\n");
+        }
+        assert_eq!(*b.host.requests.lock().unwrap(), reqs);
+    }
+
+    #[test]
+    fn default_host_request_is_400_for_any_id() {
+        let (b, _rx) = bridge(DefaultHost, true);
+        for req in [PROP_REQ, b"ID: property\r\nReference0: name\r\n", b"ID: unknown\r\n"] {
+            let r = ShioriHost::request(&b, req).into_owned();
+            assert_eq!(r.status, SHIORI_400_BAD_REQUEST);
+            assert!(r.body.is_empty());
+        }
+    }
+
+    #[test]
+    fn post_without_command_is_accepted_by_default() {
+        let (b, rx) = bridge(DefaultHost, true);
+        for msg in ["Tag: 1\r\n", ""] {
+            assert_eq!(ShioriHost::post(&b, msg.as_bytes()), SHIORI_204_NO_CONTENT);
+            let Ok(Msg::Post(text)) = rx.try_recv() else { panic!("post が積まれない") };
+            assert_eq!(text, msg);
+        }
+    }
+
+    #[test]
+    fn rejected_post_is_400() {
+        let (b, rx) = bridge(RecordHost { reject: true, ..Default::default() }, true);
+        assert_eq!(ShioriHost::post(&b, b"Command: SEND\r\nTag: 1\r\n"), SHIORI_400_BAD_REQUEST);
+        assert_eq!(*b.host.accepts.lock().unwrap(), ["Command: SEND\r\nTag: 1\r\n"]);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn non_utf8_request_and_post_are_400_without_host() {
+        let (b, rx) = bridge(RecordHost::default(), true);
+        let r = ShioriHost::request(&b, b"ID: \xff\r\n").into_owned();
+        assert_eq!(r.status, SHIORI_400_BAD_REQUEST);
+        assert!(r.body.is_empty());
+        assert_eq!(ShioriHost::post(&b, b"Tag: \xff\r\n"), SHIORI_400_BAD_REQUEST);
+        assert!(b.host.requests.lock().unwrap().is_empty());
+        assert!(b.host.accepts.lock().unwrap().is_empty());
+        assert!(rx.try_recv().is_err());
     }
 
     // ---- Charset を付けない（9.2） ----
@@ -1016,7 +1103,7 @@ mod tests {
 
     // ---- 規約 2（ThreadGuard） ----
 
-    /// property と request が呼ばれた回数と、log で届いた文を数える
+    /// request が呼ばれた回数と、log で届いた文を数える。getproperty には `v:<名前>` で答える
     #[derive(Default)]
     struct CountHost {
         calls: AtomicUsize,
@@ -1024,14 +1111,13 @@ mod tests {
     }
 
     impl Host for CountHost {
-        fn property(&self, name: &str) -> Option<String> {
-            self.calls.fetch_add(1, Ordering::Relaxed);
-            Some(format!("v:{name}"))
+        fn name(&self) -> &str {
+            "count"
         }
 
-        fn request(&self, _req: &Headers<'_>) -> Option<ShioriResponse> {
+        fn request(&self, req: &str) -> ShioriResponse {
             self.calls.fetch_add(1, Ordering::Relaxed);
-            None
+            answer_getproperty(req, |name| Some(format!("v:{name}")))
         }
 
         fn on_post(&self, _post: Post) {}
@@ -1041,16 +1127,10 @@ mod tests {
         }
     }
 
-    const PROP_REQ: &[u8] = b"ID: property\r\nReference0: name\r\n";
+    const PROP_REQ: &[u8] = b"ID: getproperty\r\nReference0: name\r\n";
 
     fn count_bridge(in_call: bool) -> Bridge<CountHost> {
-        Bridge {
-            host: Arc::new(CountHost::default()),
-            tx: mpsc::channel().0,
-            shutdown: Arc::new(AtomicBool::new(false)),
-            owner: std::thread::current().id(),
-            in_call: AtomicBool::new(in_call),
-        }
+        bridge(CountHost::default(), in_call).0
     }
 
     #[test]
@@ -1064,7 +1144,7 @@ mod tests {
         // 持ち主のスレッドからなら通る
         let r = ShioriHost::request(&b, PROP_REQ).into_owned();
         assert_eq!(r.status, 200);
-        assert_eq!(b.host.calls.load(Ordering::Relaxed), 2);
+        assert_eq!(b.host.calls.load(Ordering::Relaxed), 1);
     }
 
     #[test]
@@ -1278,8 +1358,8 @@ mod tests {
     struct FailLogHost(std::sync::Arc<std::sync::Mutex<Vec<(i32, String)>>>);
 
     impl Host for FailLogHost {
-        fn property(&self, _name: &str) -> Option<String> {
-            None
+        fn name(&self) -> &str {
+            "faillog"
         }
 
         fn on_post(&self, _post: Post) {}
