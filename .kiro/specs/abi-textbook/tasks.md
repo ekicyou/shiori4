@@ -37,7 +37,7 @@
   - 完了の状態: `cargo test -p shiori4_abi --test textbook` が通り、片方の節だけを書き換えると落ちる。`cargo package --workspace` が「含まれないテストを無視する」の警告だけで通る
   - _Requirements: 4.3, 14.5, 14.6_
 
-- [ ] 3. C の例と試験用のホスト
+- [x] 3. C の例と試験用のホスト
 - [x] 3.1 (P) 最小の C の SHIORI を作る
   - v4 のテーブルだけを返し、load で `SHIORI_HAS_FIELD` で `copy_from_slice` を確かめて無ければ NULL を返し、インスタンスごとの状態を持つ
   - `ID: OnBoot` に 200 ＋ `Value` を、ほかに 204 を返し、応答はホストの `copy_from_slice` で `out` に写す
@@ -59,7 +59,7 @@
   - _Boundary: CExamples_
   - _Depends: 1.4_
   - _Requirements: 3.1, 3.3, 3.4, 9.2, 9.4, 9.5, 9.6, 14.3_
-- [ ] 3.4 (P) 試験用のホスト `shiori4-testhost` を `shiori4_host` の example として作る
+- [x] 3.4 (P) 試験用のホスト `shiori4-testhost` を `shiori4_host` の example として作る
   - 引数 `[--entry v3] [-H "名前: 値"]... <lib> <dir> [ID]` を std だけで解析し、誤りは使い方を出して 64
   - 発見の順で読み（`--entry v3` は v3 だけ）、どの口で読んだかを表示。v4 は 5 つの必須ヘッダ＋`-H`、v3 は SHIORI/3.0 の全文で要求し、要求・戻り値（または ABI エラーの値と定数名）・応答を表示する
   - 最小の `Host`（`name` を返し、`log`・`on_post` は表示だけ、post は実行せず完了通知を返さない）で、v4 は要求の後に 1 回 pump し、Drop で unload して `unloaded` を表示する
