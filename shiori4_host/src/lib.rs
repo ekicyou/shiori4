@@ -1142,6 +1142,80 @@ unsafe fn library_entry(
 ///
 /// `!Send`（中の ShioriInstance が !Send）。作ったスレッドで使うこと。
 /// Drop で、shutdown → 未配送イベントの破棄 → unload → ライブラリ解放 の順に後始末する。
+///
+/// # 例: unload の順序と Drop の中で起きること（スレッド規約 5・6、post の完了通知 3、ABI 規約 5）
+///
+/// Drop は次の順に進む。
+///
+/// 1. shutdown: 以後の [`EventSender::send`] は false を返し、SHIORI の post には
+///    `SHIORI_E_SHUTDOWN` を返す（スレッド規約 5）
+/// 2. まだ [`pump`](GhostRuntime::pump) していないイベントと post を捨てる。SHIORI には届かない（post の完了通知 3）
+/// 3. unload。その中で SHIORI が出した log はまだ `Host::log` に届く（ホストのテーブルは unload が返るまで有効。スレッド規約 5）
+/// 4. ホストのテーブルを放し、最後にライブラリを放す（[`from_static`](GhostRuntime::from_static) にはライブラリが無い）
+///
+/// 応答（[`ShioriOwnedResponse`]）はランタイムより長く持ってよい。応答はホストが
+/// `copy_from_slice` で作り、`release` は常にホストの関数なので、unload やライブラリの解放の後でも
+/// 読んで捨てられる（ABI 規約 5・スレッド規約 6）。
+/// この例は DLL なしに [`GhostRuntime::from_static`] で往復を実行して確かめている。
+///
+/// ```
+/// use shiori4_host::*;
+/// use std::sync::{Arc, Mutex};
+/// # struct UnloadGhost {
+/// #     host: shiori4::ShioriHostHandle,
+/// # }
+/// # impl shiori4::Ghost for UnloadGhost {
+/// #     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+/// #         Ok(Self { host: host.ok_or(SHIORI_E_UNSUPPORTED)? })
+/// #     }
+/// #     fn request(&mut self, req: &str) -> ShioriResponse {
+/// #         let id = protocol::Headers::parse(req).get(protocol::HEADER_ID).unwrap_or("").to_owned();
+/// #         self.host.log(0, &format!("request {id}"));
+/// #         protocol::HeaderWriter::new().push(protocol::HEADER_VALUE, "\\0hi\\e").into_response()
+/// #     }
+/// # }
+/// # impl Drop for UnloadGhost {
+/// #     fn drop(&mut self) {
+/// #         self.host.log(0, "unload");
+/// #     }
+/// # }
+/// # static API: ShioriApi = ShioriApi::new::<shiori4::Adapter<UnloadGhost>, { SHIORI_ABI_VERSION }>();
+///
+/// // SHIORI が log に出した行を、ランタイムの外から読めるように集める
+/// struct LogHost {
+///     lines: Arc<Mutex<Vec<String>>>,
+/// }
+///
+/// impl Host for LogHost {
+///     fn name(&self) -> &str {
+///         "MyBase"
+///     }
+///     fn on_post(&self, _post: Post) {}
+///     fn log(&self, _level: i32, msg: &str) {
+///         self.lines.lock().unwrap().push(msg.to_owned());
+///     }
+/// }
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let lines = Arc::new(Mutex::new(Vec::new()));
+/// let dir = if cfg!(windows) { r"C:\ghost" } else { "/ghost" };
+/// let mut rt = GhostRuntime::from_static(&API, dir, LogHost { lines: Arc::clone(&lines) })?;
+/// let res = rt.request("ID: OnBoot\r\n").map_err(|s| format!("ABI error: {s}"))?;
+/// let sender = rt.event_sender();
+/// // 積んだが pump しないまま Drop する
+/// assert!(sender.send(Event::request("ID: OnClose\r\n")));
+/// drop(rt);
+/// // OnClose は捨てられ、SHIORI には届かずに unload された
+/// assert_eq!(*lines.lock().unwrap(), ["request OnBoot", "unload"]);
+/// // Drop の後の send は false
+/// assert!(sender.is_closed());
+/// assert!(!sender.send(Event::request("ID: OnBoot\r\n")));
+/// // 応答はランタイムより長く持てる（スレッド規約 6）
+/// assert_eq!(res.body.as_str()?, "Value: \\0hi\\e\r\n");
+/// drop(res);
+/// # Ok(())
+/// # }
+/// ```
 pub struct GhostRuntime<H: Host> {
     // 解放順序は Drop で明示する。_lib は必ず最後
     instance: ManuallyDrop<ShioriInstance<'static>>,
@@ -1254,6 +1328,57 @@ impl<H: Host> GhostRuntime<H> {
     /// 同じプロセス内のテーブル（ShioriApi::new で作った static）を使う。テスト用
     ///
     /// dir は `load` と同じ検査と正規化を経て SHIORI に届く
+    ///
+    /// # 例: DLL なしの決定論のテスト（load の規約 1・スレッド規約 1）
+    ///
+    /// SHIORI のテーブルを同じプロセスの `static` に置けば、DLL もベースウェアも無しに往復を通せる。
+    /// dir は存在しなくてよい（絶対パスで UTF-8 でありさえすればよい。load の規約 1）。ワーカーのスレッドも時計も使わず、
+    /// テストのスレッドでランタイムを作って呼ぶので（スレッド規約 1）、毎回同じ結果になる。
+    /// テストの関数は `tests/` などに置き、`#[test]` を付ける。この例はその関数を `fn main` から呼んで
+    /// 実行して確かめている。doctest では `#[test]` の関数が消えるので、`cfg_attr(test, test)` で包んでいる。
+    ///
+    /// ```
+    /// use shiori4_host::*;
+    /// # struct EchoGhost;
+    /// # impl shiori4::Ghost for EchoGhost {
+    /// #     fn load(_host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+    /// #         Ok(Self)
+    /// #     }
+    /// #     fn request(&mut self, req: &str) -> ShioriResponse {
+    /// #         match protocol::Headers::parse(req).get(protocol::HEADER_ID) {
+    /// #             Some("OnBoot") => protocol::HeaderWriter::new().push(protocol::HEADER_VALUE, "\\0hi\\e").into_response(),
+    /// #             _ => ShioriResponse::no_content(),
+    /// #         }
+    /// #     }
+    /// # }
+    /// // テストする SHIORI のテーブル。DLL を作らずに同じプロセスに置く
+    /// static API: ShioriApi = ShioriApi::new::<shiori4::Adapter<EchoGhost>, { SHIORI_ABI_VERSION }>();
+    ///
+    /// struct TestHost;
+    ///
+    /// impl Host for TestHost {
+    ///     fn name(&self) -> &str {
+    ///         "TestBase"
+    ///     }
+    ///     fn on_post(&self, _post: Post) {}
+    /// }
+    ///
+    /// #[cfg_attr(test, test)] // tests/ では #[test] だけでよい
+    /// fn on_boot_says_hi() {
+    ///     let dir = if cfg!(windows) { r"C:\ghost" } else { "/ghost" };
+    ///     let mut rt = GhostRuntime::from_static(&API, dir, TestHost).expect("load");
+    ///     let res = rt.request("ID: OnBoot\r\n").expect("abi");
+    ///     assert_eq!(res.status, SHIORI_200_OK);
+    ///     assert_eq!(res.body.as_str().unwrap(), "Value: \\0hi\\e\r\n");
+    ///     // 知らないイベントには 204
+    ///     let res = rt.request("ID: OnUnknown\r\n").expect("abi");
+    ///     assert_eq!(res.status, SHIORI_204_NO_CONTENT);
+    /// }
+    ///
+    /// fn main() {
+    ///     on_boot_says_hi();
+    /// }
+    /// ```
     pub fn from_static(
         api: &'static ShioriApi,
         ghost_dir: impl AsRef<Path>,

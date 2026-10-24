@@ -99,7 +99,7 @@
   - _Depends: 1.2, 2.1_
   - _Requirements: 4.7, 7.2, 7.6, 14.1_
 
-- [ ] 6. docs.rs の例（ホスト側 `shiori4_host`。5 と並べて進められるが、6 の中は同じファイルなので順に行う）
+- [x] 6. docs.rs の例（ホスト側 `shiori4_host`。5 と並べて進められるが、6 の中は同じファイルなので順に行う）
 - [x] 6.1 (P) 読み込みの失敗と、ライブラリの取り戻しの例を足す
   - `LoadError` の 5 つの値ごとにホストがすべきこと（`NotShiori4` は SHIORI/3.0 の候補へ・`LoadFailed` は読み直さない・`Unsupported` は別の版で読み直せる）を示し、`InvalidPath` の枝は実行できる例にする
   - `GhostRuntime::load` が `NotShiori4` でライブラリを手放すことと、`from_library` と `FromLibraryError` から取り戻す道を示す（DLL を要する例は `no_run` と直前の注記）
@@ -115,7 +115,7 @@
   - 完了の状態: `cargo test --doc -p shiori4_host` でこれらが実行されて通る（Win32 の例は Windows でビルドされる）
   - _Boundary: HostExamples_
   - _Requirements: 4.7, 8.3, 8.4, 8.5, 8.6, 8.9, 14.1_
-- [ ] 6.3 unload の順序と Drop、`from_static` の決定論のテストの例を足す
+- [x] 6.3 unload の順序と Drop、`from_static` の決定論のテストの例を足す
   - shutdown → 未配送を捨てる → unload → ライブラリを放す の順と、Drop の後に `EventSender::send` が false を返すこと、応答をランタイムより長く持っても安全なことを示す
   - `#[test]` の形の関数を例の中に書いて `fn main` から呼ぶ、`from_static` のテストの例
   - 完了の状態: `cargo test --doc -p shiori4_host` でこれらが実行されて通り、`core_refers_to_protocol_only_by_its_reexport` が通る
