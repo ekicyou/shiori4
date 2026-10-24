@@ -142,3 +142,4 @@
 - テストの文字列は `\r\n` のエスケープで 1 行に書く（シェルで書き込むとエスケープが生の改行に化けた。Edit で直す）
 - 独立の検査の境目は両クレートとも `mod tests {`（shiori4_host の途中に `#[cfg(test)] mod test_dll;` があるため）。完了時にその場で解決: shiori4 も最初の `#[cfg(test)]` から `mod tests {` にそろえ、design.md の IndependenceCheck も直した
 - `.kiro/steering/roadmap.md` の 50 行目（host-protocol は `shiori4::host_protocol` と `shiori4_host` の組み込みの処理を持つ）は古い。kiro-complete のロードマップ更新で「`doc/host-protocol.md` と便利関数 `shiori4::protocol` を持つ」に直す
+- 完了時にその場で解決: v3 のヘッダ部分が最初の空行で終わること（後ろは渡さない・終端の空行が無ければ最後の行まで）をテストで固定した

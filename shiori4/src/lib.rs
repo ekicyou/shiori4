@@ -384,12 +384,27 @@ mod tests {
                 .status,
             400
         );
+        // ヘッダ部分は最初の空行で終わる。その後ろは渡さない。終端の空行が無ければ最後の行まで
+        assert_eq!(
+            inst.request("GET SHIORI/3.0\r\nID: a\r\n\r\nID: after\r\n")
+                .expect("abi")
+                .status,
+            204
+        );
+        assert_eq!(
+            inst.request("GET SHIORI/3.0\r\nID: b\r\n")
+                .expect("abi")
+                .status,
+            204
+        );
         assert_eq!(
             *RECEIVED.lock().unwrap(),
             [
                 "Charset: UTF-8\r\nID: OnBoot\r\n",
                 "charset :  utf-8\r\nID: x\r\n",
                 "ID: lf\n",
+                "ID: a\r\n",
+                "ID: b\r\n",
             ]
         );
     }
