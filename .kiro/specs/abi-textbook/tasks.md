@@ -77,7 +77,7 @@
   - _Depends: 3.1, 3.2, 3.3, 3.4_
   - _Requirements: 9.3, 13.4, 13.7, 13.8, 14.2, 14.4_
 
-- [ ] 5. docs.rs の例（SHIORI 側 `shiori4`）
+- [x] 5. docs.rs の例（SHIORI 側 `shiori4`）
 - [x] 5.1 (P) `Ghost` の doc に、アクターの中継と join しない unload の例を足す
   - アクターは `host.request` を呼ばず、応答を待つ SHIORI のスレッドが呼ぶ形（偽のホストが呼ばれたスレッドを `assert_eq!` で確かめる。スレッド規約 2）
   - Poster を持つワーカーを join せずに unload し、unload の後の post が `SHIORI_E_SHUTDOWN`・log は何もしないことを示す（スレッド規約 5）
@@ -92,7 +92,7 @@
   - 5.1 と同じファイルなので 5.1 の後に行う
   - 完了の状態: `cargo test --doc -p shiori4` で 2 本が実行されて通る
   - _Requirements: 4.7, 7.4, 7.5, 7.6, 14.1_
-- [ ] 5.3 (P) `PendingTags` の doc に post → `Tag` → `OnHostComplete` の例を足す
+- [x] 5.3 (P) `PendingTags` の doc に post → `Tag` → `OnHostComplete` の例を足す
   - 登録して受付 ID を得てから post する理由（post の完了通知 1）を述べ、偽のホストに `OnHostComplete` を届けて文脈を取り戻す
   - 完了の状態: `cargo test --doc -p shiori4` でこの例が実行されて通る
   - _Boundary: ShioriExamples_
