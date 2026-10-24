@@ -51,6 +51,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 5. The shiori4・shiori4_host の doc と README、および `host_protocol` に当たる便利関数のモジュールの doc shall ホスト側プロトコル仕様の文書を指し、語彙を「暫定」と書かない。
 6. The ホスト側プロトコル仕様 shall ukadoc（SHIORI/3.0・SSTP・プロパティシステム）の語をそのまま使う所では、ukadoc を参照先として示し、意味を書き換えない。
 7. The ホスト側プロトコル仕様 shall ヘッダ名について、受け手は大文字小文字を区別せずに読み、送り手は ukadoc の綴りで書くと定める。
+8. The ホスト側プロトコル仕様 shall 語彙がメッセージごとに閉じていて ABI という運び方に依存せず、双方向の通信路（パイプ・IPC など）にもそのまま載せられることを述べる（設計ディスカッションで足した。通信用のプロトコルそのものは定めない）。
 
 ### Requirement 2: プロパティの読み書きと名前の決まり
 **Objective:** As a SHIORI 実装者, I want プロパティの読みと書きの要求と応答が get / set の対で決まっていること, so that ベースウェアの状態を同期で読み、変えられる（論点 1・4）
@@ -149,7 +150,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 **Objective:** As a SHIORI 実装者・ベースウェア実装者, I want 仕様の語に合わせた解析と組み立ての関数を、必要なら使えること, so that 仕様どおりのメッセージを手で組み立てずに済み、使わない人は芯だけで済む（方針・論点 1〜12）
 
 #### Acceptance Criteria
-1. The 便利関数のモジュール shall `shiori4_abi` だけに依存する独立したクレート `shiori4_helper` として提供され、使わない利用者の振る舞いに影響しない（設計ディスカッションで確定）。
+1. The 便利関数のモジュール shall `shiori4_abi` だけに依存する独立したクレート `shiori4_protocol` として提供され、使わない利用者の振る舞いに影響しない（設計ディスカッションで確定）。
 2. The 便利関数のモジュール shall ヘッダ部分の解析（名前の大文字小文字を区別しない取得、`Reference<n>` の取得、並びの列挙）と組み立て（値の CR・LF を取り除く）を提供する。
 3. The 便利関数のモジュール shall ホスト側プロトコル仕様が定める名前と語（`getproperty`・`setproperty`・`Value`・`Command`・`Tag`・`SEND`・`NOTIFY`・`Script`・`Event`・`Option`・`OnHostComplete`・`Status`・`Reason`・`forbidden`・`completed`・`interrupted` と、要件 5.2 の必須ヘッダの名前）を定数として提供し、`property` を残さない。
 4. The 便利関数のモジュール shall SHIORI 側のために、`getproperty`・`setproperty` の要求と、`SEND`・`NOTIFY` の post を仕様どおりに組み立てる関数を提供する。
@@ -171,7 +172,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 5. The 各クレート shall ubuntu・windows・macos の CI（`cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings`）を通す。
 6. The shiori4 の開発者 shall pasta と areka の両セッションへ 2 回知らせる: 要件の承認の後に確定した語（論点 1〜12 と、要件ディスカッションで足した `Reason` の読み分け・`OnHostComplete` のヘッダ・`Ghost`／`Host` が原文を受けること）を、設計で置き場所が決まった後に正本の場所と、pasta・areka の照合で足した語（下の「pasta・areka の照合で足したもの」）を。送るのは開発者の明示の指示による。
 7. The steering（`tech.md`・`structure.md`・`workflow.md`・`roadmap.md`） shall `host_protocol` の置き場所と「芯は中身を解釈しない」方針について、この spec の結果と食い違う記述を持たない。
-8. The shiori4 リポジトリ shall `shiori4_helper` を 4 つ目の公開クレートとして、ビルドとリリースの CI・`/release` のスキル・`.github/release-ci-setup.md` の対象に加え、公開の順を `shiori4_abi` → `shiori4_helper` → `shiori4` → `shiori4_host` とする。初回の公開と Trusted Publisher の登録は開発者が手元から行い、その手順を `.github/release-ci-setup.md` に書く。
+8. The shiori4 リポジトリ shall `shiori4_protocol` を 4 つ目の公開クレートとして、ビルドとリリースの CI・`/release` のスキル・`.github/release-ci-setup.md` の対象に加え、公開の順を `shiori4_abi` → `shiori4_protocol` → `shiori4` → `shiori4_host` とする。初回の公開と Trusted Publisher の登録は開発者が手元から行い、その手順を `.github/release-ci-setup.md` に書く。
 
 ## 要件ディスカッションの結果（2026-10-24 確定）
 brief.md だけでは決め切れなかった所を、開発者が全議題とも推奨案で確定した。
