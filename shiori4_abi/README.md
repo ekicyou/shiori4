@@ -24,6 +24,8 @@ ABI を直接使う実装者です。Rust 以外の言語で SHIORI やホスト
 
 ABI の規約（版、所有権、戻り値、スレッド）と設計方針は [docs.rs](https://docs.rs/shiori4_abi) のクレートのドキュメントにあります。
 
+規約の理由や書き方の手引きは [shiori4 の ABI の教科書](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/README.md) にあります（読む順は目次にあります）。規約の番号と理由は [規約の一覧と理由](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/rules.md) に、Rust 以外の言語で書く人向けの所有権・版・スレッドの説明は [C の書き手向けの説明](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/c.md) にあります。
+
 ## ライセンス
 
 MIT ライセンスです。本文はクレートに同梱の [LICENSE](https://github.com/ekicyou/shiori4/blob/main/shiori4_abi/LICENSE) にあります。
