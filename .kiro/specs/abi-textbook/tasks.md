@@ -156,7 +156,7 @@
   - 完了の状態: `migration.md` に 2 つの差分の表があり、Charset・`copy_from_slice` で作る応答・load の dir の形・`shiori_get_api` での見分け方が載っている
   - _Boundary: MigrationGuide_
   - _Requirements: 11.1, 11.2, 11.3, 11.4_
-- [ ] 7.6 (P) 配布の決まりの章（`distribution.md`）を書く
+- [x] 7.6 (P) 配布の決まりの章（`distribution.md`）を書く
   - 「配布の決まり 1〜5」を引用で写して手順を番号で辿り、`shiori_file_candidates`・`machine_matches`・`TargetOs`・`TargetArch` の Rust の例を置く（ファイルを要する部分は `no_run` と注記）
   - SHIORI の作者向けに、cdylib の既定の名前と置く名前の対応の表、SHIORI/3.0 と v4 の両方に使えること
   - 完了の状態: `distribution.md` のフェンスにすべて言語が書かれ、字下げの塊が無い。例の実行は 9.1 で doctest に載せて確かめる
