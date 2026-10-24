@@ -129,4 +129,6 @@
   4. `Host::request` の既定の応答。
   5. `Properties` の置き場所と、`setproperty` の関数の名前（`Properties::set` との紛れ）。
   6. 文書の置き場所と、crate doc・README・C ヘッダからの導線。
+  7. C ヘッダ・`shiori4_abi` の doc の「post の完了通知」の節から正本を指す 1 行の書き方（ABI の文は変えない。要件 1.5・11.2）。
+  8. SEND が読む `Option` の語（`nobreak`・`notranslate`・`strict`）を便利関数の定数に入れるか（要件 10.3 は `Option` の名前だけを挙げる）。
 - **守ること**: `Bridge::request` の先頭の規約 2 の門、UTF-8 の検査、`Host::log`・`accept_post`・`wake` の「Drop するスレッドを同期で待たない」の doc、Charset を付けないことのテスト。
