@@ -100,7 +100,7 @@
   - _Requirements: 4.7, 7.2, 7.6, 14.1_
 
 - [ ] 6. docs.rs の例（ホスト側 `shiori4_host`。5 と並べて進められるが、6 の中は同じファイルなので順に行う）
-- [ ] 6.1 (P) 読み込みの失敗と、ライブラリの取り戻しの例を足す
+- [x] 6.1 (P) 読み込みの失敗と、ライブラリの取り戻しの例を足す
   - `LoadError` の 5 つの値ごとにホストがすべきこと（`NotShiori4` は SHIORI/3.0 の候補へ・`LoadFailed` は読み直さない・`Unsupported` は別の版で読み直せる）を示し、`InvalidPath` の枝は実行できる例にする
   - `GhostRuntime::load` が `NotShiori4` でライブラリを手放すことと、`from_library` と `FromLibraryError` から取り戻す道を示す（DLL を要する例は `no_run` と直前の注記）
   - `//!` の冒頭に教科書の目次への 1 文を足す

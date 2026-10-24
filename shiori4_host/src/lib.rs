@@ -1,5 +1,7 @@
 //! shiori4_host — shiori4 のホスト（ベースウェア）側の高水準層
 //!
+//! 教科書: <https://github.com/ekicyou/shiori4/blob/main/doc/textbook/README.md>
+//!
 //! `Host` trait を実装すれば、SHIORI（v4）を読み込んで動かすホストが作れる。
 //!
 //! - SHIORI の DLL / .so / .dylib を読み込み、ライフタイムを一括管理する（`GhostRuntime`）
@@ -443,6 +445,73 @@ impl<H: Host> ShioriHost for Bridge<H> {
 // 読み込みエラー
 // ============================================================
 
+/// 読み込みの失敗。値ごとにホストがすべきことが違う
+///
+/// 次の扱いは、[`GhostRuntime::load`]・[`GhostRuntime::from_library`] で版を決めて読んだときのもの。
+/// [`load_ghost`]・[`load_ghost_with`] の Err は発見の順を終えた結果なので、`NotShiori4`・`Unsupported` も
+/// 読めなかったゴーストとして扱い、読み直さない（DLL の口と発見の順 2）。DLL を 1 回だけ読んで発見の順を
+/// 辿るには、まず [`load_ghost`] を使う
+///
+/// - `Library`: ライブラリを開けなかった。機械の種類が合わないファイルなら次の候補へ進む
+///   （配布の決まり 5。[`machine_matches`] で開く前に確かめられる）
+/// - `NotShiori4`: `shiori_get_api` が無い。旧来の SHIORI/3.0 として読む候補に回す
+///   （DLL の口と発見の順 2）。[`GhostRuntime::load`] はこのときライブラリを手放すので、
+///   別の口で読み直すと DLL が 2 回読まれる。2 回読まずに済ませるには [`GhostRuntime::from_library`] を使う
+/// - `Unsupported`: `shiori_get_api(4)` が NULL か、版に合わないテーブル（ABI 規約 1・版 4）。別の版（v3 互換モードの [`V3Runtime`]）で
+///   読み直せる（版 4）
+/// - `InvalidPath`: dir が絶対パスでないか UTF-8 で表せない（load の規約 1）。ライブラリを開く前に断るので、
+///   dir を直して読み直せばよい
+/// - `LoadFailed`: SHIORI の load が失敗した。読めなかったゴーストとして扱い、SHIORI/3.0 として読み直さない
+///   （DLL の口と発見の順 2: 解決した口の load が失敗しても、ほかの口へは進まない）。理由は `Host::log` に
+///   届いている（load の規約 3）。2 つ目のインスタンスの拒否もこれになり、ゴーストごとに別のプロセスで読むか、
+///   拒否を受け入れる（load の規約 4）
+///
+/// # 例: 値ごとの扱い（DLL の口と発見の順 2・load の規約 3）
+///
+/// この例は DLL を要するので、ビルドだけを検査する（実行しない）。
+///
+/// ```no_run
+/// use shiori4_host::*;
+/// # struct MyHost;
+/// # impl Host for MyHost { fn name(&self) -> &str { "MyBase" } fn on_post(&self, _post: Post) {} }
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let dir = std::env::current_exe()?.parent().expect("exe dir").join("ghost").join("master");
+/// let path = dir.join("shiori.dll");
+/// match GhostRuntime::load(&path, &dir, MyHost) {
+///     Ok(mut rt) => { rt.request("ID: OnBoot\r\n").map_err(|s| format!("ABI error: {s}"))?; }
+///     // 開けなかった。機械の種類が合わないなら次の候補へ（配布の決まり 5）
+///     Err(LoadError::Library(e)) => println!("次の候補へ: {e}"),
+///     // 旧来の SHIORI/3.0 として読む候補に回す（ここで DLL が 2 回目に読まれる）
+///     Err(LoadError::NotShiori4) => println!("SHIORI/3.0 の読み込みへ回す"),
+///     // 別の版で読み直せる
+///     Err(LoadError::Unsupported(_)) => {
+///         let mut rt = V3Runtime::load(&path, &dir)?;
+///         let res = rt.request("GET SHIORI/3.0\r\nID: OnBoot\r\n\r\n").map_err(|s| format!("ABI error: {s}"))?;
+///         # drop(res);
+///     }
+///     // ホストの不具合。dir を絶対パスに直す
+///     Err(LoadError::InvalidPath) => return Err("ghost dir must be absolute".into()),
+///     // 読めなかったゴースト。SHIORI/3.0 として読み直さない（理由は Host::log に届いている）
+///     Err(LoadError::LoadFailed) => println!("読めなかったゴースト"),
+/// }
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # 例: `InvalidPath` の枝（load の規約 1）
+///
+/// dir の検査はライブラリを開くより先なので、在らないライブラリでも相対パスの dir は `InvalidPath` になる。
+/// この例は DLL なしに実行して確かめている。
+///
+/// ```
+/// use shiori4_host::*;
+/// # struct MyHost;
+/// # impl Host for MyHost { fn name(&self) -> &str { "MyBase" } fn on_post(&self, _post: Post) {} }
+///
+/// let r = GhostRuntime::load("no-such-library", "ghost/master", MyHost);
+/// assert!(matches!(r, Err(LoadError::InvalidPath)));
+/// ```
 #[derive(Debug)]
 pub enum LoadError {
     /// ライブラリを開けなかった
@@ -592,6 +661,11 @@ impl<H: Host> GhostRuntime<H> {
     pub const DEFAULT_PUMP_LIMIT: usize = 256;
 
     /// SHIORI のライブラリを読み込み、v4 で load する
+    ///
+    /// 失敗したときは読んだライブラリを手放す（`NotShiori4`・`Unsupported` でも）。そのあと同じファイルを
+    /// SHIORI/3.0 や別の版として読み直すと、DLL が 2 回読まれる（初期化コードも 2 回動く）。
+    /// 読み直すつもりなら、ライブラリを自分で開いて [`GhostRuntime::from_library`] に渡し、
+    /// [`FromLibraryError`] から取り戻す。値ごとの扱いは [`LoadError`]
     pub fn load(
         lib_path: impl AsRef<OsStr>,
         ghost_dir: impl AsRef<Path>,
@@ -617,6 +691,44 @@ impl<H: Host> GhostRuntime<H> {
     /// 旧来の口で取り繕うと二重の初期化か作者の意図と違う動きになる。理由は `Host::log` に届いている。
     ///
     /// lib は信頼できる SHIORI であること（`shiori_get_api` と load で DLL のコードが動く）
+    ///
+    /// # 例: ライブラリを取り戻して読み直す（DLL の口と発見の順 2・版 4・load の規約 1・3）
+    ///
+    /// ライブラリを 1 回だけ開き、`NotShiori4` なら SHIORI/3.0 の読み込みへ、`Unsupported` なら
+    /// v3 互換モードへ、同じライブラリを渡す。`LoadFailed` ではライブラリが返らないので読み直さない。
+    /// この例は DLL を要するので、ビルドだけを検査する（実行しない）。
+    ///
+    /// ```no_run
+    /// use shiori4_host::*;
+    /// # struct MyHost;
+    /// # impl Host for MyHost { fn name(&self) -> &str { "MyBase" } fn on_post(&self, _post: Post) {} }
+    /// // ホストの SHIORI/3.0 の読み込み（このクレートの外）。開いたライブラリを受け取る
+    /// fn load_shiori3(_lib: libloading::Library, _dir: &std::path::Path) {}
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let dir = std::env::current_exe()?.parent().expect("exe dir").join("ghost").join("master");
+    /// // SAFETY: ライブラリの初期化コードが動く。信頼できる SHIORI だけを開く
+    /// let lib = unsafe { libloading::Library::new(dir.join("shiori.dll")) }?;
+    /// match GhostRuntime::from_library(lib, &dir, MyHost) {
+    ///     Ok(mut rt) => { rt.request("ID: OnBoot\r\n").map_err(|s| format!("ABI error: {s}"))?; }
+    ///     Err(e) => match e.into_parts() {
+    ///         // 旧来の SHIORI/3.0 の候補へ、開いたライブラリのまま回す（DLL の口と発見の順 2）
+    ///         (LoadError::NotShiori4, Some(lib)) => load_shiori3(lib, &dir),
+    ///         // 別の版で読み直す（版 4）
+    ///         (LoadError::Unsupported(_), Some(lib)) => {
+    ///             let mut rt = V3Runtime::from_library(lib, &dir)?;
+    ///             let res = rt.request("GET SHIORI/3.0\r\nID: OnBoot\r\n\r\n").map_err(|s| format!("ABI error: {s}"))?;
+    ///             # drop(res);
+    ///         }
+    ///         // dir を直せば同じライブラリで読み直せる（load の規約 1）
+    ///         (LoadError::InvalidPath, Some(_lib)) => return Err("ghost dir must be absolute".into()),
+    ///         // LoadFailed: ライブラリは返らない。読めなかったゴーストとして扱う（load の規約 3）
+    ///         (e, _) => return Err(e.into()),
+    ///     },
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn from_library(
         lib: libloading::Library,
         ghost_dir: impl AsRef<Path>,
