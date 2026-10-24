@@ -38,7 +38,7 @@
   - _Requirements: 4.3, 14.5, 14.6_
 
 - [ ] 3. C の例と試験用のホスト
-- [ ] 3.1 (P) 最小の C の SHIORI を作る
+- [x] 3.1 (P) 最小の C の SHIORI を作る
   - v4 のテーブルだけを返し、load で `SHIORI_HAS_FIELD` で `copy_from_slice` を確かめて無ければ NULL を返し、インスタンスごとの状態を持つ
   - `ID: OnBoot` に 200 ＋ `Value` を、ほかに 204 を返し、応答はホストの `copy_from_slice` で `out` に写す
   - 完了の状態: 30 行ほどのファイルが、手元の Windows の MSVC（`/std:c11 /utf-8 /W4 /WX /MT /LD`）で警告なしに DLL になる（読ませて往復させる確かめは 3.4 の後の 4 で行う）
@@ -205,3 +205,7 @@
   - shiori3-legacy-host の brief に、試験用のホストの従来の口の枝と `migration.md` の書き換えを申し送る。research.md の「正本の未決」と草案の理由の一覧を開発者に回す形に整える
   - 完了の状態: 4 つのコマンドが通り、steering と shiori3-legacy-host の brief に追記がある
   - _Requirements: 1.3, 4.8, 11.3, 14.4, 14.5_
+
+## Implementation Notes
+- 2.2: `shiori4_abi/tests/textbook.rs` の `split_sections` は規約の 9 節の見出し（SECTIONS）に固く結びついている。9.2 で章の検査に使うときは章ごとの区切りを別に持つ。
+- 3.1: 手元に gcc・clang が無いので、Linux・macOS の `-Wall -Wextra -Werror` は 4 の CI で初めて確かめる。MSVC は vswhere → vcvars64.bat で使える。
