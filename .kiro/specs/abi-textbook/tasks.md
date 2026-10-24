@@ -45,7 +45,7 @@
   - _Boundary: CExamples_
   - _Depends: 1.1_
   - _Requirements: 3.1, 3.2, 3.4_
-- [ ] 3.2 (P) 版ごとに別の静的なテーブルを返す C の SHIORI を作る
+- [x] 3.2 (P) 版ごとに別の静的なテーブルを返す C の SHIORI を作る
   - v4 と v3 のテーブルを分けて持ち、v3 の `request` は SHIORI/3.0 の全文を返す
   - 完了の状態: 手元の MSVC で警告なしに DLL になる（v4・v3 の往復の確かめは 4 で試験用のホストから行う）
   - _Boundary: CExamples_
