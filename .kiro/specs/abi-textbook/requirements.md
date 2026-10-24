@@ -204,7 +204,7 @@ brief.md で決め切れていなかった所は、要件ディスカッショ�
 
 #### Acceptance Criteria
 1. The スレッド規約 1 shall `load`・`request`・`notify`・`unload` を、ホストがインスタンスごとに決めた同じ 1 つのスレッドから呼ぶと定める（`Ghost` は `Send` を求めないため）。
-2. The ABI 規約 shall `out` の `ShioriBytes` を常にホストが作ると定め、SHIORI は応答を `ShioriHostApi` の末尾に足す `copy_from_slice`（`ptr` から `len` バイトをホストのメモリへ写し、ホストが作った `ShioriBytes` を `out` に入れる。戻り値は 0 で成功、負なら ABI エラー）で作る。
+2. The ABI 規約 shall `out` の `ShioriBytes` を常にホストが作ると定め、SHIORI は応答を `ShioriHostApi` の末尾に足す `copy_from_slice`（`ptr` から `len` バイトをホストのメモリへ写し、ホストが作った `ShioriBytes` を `out` に入れる。戻り値は持たない）で作る。If 写せなかったら, the ホスト shall 自分で決めた印を `out` に残して SHIORI には知らせず、SHIORI は `out` をそのまま返し、印を見て扱うのはホストとする（設計の議論 #3）。
 3. The スレッド規約 6 shall `release` が常にホストの関数であること、`release` と `copy_from_slice` をどのスレッドから呼んでもよいこと、`release` はインスタンスの unload の後に呼ばれてもよくホストはそれに耐えることを定め、スレッド規約 5 の「unload の後にホストを呼ばない」の例外が `release` だけであることを明記する。
 4. Where v3 互換モードを使うとき, the 版の規約 shall load の host に `copy_from_slice` だけを持つテーブル（`request`・`post`・`log` は NULL）を渡すと定める。`Ghost::load` に渡す host は、v3 ではこれまでどおり `None` とする。
 5. If ホストのテーブルに `copy_from_slice` が無い（`struct_size` が足りない・NULL・v3 で host が NULL）なら, the 新しい SHIORI shall load を失敗させる（自分のメモリで作る昔の形へ戻らない）。
