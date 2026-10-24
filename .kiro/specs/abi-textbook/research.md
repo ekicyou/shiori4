@@ -117,3 +117,136 @@
   6. README の例と doc の例の重複の守り方。
   7. SHIORI 側の例をどこまで実行するか（偽のホストのテーブルを組むか、`no_run` か）。
 - **守ること**: C ヘッダと `shiori4_abi` の `//!` の同文の約束、正本の綴り、外部依存を増やさないこと、`core_refers_to_protocol_only_by_its_reexport` のテスト、`cargo package --workspace` の検査、CI を変える PR は CI を見届けてから統合すること。
+
+---
+
+# 設計フェーズの調査（2026-10-24、`/kiro-spec-design abi-textbook -y`）
+
+## Summary（設計）
+- **Discovery Scope**: Extension（軽い discovery: `rules/design-discovery-light.md`）。新しい外部依存は無く、確かめたのは cargo・rustdoc・GitHub の runner の振る舞いだけ。
+- **使ったスキルと指針**: `kiro-spec-design`（`design-principles.md`・`design-discovery-light.md`・`design-synthesis.md`・`design-review-gate.md`、テンプレート `design.md`・`research.md`）。足す物を最小にし既存の部品を使う方針を、build-vs-adopt と simplification の判断に使った。
+- **Key Findings**:
+  - `cargo install --git <url> shiori4_host --example shiori4-testhost` は、通常の依存だけを使う example を取り込める（手元の git の URL で確かめた）。`examples/` は `cargo package` のパッケージに入り、`cargo package --workspace` は通る。
+  - `#[cfg(doctest)] #[doc = include_str!("../../README.md")]` で、パッケージの外の文書の Rust の例を doctest に載せられる。存在しないファイルを指しても通常のビルドは通る（cfg が先に項目を外す）。行に `protocol` の語が無ければ `core_refers_to_protocol_only_by_its_reexport` に触れない。
+  - C ヘッダは MSVC で `/std:c11` が無いと `_Static_assert` で落ちる。`/std:c11 /utf-8 /W4 /WX` なら通り、`/MT /LD` の C の SHIORI と C のホストが testghost・試験用のホストと往復できた。
+  - 前のギャップ分析の「規約の 10 の節」は数え違いで、節は 9 つ（版／ABI 規約／戻り値／スレッド規約／load の規約／ホストのプロセス／DLL の口と発見の順／post の完了通知／配布の決まり）。スレッド規約のほかの節は 8 つ。最上位の項目は計 40。
+  - 正本に、`load`・`unload` を呼べるスレッドと、`release` を呼べる期間の定めが無い（要件 1.3 の「未決」。下の「正本の未決」）。
+
+## Research Log（設計）
+
+### `cargo install --git … --example` で試験用のホストを取り込めるか
+- **Context**: 決定事項 Q9（引数の形と `--example` の取り込みが動くかを設計で確かめる）。
+- **Sources Consulted**: 手元の実験（作業ツリーを scratchpad に clone し、`shiori4_host/examples/shiori4-testhost.rs` を足してコミット）。cargo 1.99.1。
+- **Findings**:
+  - `cargo install --git file:///<clone> shiori4_host --example shiori4-testhost --root <dir>` が成功し、`<dir>/bin/shiori4-testhost.exe` ができた。GitHub の URL も同じ git の取り込みの仕組みを使う。
+  - 入れた実行ファイルで testghost（v4 で 200）、C の SHIORI（200）、`kernel32.dll`（`NotShiori4` で終了の状態 3）を確かめた。
+  - `cargo install` は dev-dependencies を使わないので、example は通常の依存（`shiori4_host` 自身と std）だけで書く。
+  - `Cargo.lock` はコミットしていないので、取り込みは毎回最新の依存で解決される（tech.md の方針どおり）。
+- **Implications**: 試験用のホストは `shiori4_host` の example 1 本で足り、公開するクレートを増やさない。取り込み方は `--tag vX.Y.Z` で版を固定する形を教科書に書く。crates.io からの `cargo install shiori4_host --example …` も同じ仕組みだが、公開前のため未確認。
+
+### `examples/` は `cargo package` に入るか
+- **Findings**: `cargo package --workspace --list` に `examples/shiori4-testhost.rs` が出る。`cargo package --workspace`（検証のビルドを含む）は通る。
+- **Implications**: 公開した `shiori4_host` にも試験用のホストが入る（害は無い）。package の job の中身の検査を変える必要は無い。
+
+### パッケージの外の文書の検査（README・教科書の章・規約の写し）
+- **Context**: 設計で決めること 2・6、`core_refers_to_protocol_only_by_its_reexport` との兼ね合い。
+- **Findings**:
+  - `#[cfg(doctest)] #[doc = include_str!("../../README.md")] struct RootReadmeDoctests;` を `shiori4_host/src/lib.rs` に足すと、ルートの README の ```` ```rust ```` の塊が `cargo test --doc -p shiori4_host` に載る（`--list` で確かめた）。`sh` などの言語の付いたフェンスは載らない。
+  - 同じ形で存在しないファイルを指しても `cargo build` は通る（`#[cfg(doctest)]` が `include_str!` の展開より先に項目を外す）。`cargo package --workspace` も通る。crates.io から取ったパッケージで `cargo test --doc` を走らせたときだけ落ちる。
+  - `shiori4_host` の doctest から `use shiori4::…` で `shiori4` を名指しできる（通常の依存も `--extern` で渡る）。
+  - `export_ghost!` を使う doctest を 2 つ並べても、`fn main` を書いた例は merged doctest でも衝突しない（`#[no_mangle]` の `shiori_get_api` が 2 つあっても通った）。
+  - 外部の crate を使わない Win32 の例（`#[link(name = "user32")] unsafe extern "system" { PostThreadMessageW, GetMessageW }`・`GetCurrentThreadId`）を隠し行の `#[cfg(windows)]` で包んだ doctest が Windows でビルドと実行まで通った。
+  - `shiori4_abi/tests/textbook.rs` を `exclude = ["tests/textbook.rs"]` でパッケージから外すと、リポジトリの中では `cargo test` で走り、`cargo package` は「含まれないテスト `textbook` を無視する」の警告を出すだけで通る。
+  - `core_refers_to_protocol_only_by_*` は `mod tests {` より前の、`//` で始まらない行の `protocol` の語を数える。`#[doc = include_str!("../../doc/host-protocol.md")]` は `host-protocol` が語 `protocol` に分かれるので落ちる。教科書の章の名前に `protocol` を含めない。
+  - リポジトリに `.gitattributes` が無く、手元の git は LF を CRLF に替えると警告した。Windows の runner の checkout も CRLF になりうるので、比べる前に CRLF を LF にする。
+- **Implications**: 正本の一致の検査は integration test（パッケージの外）、Rust の例は `#[cfg(doctest)]` の取り込み、という 2 つの置き場所に分けた（design.md の TextbookConsistencyTest・DoctestHooks）。
+
+### SHIORI 側の例（`shiori4`）をどこまで実行するか
+- **Context**: 設計で決めること 7。`shiori4` の doc は `shiori4_host` を使えない。
+- **Findings**: `shiori4_abi` に `ShioriHost` trait・`ShioriHostBox::new`・`ShioriApi::new::<S, V>()`・`ShioriApi::load(&host_box, dir)`・`load_v3` があり、`shiori4` が `pub use shiori4_abi::*` で再エクスポートしている。`shiori4_host` の `Bridge` と同じ形の偽のホストを例の隠し行で組める。
+- **Implications**: `shiori4` の例 5 本は、偽のホストで往復まで実行して `assert!` で確かめる（`no_run` にしない）。
+
+### C のコンパイラ（3 OS の runner）
+- **Context**: 設計で決めること 5、決定事項 Q10。
+- **Sources Consulted**: 手元の Windows 11（Visual Studio 2022 Professional、`%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe`）での実験。GitHub の runner のイメージは、windows に Visual Studio 2022（MSVC と `vswhere`）、ubuntu に gcc（`cc`）、macOS に Xcode の Apple clang（`cc`）を持つ（runner-images の既定の構成。CI で初めて確かめる）。
+- **Findings**:
+  - `vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath` → `<VS>\VC\Auxiliary\Build\vcvars64.bat` を同じ cmd の中で `call` すると `cl` が使える。サードパーティの Action（`ilammy/msvc-dev-cmd` など）は要らない。
+  - `/std:c11` が無いと、C ヘッダの `SHIORI_STATIC_ASSERT`（`_Static_assert`）の行で構文エラーになる。日本語の注釈があるので `/utf-8` を付ける（付けないと既定のコードページで C4819 の警告になりうる）。
+  - `cl /nologo /W4 /WX /utf-8 /std:c11 /MT /LD shiori.c`（静的 CRT の DLL）と `cl … host.c` がどちらも警告なしで通り、C のホスト × testghost で `200` と `Value: testghost`、C のホスト × C の SHIORI で `200` を得た。
+  - `cl` の環境は段をまたいで残らないので、ビルドは 1 つの `shell: cmd` の段で行う。
+  - Linux・macOS では `cc -std=c11` のとき `dlopen` の宣言のために `_POSIX_C_SOURCE` を定義する（glibc の厳密なモード）。
+- **Implications**: CI の job `textbook` は、Windows のビルドの段だけ `shell: cmd`、ほかのビルドと往復は `shell: bash`。C の例の検査は CI だけで行い、手元の DoD（`cargo test --all`・clippy）には入れない。
+
+### 規約の理由の出典
+- **Findings**: 完了済みの spec に、要件 4.6 の理由の出典がある。`completed/abi-conventions/`（スレッド規約 1〜7 の論点・`SHIORI_E_WRONG_THREAD`・unload と Poster）、`completed/host-protocol/brief.md` の論点 9（SEND の既定の割り込みは SSTP に揃えた。post は同じプロセスからの SSTP なので、語・既定・ukadoc の参照・areka の既存の裁定を 1 つにできる、が理由）。`hearing.md` の 6 も要望の出どころになる。
+- **Implications**: 理由は各規約の後に出典付きで書き、出典の無いものは草案の印を付ける（要件 4.8）。SEND の割り込みは C ヘッダの規約ではないので、規約の節の後の「ホスト側プロトコルの決まりの理由」に置く（design.md の Open Question 5）。
+
+## 正本の未決（要件 1.3。開発者の裁定へ回す）
+1. **`load`・`unload` を呼べるスレッド**: スレッド規約 1 は `request`・`notify` の単一のスレッドだけを定め、`load`・`unload` のスレッドを定めない（スレッド規約 2 は load の中から `host.request` を呼べることだけを言う）。`shiori4_host` は作ったスレッドで load し、同じスレッドで Drop する（`GhostRuntime` は `!Send`）。
+2. **`release` を呼べる期間**: スレッド規約 6 は「どのスレッドから呼んでもよい」とだけ言い、unload の後・ライブラリを放した後に呼んでよいかを定めない。`shiori4_host` の `GhostRuntime::request` が返す `ShioriOwnedResponse` はライブラリの寿命に縛られず、ランタイムを Drop した後に捨てると、外れたライブラリの `release` を呼びうる（潜在の不具合。API の変更が要るのでこの spec の外）。
+
+## Architecture Pattern Evaluation（設計）
+
+| Option | Description | Strengths | Risks / Limitations | Notes |
+|--------|-------------|-----------|---------------------|-------|
+| 正本を引く文書 ＋ 写しごとの機械の検査（採用） | 読み物は `doc/textbook/`、例は実際にビルドされる場所、写しはテストで正本と比べる | 「語を変えない」を機械で守れる。依存を増やさない | 検査の置き場所が 3 つ（integration test・doctest・CI の job）に分かれる | ギャップ分析の Option C の具体化 |
+| 読み物も crate doc に置く | `#![doc = include_str!]` で docs.rs を教科書にする | docs.rs だけで読める | C ヘッダと `//!` の同文が崩れる。Q1 で不採用 | — |
+| 試験用のホストを別のクレートにする | ワークスペースの 4 つ目のクレート | `cargo install` の名前が素直 | リリースの仕組みに波及。Q9 で不採用 | — |
+| C の例を Rust のテストからコンパイルする | テストが `cl`・`cc` を探して呼ぶ | 手元の `cargo test` で走る | コンパイラの探し方（`vcvars`）を Rust で書くことになる。`cc` の crate は足せない | CI の段にした |
+
+## Design Decisions（設計）
+
+### Decision: 教科書の章の分け方と置き場所
+- **Context**: 設計で決めること 1。
+- **Alternatives Considered**: 1 本の長い文書／章ごとのファイル／ルートの README を全体図と最小の例の置き場所にする。
+- **Selected Approach**: `doc/textbook/` に目次（`README.md`）と 7 つの章。全体図と最小の例はルートの README に置き（要件 6.1 がそこに置くことを求める）、目次からそこへ導く。重複して置かない。
+- **Rationale**: 章ごとに下流がリンクでき、全体図を 2 か所に置かずに済む。
+- **Trade-offs**: 目次から README へ一度戻る読み方になる。
+
+### Decision: 規約の番号の書式と書き入れ方
+- **Context**: 設計で決めること 2、決定事項 Q3。
+- **Selected Approach**: スレッド規約以外の 8 つの節の最上位の項目の `- ` を `N. ` に替え、字下げを 3 つの空白に揃える。引用は「<節の名前> N」。下位の項目は親の番号で引く。
+- **Rationale**: スレッド規約の既存の書式（`1.`）と揃い、`//!` の rustdoc の描画も保てる。文字は替えない。
+- **Trade-offs**: 下位の項目を単独で引けない（design.md の Open Question 4）。
+
+### Decision: 写しの一致の検査は integration test にし、パッケージから外す
+- **Context**: 要件 14.6、設計で決めること 2。
+- **Alternatives Considered**: `shiori4_abi` の `mod tests`（パッケージの外のファイルを `include_str!` するので、取ったパッケージのテストが落ちる）／CI の段の script（手元の DoD で走らない）。
+- **Selected Approach**: `shiori4_abi/tests/textbook.rs` を `exclude` でパッケージから外す。std だけ。
+- **Rationale**: 手元の `cargo test --all` で走り、パッケージも壊さない。
+- **Trade-offs**: `cargo package` の警告が 1 つ出る（design.md の Open Question 11）。
+
+### Decision: README と章の Rust の例は `#[cfg(doctest)]` で取り込む
+- **Context**: 設計で決めること 6。
+- **Selected Approach**: `shiori4_host/src/lib.rs` に文書ごとの `#[cfg(doctest)]` の項目。C の塊は「C のファイルか C ヘッダからのそのままの抜き出し」に限り、integration test で確かめる。
+- **Rationale**: 例を 2 か所に書かずに済み、新しい仕組みが要らない。
+- **Trade-offs**: 取ったパッケージで `cargo test --doc` を走らせると落ちる（design.md の Open Question 10）。
+
+### Decision: Win32 の例は宣言を見せ、cfg を隠し行に置く
+- **Context**: 設計で決めること 3、決定事項 Q6。
+- **Selected Approach**: 使う Win32 の関数の `extern "system"` の宣言は読者に見せ、`#[cfg(windows)]` の `mod` と `fn main` は隠し行にする。`no_run`。
+- **Rationale**: 写して使える形のまま、Windows だけでビルドを検査できる。ほかの OS では空の例になる。
+
+### Decision: 試験用のホストの形
+- **Context**: 設計で決めること 4、決定事項 Q8・Q9。
+- **Selected Approach**: `shiori4_host/examples/shiori4-testhost.rs`。`[-H "名前: 値"]... <lib> <dir> [ID]`。終了の状態 0/1/2/3/4/64。`load_ghost` で全部の口を許可し、`LoadedGhost::Legacy` の枝を shiori3-legacy-host の継ぎ目にする。
+- **Rationale**: 既存の部品（`load_ghost`・`LoadedGhost`・`V3Runtime`・`LoadError` の `Display`）だけで作れ、引数の crate を足さない。
+- **Trade-offs**: 名前と引数と終了の状態が下流の契約になる（design.md の Open Question 7）。
+
+### Synthesis の結果
+- **Generalization**: 「正本を写した物は、写しの置き場所ごとに 1 つの機械の検査で正本と結ぶ」を共通の規則にした（規約の写し・配布の決まりの写し・語の表・C の断片がすべて同じ正規化の関数を使う）。C の塊の検査は「どの C の塊も、C のファイルか C ヘッダの抜き出し」という 1 つの規則で README と `c.md` の両方を覆う。
+- **Build vs Adopt**: C のビルドは runner に入っている MSVC・gcc・clang を使い、`cc` の crate やサードパーティの Action を足さない。doctest の取り込みは rustdoc の既存の機能（`#[doc = include_str!]`）を使う。CLI の引数の crate は足さず std で解析する。偽のホストは `shiori4_abi` の既存の `ShioriHostBox` を使う。
+- **Simplification**: 全体図と最小の例は README の 1 か所だけに置く。版の判定と `SHIORI_HAS_FIELD` の例は別のファイルにせず、最小の C のホストに含める（C のファイルは 3 本）。試験用のホストに `--notify` や版を指定する引数を足さない。C のホストの終了の状態は 0 と 1 だけ。各クレートの README にはコードの例を置かない。
+
+## Risks & Mitigations（設計）
+- 規約の番号は公開後に固定になる — 番号の付け方（design.md の Open Questions 3・4）を開発者が確かめてから統合する。番号を使い回さない方針を `rules.md` に書く。
+- Linux・macOS の C のビルドは手元で確かめていない — CI を変える PR なので、CI が通るのを見届けてから統合する（Q10・workflow.md）。
+- Windows の runner の改行（CRLF）で写しの比較がずれる — 比べる前に CRLF を LF にする。
+- 偽のホストを使う `shiori4` の例は、規約の判定（WRONG_THREAD など）の正本ではない — 判定の正本は `shiori4_host` の `Bridge` とそのテストに残し、例では「偽のホストで確かめている」と書く。
+
+## References（設計）
+- `shiori4_abi/include/shiori4_abi.h`・`shiori4_abi/src/lib.rs`（正本の規約）
+- `doc/host-protocol.md`（語の正本。第 0・2・8 章、付録 A・B）
+- `shiori4_host/src/discover.rs`（`load_ghost`・`LoadedGhost`）、`shiori4_host/src/lib.rs`（`Host`・`GhostRuntime`・`LoadError`・`Completer`・`core_refers_to_protocol_only_by_its_reexport`）、`shiori4_host/src/test_dll.rs`（testghost の置き場所）
+- `.kiro/specs/completed/abi-conventions/`・`.kiro/specs/completed/host-protocol/brief.md`（規約の理由の出典）
+- `.kiro/specs/shiori3-legacy-host/brief.md`（試験用のホストの継ぎ目）
