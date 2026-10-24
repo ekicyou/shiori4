@@ -22,6 +22,12 @@
 **Location**: `/shiori4_host/`
 **Purpose**: ベースウェア開発者向け API。読み込み、ホスト要求の振り分け（`Bridge`）、post キュー、イベント配送
 **Example**: `Host`, `GhostRuntime`, `Post`, `Completer`, `Event`
+試験用のホストは `examples/shiori4-testhost.rs`（終了の状態が下流の CI の契約。使い方は `doc/textbook/testhost.md`）
+
+### 教科書
+**Location**: `/doc/textbook/`
+**Purpose**: 目次（`README.md`）と章（規約の一覧と理由・語・C・別のプロセス・移行・配布・試験用のホスト）。C の例は `c/` に全文を置く。正本（C ヘッダと `//!`・`doc/host-protocol.md`）を写すときは一字一句写し、理由は教科書にだけ置く。全体図と最小の例はルートの README に置き、目次から導く
+**Example**: `rules.md`, `c/minimal_shiori.c`
 
 ## Naming Conventions
 
@@ -52,7 +58,7 @@ pub use shiori4::protocol;
 
 - 依存は下向きだけ（`shiori4_host` → `shiori4` → `shiori4_abi`）。`shiori4_abi` は何にも依存しない
 - 層をまたぐ語彙（メッセージ名など）は、両側が依存できる最下位の高水準層（`shiori4`）に置く
-- 規約・設計方針はクレート冒頭の `//!` に書き、README は使い方の入口だけにする
+- 規約・設計方針はクレート冒頭の `//!` に書き、README は使い方の入口だけにする。読み物は `doc/textbook/` に置き、README と crate doc から GitHub の絶対 URL で導く
 - 各クレートの `README.md` は crates.io の顔（そのクレートの役割・利用者・使い方）。ルートの `README.md` はワークスペース全体の入口で、各クレートへ導く
 - テストは同じファイルの `mod tests` に置く
 

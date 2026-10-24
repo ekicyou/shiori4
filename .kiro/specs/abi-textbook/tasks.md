@@ -187,7 +187,7 @@
   - 完了の状態: 3 つの README に教科書へのリンクがあり、コードのフェンスが無い
   - _Requirements: 1.5, 6.2, 6.3, 6.5_
 
-- [ ] 9. 教科書の例と写しの検査をつなぐ
+- [x] 9. 教科書の例と写しの検査をつなぐ
 - [x] 9.1 README と教科書の章を doctest に載せる
   - `shiori4_host` の `mod tests` より前に、ルートの README と `doc/textbook/` の 8 つの章を 1 つずつ取り込む doctest だけの項目を置き、crates.io からの `cargo test --doc` が落ちる理由を 1 行の注釈で残す。項目の行に `protocol` の語を書かない
   - 完了の状態: `cargo test --doc -p shiori4_host` が README の Rust の例と配布の決まりの章の例を実行して通り、`cargo package --workspace` が通る
@@ -199,7 +199,7 @@
   - 完了の状態: `cargo test -p shiori4_abi --test textbook` が通り、写しの 1 字を変えると落ちる
   - _Depends: 7.1, 7.2, 7.3, 7.6, 8.1_
   - _Requirements: 1.2, 4.1, 5.2, 6.4, 12.1, 14.3, 14.6_
-- [ ] 9.3 DoD を確かめ、steering と申し送りを更新する
+- [x] 9.3 DoD を確かめ、steering と申し送りを更新する
   - `cargo fmt --check`・`cargo test --all`・`cargo clippy --all-targets --workspace -- -D warnings`・`cargo package --workspace` を通す
   - tech.md と structure.md に job `textbook`・`doc/textbook/`・検査の置き場所・規約の番号の方針を書き足す
   - shiori3-legacy-host の brief に、試験用のホストの従来の口の枝と `migration.md` の書き換えを申し送る。research.md の「正本の未決」と草案の理由の一覧を開発者に回す形に整える

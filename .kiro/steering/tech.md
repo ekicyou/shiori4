@@ -30,17 +30,19 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, �
 ### ABI 規約（破ると互換が壊れる）
 - DLL 境界を越えるのは `#[repr(C)]` 構造体と `extern "C"` 関数ポインタだけ
 - ペイロードは UTF-8 の (ptr, len)。NUL 終端にしない。引数は呼び出し中だけの借用
-- 所有権が移るのは `out` の `ShioriBytes` だけ。確保した側の `release` で解放する
+- 所有権が移るのは `out` の `ShioriBytes` だけ。`out` は常にホストが作り、ホストの `release` で解放する（SHIORI は応答を `host.copy_from_slice` で写す。v3 互換モードにも `copy_from_slice` だけのテーブルを渡す）
 - 構造体は末尾にだけ追加する。追加する関数ポインタは `Option<unsafe extern "C" fn(..)>`。受け手は `struct_size` で判定する
 - 戻り値: 0 以上は SHIORI/3.0 のステータスコード、負は ABI エラー（`SHIORI_E_*`）
 - エクスポートする関数は、例外・パニックを境界の外へ出さず `SHIORI_E_PANIC` を返す（Rust では `catch_unwind` で包む）
-- 規約を変えたら、`shiori4_abi/src/lib.rs` 冒頭の `//!` と C ヘッダのコメントを**両方**直す
+- 規約を変えたら、`shiori4_abi/src/lib.rs` 冒頭の `//!` と C ヘッダのコメントを**両方**直す（同じ文・同じ番号にする。食い違いは `shiori4_abi/tests/textbook.rs` が落とす）
+- 規約の番号は各節の最上位の項目にだけ付け、「<節の名前> N」（スレッド規約は「スレッド規約 N」）で引く。番号は使い回さず、新しい規約は節の末尾に足し、やめた規約は番号を残して「（廃止）」と書く（`doc/textbook/rules.md` の冒頭）
 
 ### スレッド規約
-- `request` / `notify` はホストが決めた単一スレッドから。`GhostRuntime` は `!Send`、呼び出しは `&mut self` で型として強制する
+- `load` / `request` / `notify` / `unload` はホストがインスタンスごとに決めた単一スレッドから。`GhostRuntime` は `!Send`、呼び出しは `&mut self` で型として強制する
 - `host.request` を呼べるのは、load / request / notify を呼ばれているスレッドから、その呼び出しの間だけ（v4）。違反には `SHIORI_E_WRONG_THREAD`（-7）を返してよい
 - `host.request` の処理中に SHIORI を呼び返さない（`SHIORI_E_REENTRANT`）。`Host` のメソッドは `&self` だけでランタイムに触れない
 - `post` と `log` は任意スレッドから。ホストはコピーしてすぐ返る（post はキューに積み、イベントループ（`pump`）から届ける）
+- `ShioriBytes.release` は常にホストの関数で、いつでも・どのスレッドから呼んでもよい（unload の後でもよい）
 - unload は `Drop` で表す。unload が返った後、SHIORI はホストを呼ばない。高水準層は unload を始めた時点で Poster を無効にするので、join は要らない
 
 ### Unsafe
@@ -54,6 +56,7 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, �
 ### Testing
 - 各ファイル末尾の `#[cfg(test)] mod tests` に置く（`shiori4_host` は役割ごとのファイルにそれぞれ持つ）
 - ホスト側のテストは `GhostRuntime::from_static` でテスト用 `Ghost` を DLL なしに直結して、往復を検証する
+- 教科書（`doc/textbook/`）とルートの README の検査: 正本の写し（規約・配布の決まり・語の表・C の断片）の一致は `shiori4_abi/tests/textbook.rs`（`exclude` でパッケージから外す。`cargo package` の「含まれないテストを無視する」の警告 1 つは受け入れる）。Rust の例は `shiori4_host/src/lib.rs` の `#[cfg(doctest)]` の項目が `include_str!` で doctest に載せる。C の例のビルドと往復は CI の job `textbook`
 - DLL を通すテストは `shiori4_host/src/test_dll.rs` の `dll_path()` が作るテスト用 cdylib（`testdata/testghost/`）を読む。DLL の状態はプロセスに 1 つなので `lock()` を取ってから使う
 
 ### 公開とバージョン
@@ -66,11 +69,12 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, �
 - 手元から公開しない（`cargo publish` を手で打たない）。例外は初回の手動公開と緊急時の手動公開だけで、手順は `.github/release-ci-setup.md` に従う
 
 ### CI
-`.github/workflows/build.yml` が `main` への push・PR・手動（`workflow_dispatch`）で走り、`workflow_call` で他のワークフローからも呼べる。ジョブは 4 種:
+`.github/workflows/build.yml` が `main` への push・PR・手動（`workflow_dispatch`）で走り、`workflow_call` で他のワークフローからも呼べる。ジョブは 5 種:
 - **test**: ubuntu / windows / macos で `cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings`
 - **deny**: `cargo deny check`（設定はルートの `deny.toml`。ライセンスの許可・勧告・取得元）
 - **package**: `cargo package --workspace` と中身の検査（`shiori4_abi` に C ヘッダが入るか、各クレートの `LICENSE` がルートと同じか）
 - **release-scripts**: リリースの補助スクリプトのテスト（`pwsh -NoProfile -File .github/scripts/release/release-scripts-test.ps1`）
+- **textbook**: ubuntu / windows / macos で、testghost・試験用のホスト（`shiori4_host/examples/shiori4-testhost.rs`）・`doc/textbook/c/` の C の例（Windows は MSVC で SHIORI の DLL を `/MT`、ほかは `cc`）をビルドし、終了の状態で往復を確かめる
 
 `.github/workflows/release.yml` はリリースタグ `v[0-9]+.[0-9]+.[0-9]+` の push だけで走る。job は次の 5 つで、上流が失敗すると後続は走らない（`report` だけは常に走る）:
 - **verify**: タグの形・タグと `[workspace.package] version` の一致・タグのコミットが main から到達できること・見どころ `doc/release-notes/vX.Y.Z.md` の有無

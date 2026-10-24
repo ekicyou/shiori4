@@ -182,8 +182,10 @@
 - **Implications**: 理由は各規約の後に出典付きで書き、出典の無いものは草案の印を付ける（要件 4.8）。SEND の割り込みは C ヘッダの規約ではないので、規約の節の後の「ホスト側プロトコルの決まりの理由」に置く（design.md の Open Question 5）。
 
 ## 正本の未決（要件 1.3。開発者の裁定へ回す）
-1. **`load`・`unload` を呼べるスレッド**: スレッド規約 1 は `request`・`notify` の単一のスレッドだけを定め、`load`・`unload` のスレッドを定めない（スレッド規約 2 は load の中から `host.request` を呼べることだけを言う）。`shiori4_host` は作ったスレッドで load し、同じスレッドで Drop する（`GhostRuntime` は `!Send`）。
-2. **`release` を呼べる期間**: スレッド規約 6 は「どのスレッドから呼んでもよい」とだけ言い、unload の後・ライブラリを放した後に呼んでよいかを定めない。`shiori4_host` の `GhostRuntime::request` が返す `ShioriOwnedResponse` はライブラリの寿命に縛られず、ランタイムを Drop した後に捨てると、外れたライブラリの `release` を呼びうる（潜在の不具合。API の変更が要るのでこの spec の外）。
+- 1・2 は設計の議論 #1 でこの spec の中で直すと決まり、OwnershipChange で正本に入った（実装 9.3 で確かめた、2026-10-24）。1 はスレッド規約 1 が `load`・`unload` まで含み、2 はスレッド規約 6 が「いつでも・どのスレッドから呼んでもよい（インスタンスの unload の後でもよい）」と定める。残る未決は 3 だけ。
+
+1. **（解決済み）`load`・`unload` を呼べるスレッド**: 当初のスレッド規約 1 は `request`・`notify` の単一のスレッドだけを定め、`load`・`unload` のスレッドを定めていなかった。→ 今のスレッド規約 1 は `load / request / notify / unload` を、ホストがインスタンスごとに決めた単一のスレッドから呼ぶと定める。
+2. **（解決済み）`release` を呼べる期間**: 当初のスレッド規約 6 は「どのスレッドから呼んでもよい」とだけ言い、unload の後に呼んでよいかを定めず、`ShioriOwnedResponse` をランタイムの Drop の後に捨てると外れたライブラリの `release` を呼びえた。→ 今は `release` が常にホストの関数になり（ABI 規約 5）、スレッド規約 6 が unload の後でもよいと定める（`response_dropped_after_runtime_is_safe` が確かめる）。
 3. **v4 で `copy_from_slice` が無いときの load**（実装 8.1 で見つけた、2026-10-24）: 要件 15.5 と `shiori4_abi` の実装は、v4 のテーブルに `copy_from_slice` が無ければ load を失敗させる。正本の文は版 2 で v3 について「SHIORI は copy_from_slice があるかだけを確かめる」と言うだけで、v4 の失敗を定めない（ABI 規約 5・7 も言わない）。そのため README の全体図の load の行には書いていない。正本に足すかを開発者が裁定する。
 
 ## Architecture Pattern Evaluation（設計）
@@ -288,5 +290,10 @@
 | スレッド規約 3 | `host.request` の処理中の SHIORI は呼び出しの途中で止まっており、呼び返すと 1 つのインスタンスが 2 つの呼び出しを同時に抱える（`Ghost::request` は `&mut self`） | abi-conventions の design.md は「再入禁止（既存）」とだけ書き、product.md は価値として挙げるだけ。要件 4.6 で必ず述べる理由の 1 つ |
 | post の完了通知 3 | post の中で届けると決まったスレッドの外や処理中の SHIORI を呼ぶことになる（スレッド規約 1・3）。unload を始めたインスタンスにはもう届けられないので未配送を捨てる | tech.md・host-protocol の要件 8.9 は「今のまま」とするだけで理由が無い。要件 4.6 で必ず述べる理由の 2 つ |
 | post の完了通知 4 | 結果を待たない依頼に登録を求めず、ホストにも届け先の無い完了通知を作らせない | host-protocol.md 第 4.5 節は規約の文を繰り返すだけ |
+
+### 開発者に回すもの（統合の前に。実装 9.3、2026-10-24）
+裁定は開発者が行う。この spec の実装では決めていない。
+- [ ] 正本の未決 3（v4 で `copy_from_slice` が無いときの load の失敗）を正本に書き足すか（足すなら C ヘッダと `//!` の両方と `doc/textbook/rules.md` の写し、README の全体図の load の行）
+- [ ] 上の表の 8 つの草案の理由を確かめる（版 1・ABI 規約 4・6・8・戻り値 2・スレッド規約 3・post の完了通知 3・4）。確かめたものは `rules.md` の `**理由（草案・記録に無い）**:` の印を外し、表の行を消す。直すものは `rules.md` の理由の文を直す
 
 - 出典の付いた理由のうち、steering（tech.md・product.md・roadmap.md）を出典にしたものがある（版 1・2、ABI 規約 1〜3・7、post の完了通知 2・5）。steering の「Key Technical Decisions」などに理由の文があるものだけを出典にした。
