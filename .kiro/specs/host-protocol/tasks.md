@@ -140,5 +140,5 @@
 - `cargo fmt --all --check` は main の時点でリポジトリ全体が通らない（rustfmt 未適用・rustfmt.toml 無し）。CI は fmt を見ない。7.1 で開発者の判断によりワークスペース全体（testghost を含む）に既定の `cargo fmt` を掛けた
 - `cargo test --all` が testdata/testghost を test_dll.rs 経由でビルドして DLL のテストを回す
 - テストの文字列は `\r\n` のエスケープで 1 行に書く（シェルで書き込むとエスケープが生の改行に化けた。Edit で直す）
-- 独立の検査の境目: shiori4 は最初の `#[cfg(test)]`、shiori4_host は `mod tests {`（途中に `#[cfg(test)] mod test_dll;` があるため）で止める。design.md の IndependenceCheck は `#[cfg(test)]` と書いている
+- 独立の検査の境目は両クレートとも `mod tests {`（shiori4_host の途中に `#[cfg(test)] mod test_dll;` があるため）。完了時にその場で解決: shiori4 も最初の `#[cfg(test)]` から `mod tests {` にそろえ、design.md の IndependenceCheck も直した
 - `.kiro/steering/roadmap.md` の 50 行目（host-protocol は `shiori4::host_protocol` と `shiori4_host` の組み込みの処理を持つ）は古い。kiro-complete のロードマップ更新で「`doc/host-protocol.md` と便利関数 `shiori4::protocol` を持つ」に直す

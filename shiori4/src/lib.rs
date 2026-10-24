@@ -444,11 +444,12 @@ mod tests {
 
     // ---- 芯が便利関数を参照しないことの検査（要件 9.3・10.1） ----
 
-    /// テストより前（最初の `#[cfg(test)]` の行の手前まで）の、空でなく `//` で始まらない行
+    /// テストより前（`mod tests {` の行の手前まで）の、空でなく `//` で始まらない行。
+    /// 途中に `#[cfg(test)]` の項目が足されても、その後の芯の行を見落とさない
     fn code_lines_before_tests(src: &str) -> impl Iterator<Item = &str> {
         src.lines()
             .map(str::trim)
-            .take_while(|l| *l != "#[cfg(test)]")
+            .take_while(|l| *l != "mod tests {")
             .filter(|l| !l.is_empty() && !l.starts_with("//"))
     }
 
@@ -473,8 +474,15 @@ mod tests {
             ["pub mod protocol;", "use crate::protocol::Headers;"]
         );
 
+        // 途中の `#[cfg(test)]` の項目は境目でない。その後の芯の参照も数える
+        let early_cfg = "pub mod protocol;\n#[cfg(test)]\nmod helper;\n    use crate::protocol::Headers;\n#[cfg(test)]\nmod tests {\n    use protocol::Headers;\n}\n";
+        assert_eq!(
+            protocol_lines(early_cfg),
+            ["pub mod protocol;", "use crate::protocol::Headers;"]
+        );
+
         // 境目が無ければテストの中の参照も数え、検査は黙って通らない
-        let no_boundary = "pub mod protocol;\nmod tests {\n    use protocol::Headers;\n}\n";
+        let no_boundary = "pub mod protocol;\nmod test {\n    use protocol::Headers;\n}\n";
         assert_eq!(protocol_lines(no_boundary).len(), 2);
     }
 

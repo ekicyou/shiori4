@@ -591,7 +591,7 @@ impl<T> PendingTags<T> {
 ### 検査・導線
 
 #### IndependenceCheck（`shiori4/src/lib.rs`・`shiori4_host/src/lib.rs` のテスト）
-- 各クレートの `lib.rs` を `include_str!` で読み、`#[cfg(test)]` より前の、`//` で始まらない行のうち `protocol` を語として含む行が、許した 1 行（`shiori4`: `pub mod protocol;`、`shiori4_host`: `pub use shiori4::protocol;`）だけであることを確かめる（要件 9.3・10.1）。
+- 各クレートの `lib.rs` を `include_str!` で読み、テストのモジュール（`mod tests {` の行）より前の、`//` で始まらない行のうち `protocol` を語として含む行が、許した 1 行（`shiori4`: `pub mod protocol;`、`shiori4_host`: `pub use shiori4::protocol;`）だけであることを確かめる（要件 9.3・10.1）。
 - `protocol.rs` 側は、`Ghost`・`Adapter`・`v3::` を含む非コメント行が無いことを同じ方法で確かめる。
 
 #### CoreDocLinks / SteeringSync（summary-only）
