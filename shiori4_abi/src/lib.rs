@@ -6,7 +6,8 @@
 //! # 版（abi_version）
 //! - SHIORI_ABI_VERSION（4）: 既定。host 必須。ペイロードはヘッダ部分だけ（開始行なし）
 //! - SHIORI_ABI_VERSION_3（3）: SHIORI3 互換モード。異なる OS の互換ベースウェア向け
-//!   - load の host は NULL（渡されても SHIORI は無視する）。ホストの呼び出しは使えない
+//!   - load の host は copy_from_slice だけを持つテーブル（abi_version は 3。request・post・log は NULL）。
+//!     SHIORI は copy_from_slice があるかだけを確かめる。ほかのホストの呼び出しは使えない
 //!   - request の req は SHIORI/3.0 の要求全文（"GET SHIORI/3.0" / "NOTIFY SHIORI/3.0" で始まる）
 //!   - request の out は SHIORI/3.0 の応答全文（"SHIORI/3.0 200 OK" で始まり空行で終わる）
 //!   - 戻り値は開始行と同じステータスコード（正本は文字列）。負の値は ABI エラー（out は空。500 として扱う）
@@ -23,7 +24,10 @@
 //! - DLL 境界を越えるのは C のレイアウトの構造体と関数ポインタだけ
 //! - ペイロードは UTF-8 のバイト列（ptr と len）。NUL 終端にはしない
 //! - 引数の (ptr, len) は呼び出しの間だけ有効な借用。保持する場合は受け取った側がコピーする
-//! - 所有権が移るのは out に書き込まれる ShioriBytes だけ。確保した側の release で解放する
+//! - 所有権が移るのは out に書き込まれる ShioriBytes だけ。out の ShioriBytes は常にホストが作り、
+//!   ホストの release で解放する（SHIORI は応答を host.copy_from_slice で写して作る）。
+//!   写せなかったときは、ホストが自分で決めた印を out に残し（SHIORI には知らせない）、
+//!   SHIORI は out をそのまま返す
 //! - 呼び出された側は out を最後に書く。呼び出した側は戻り値に関係なく out を解放する
 //! - 構造体は末尾にだけフィールドを追加する（追加する関数ポインタは NULL 許容）。
 //!   受け取った側は struct_size を見て、フィールドがあるかを判定する
@@ -34,7 +38,7 @@
 //! - 負の値: ABI 層のエラー（SHIORI_E_*）。out は空。SHIORI_E_PANIC ならホストはインスタンスを unload する
 //!
 //! # スレッド規約
-//! 1. ShioriApi の request / notify は、ホストが決めた単一のスレッドからだけ呼ぶ。
+//! 1. ShioriApi の load / request / notify / unload は、ホストが決めた単一のスレッドからだけ呼ぶ。
 //!    このスレッドはインスタンスごとに決まり、プロセスで 1 つではない。
 //!    同じ DLL の 2 つのインスタンスは、別々のスレッドから呼ばれうる
 //! 2. SHIORI が host.request を呼べるのは、load / request / notify を呼ばれているスレッドから、
@@ -45,11 +49,13 @@
 //! 4. host.post と host.log は任意のスレッドから呼べる。ホストは msg をコピーしてすぐ返る
 //!    （post はキューに積む）
 //! 5. ShioriHostApi は unload が返るまで有効。SHIORI は、unload が返った後に ShioriHostApi の
-//!    どの関数も呼ばない。unload を始めたホストは post に SHIORI_E_SHUTDOWN を返してよい。
+//!    どの関数も呼ばない（例外は ShioriBytes.release だけ。規約 6）。
+//!    unload を始めたホストは post に SHIORI_E_SHUTDOWN を返してよい。
 //!    unload は長く止まらないこと。ホストは OS の終了の猶予の中で、各インスタンスの unload を
 //!    呼ぶことがある
-//! 6. ShioriBytes.release は、どのスレッドから呼んでもよい。release を実装する側（確保した側）は
-//!    それに耐えること
+//! 6. ShioriBytes.release は常にホストの関数で、いつでも・どのスレッドから呼んでもよい
+//!    （インスタンスの unload の後でもよい）。host.copy_from_slice も、どのスレッドから呼んでもよい。
+//!    ホストはそれに耐えること
 //! 7. notify を即 204 で返し、処理を後で行う実装は合法である。後回しにした処理の中では
 //!    host.request を使えない（規約 2 の期間の外であるため）。ホストへの依頼には post を使う
 //!
@@ -57,7 +63,7 @@
 //! - dir は、v4・v3 互換モードとも、絶対パス・OS の区切り・末尾に区切りあり・UTF-8 の文字列
 //!   （呼び出し中だけ有効）
 //! - カレントディレクトリはホスト次第である。SHIORI はカレントディレクトリに頼らず、load の dir を使う
-//! - v4 の load が失敗するときは、NULL を返す前に host.log で理由を出す。v3 は host が NULL なので、
+//! - v4 の load が失敗するときは、NULL を返す前に host.log で理由を出す。v3 は host に log が無いので、
 //!   SHIORI 自身のログに出す。v3 の load は失敗の理由を返さない（NULL を返すだけ）
 //! - SHIORI は同じプロセスでの 2 つ目のインスタンスを拒否してよい（NULL ＋ log）。拒否されたホストは、
 //!   そのゴーストを読めなかったものとして扱い、ゴーストごとに別のプロセスで読むか、拒否を受け入れる
@@ -117,7 +123,7 @@ use std::{
 
 /// 既定の版
 pub const SHIORI_ABI_VERSION: u32 = 4;
-/// SHIORI3 互換モード（host は渡されない。ペイロードは SHIORI/3.0 の全文）
+/// SHIORI3 互換モード（host は copy_from_slice だけを持つ。ペイロードは SHIORI/3.0 の全文）
 pub const SHIORI_ABI_VERSION_3: u32 = 3;
 /// この ABI 定義が扱う最小の版
 pub const SHIORI_ABI_VERSION_MIN: u32 = 3;
@@ -503,7 +509,7 @@ fn guard(f: impl FnOnce() -> Result<ShioriStatus, ShioriStatus>) -> ShioriStatus
 }
 
 // ============================================================
-// ShioriHostApi（ホスト → SHIORI に渡すテーブル。v4 のみ）
+// ShioriHostApi（ホスト → SHIORI に渡すテーブル。v3 では copy_from_slice だけ）
 // ============================================================
 
 #[repr(C)]
@@ -512,17 +518,28 @@ pub struct ShioriHostApi {
     abi_version: u32,
     ctx: *mut c_void,
     /// 同期リクエスト。load / request / notify を呼ばれているスレッドから、その呼び出しが
-    /// 返るまでの間だけ呼べる（スレッド規約 2）。外れた呼び出しには SHIORI_E_WRONG_THREAD が返りうる
-    request: unsafe extern "C" fn(
-        ctx: *mut c_void,
-        req: *const u8,
-        len: usize,
-        out: *mut ShioriBytes,
-    ) -> ShioriStatus,
-    /// 非同期通知。任意のスレッドから呼べる（スレッド規約 4）。msg は呼び出し中だけ有効
-    post: unsafe extern "C" fn(ctx: *mut c_void, msg: *const u8, len: usize) -> ShioriStatus,
-    /// 任意のスレッドから呼べる（スレッド規約 4）。msg は呼び出し中だけ有効
-    log: unsafe extern "C" fn(ctx: *mut c_void, level: i32, msg: *const u8, len: usize),
+    /// 返るまでの間だけ呼べる（スレッド規約 2）。外れた呼び出しには SHIORI_E_WRONG_THREAD が返りうる。
+    /// v3 のテーブルでは None
+    request: Option<
+        unsafe extern "C" fn(
+            ctx: *mut c_void,
+            req: *const u8,
+            len: usize,
+            out: *mut ShioriBytes,
+        ) -> ShioriStatus,
+    >,
+    /// 非同期通知。任意のスレッドから呼べる（スレッド規約 4）。msg は呼び出し中だけ有効。
+    /// v3 のテーブルでは None
+    post:
+        Option<unsafe extern "C" fn(ctx: *mut c_void, msg: *const u8, len: usize) -> ShioriStatus>,
+    /// 任意のスレッドから呼べる（スレッド規約 4）。msg は呼び出し中だけ有効。v3 のテーブルでは None
+    log: Option<unsafe extern "C" fn(ctx: *mut c_void, level: i32, msg: *const u8, len: usize)>,
+    /// SHIORI の応答を作る。ptr から len バイトをホストのメモリへ写し、ホストが作った ShioriBytes を
+    /// out に入れる（ABI 規約）。任意のスレッドから呼べる（スレッド規約 6）。v3 のテーブルにもある。
+    /// 戻り値は無い。写せなかったときは、ホストが自分で決めた印を out に残す（SHIORI には知らせない）
+    copy_from_slice: Option<
+        unsafe extern "C" fn(ctx: *mut c_void, ptr: *const u8, len: usize, out: *mut ShioriBytes),
+    >,
     // 将来のフィールドはここに Option<unsafe extern "C" fn(..)> で追加する
 }
 
@@ -538,7 +555,7 @@ impl ShioriHostApi {
         self.abi_version
     }
 
-    /// ホストのテーブルは v4 以上でのみ存在する
+    /// v4 のテーブルの検査（v3 のテーブルは copy_from_slice があるかだけを確かめる）
     pub fn is_valid(&self) -> bool {
         self.abi_version >= SHIORI_ABI_VERSION && self.struct_size as usize >= Self::BASE_SIZE
     }
@@ -578,9 +595,10 @@ impl<H: ShioriHost> ShioriHostBox<H> {
                 struct_size: size_of::<ShioriHostApi>() as u32,
                 abi_version: SHIORI_ABI_VERSION,
                 ctx: ptr::null_mut(),
-                request: host_request::<H>,
-                post: host_post::<H>,
-                log: host_log::<H>,
+                request: Some(host_request::<H>),
+                post: Some(host_post::<H>),
+                log: Some(host_log::<H>),
+                copy_from_slice: None, // 中身は SHIORI 側の層の直し（応答の作り方）と一緒に入れる
             },
             host,
         }));
@@ -667,7 +685,7 @@ pub struct ShioriApi {
     /// shiori_get_api で要求された版と同じ値
     abi_version: u32,
     /// インスタンスを生成する。失敗したら null（v4 は先に host.log で理由を出す。load の規約）
-    /// host は v4 では必須、v3 では None。dir は絶対パス・OS の区切り・末尾に区切りあり・UTF-8 の
+    /// host は v4 では必須、v3 では copy_from_slice だけを持つテーブル。dir は絶対パス・OS の区切り・末尾に区切りあり・UTF-8 の
     /// ゴーストディレクトリ（呼び出し中だけ有効。load の規約）
     load: unsafe extern "C" fn(
         host: Option<NonNull<ShioriHostApi>>,
@@ -839,10 +857,10 @@ unsafe extern "C" fn shiori_load<S: Shiori, const V: u32>(
         Ok(Err(st)) => format!("shiori load failed: status {st}"),
         Err(_) => format!("shiori load failed: panic (status {SHIORI_E_PANIC})"),
     };
-    if let Some(api) = log_host {
+    if let Some((api, log)) = log_host.and_then(|a| Some((a, a.log?))) {
         // ホストの log のパニックも境界の外へ出さない
         let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-            (api.log)(api.ctx, SHIORI_LOG_ERROR, msg.as_ptr(), msg.len())
+            log(api.ctx, SHIORI_LOG_ERROR, msg.as_ptr(), msg.len())
         }));
     }
     ptr::null_mut()
@@ -1084,8 +1102,9 @@ impl ShioriHostHandle {
             return Err(SHIORI_E_SHUTDOWN);
         }
         let api = self.api();
+        let request = api.request.ok_or(SHIORI_E_UNSUPPORTED)?;
         let mut out = ShioriBytes::empty();
-        let st = unsafe { (api.request)(api.ctx, req.as_ptr(), req.len(), &mut out) };
+        let st = unsafe { request(api.ctx, req.as_ptr(), req.len(), &mut out) };
         let body = unsafe { ShioriOwnedBytes::from_raw(out) }; // どの場合でも確実に解放する
         if shiori_is_abi_error(st) {
             Err(st)
@@ -1104,16 +1123,19 @@ impl ShioriHostHandle {
             return;
         }
         let api = self.api();
-        unsafe { (api.log)(api.ctx, level, msg.as_ptr(), msg.len()) }
+        if let Some(log) = api.log {
+            unsafe { log(api.ctx, level, msg.as_ptr(), msg.len()) }
+        }
     }
 
     pub fn poster(&self) -> ShioriHostPoster {
+        // 門が閉じた後と、テーブルに post・log が無いときに使う
+        unsafe extern "C" fn dead_post(_: *mut c_void, _: *const u8, _: usize) -> ShioriStatus {
+            SHIORI_E_SHUTDOWN
+        }
+        unsafe extern "C" fn dead_log(_: *mut c_void, _: i32, _: *const u8, _: usize) {}
         if self.gate.is_unloaded() {
             // 門は閉じているので、この Poster は ctx にも関数にも触れない
-            unsafe extern "C" fn dead_post(_: *mut c_void, _: *const u8, _: usize) -> ShioriStatus {
-                SHIORI_E_SHUTDOWN
-            }
-            unsafe extern "C" fn dead_log(_: *mut c_void, _: i32, _: *const u8, _: usize) {}
             return ShioriHostPoster {
                 ctx: std::ptr::null_mut(),
                 post: dead_post,
@@ -1124,8 +1146,8 @@ impl ShioriHostHandle {
         let api = self.api();
         ShioriHostPoster {
             ctx: api.ctx,
-            post: api.post,
-            log: api.log,
+            post: api.post.unwrap_or(dead_post),
+            log: api.log.unwrap_or(dead_log),
             gate: self.gate.clone(),
         }
     }
@@ -1172,12 +1194,13 @@ const _: () = {
     assert!(size_of::<Option<unsafe extern "C" fn(*mut ShioriBytes)>>() == w);
     assert!(size_of::<Option<NonNull<ShioriHostApi>>>() == w);
 
-    // ShioriHostApi: u32, u32, ctx, request, post, log
+    // ShioriHostApi: u32, u32, ctx, request, post, log, copy_from_slice
     assert!(offset_of!(ShioriHostApi, ctx) == 8);
     assert!(offset_of!(ShioriHostApi, request) == 8 + w);
     assert!(offset_of!(ShioriHostApi, post) == 8 + 2 * w);
     assert!(offset_of!(ShioriHostApi, log) == 8 + 3 * w);
-    assert!(size_of::<ShioriHostApi>() == 8 + 4 * w);
+    assert!(offset_of!(ShioriHostApi, copy_from_slice) == 8 + 4 * w);
+    assert!(size_of::<ShioriHostApi>() == 8 + 5 * w);
 
     // ShioriApi: u32, u32, load, unload, request, notify
     assert!(offset_of!(ShioriApi, load) == 8);

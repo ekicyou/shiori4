@@ -1,7 +1,7 @@
 # Implementation Plan
 
 - [ ] 1. 全体図の穴を埋める ABI の変更（OwnershipChange。教科書の執筆より先に行う）
-- [ ] 1.1 規約の文言と、ホストのテーブルの新しい欄を、C ヘッダと `shiori4_abi` の `//!` の両方に入れる
+- [x] 1.1 規約の文言と、ホストのテーブルの新しい欄を、C ヘッダと `shiori4_abi` の `//!` の両方に入れる
   - 版（v3 の host は `copy_from_slice` だけを持つ。v3 の下位の項目「load の host は NULL（渡されても SHIORI は無視する）」を直す）・ABI 規約（`out` は常にホストが作り、写せなかったときはホストが自分の印を `out` に残す）・スレッド規約 1（`load`・`unload` を足す）・5（例外は `release` だけ）・6（`release` は常にホストの関数で、いつでも・どのスレッドからでも呼べる）・load の規約 3（「v3 は host が NULL なので」を、v3 の host に `log` が無いことに直す）の文を、両方で同じ文にする。項目は足さず、各節の項目数を変えない
   - 規約の節の外の注釈で v3 の host を NULL・None と書いた 3 か所（C ヘッダの `SHIORI_ABI_VERSION_3` の注釈・`load` の欄の注釈・`ShioriApi::load` の `///`）も、`copy_from_slice` だけのテーブルを渡す形に直す
   - ホストの関数テーブルの末尾に、戻り値を持たない `copy_from_slice` の欄を C と Rust の両方で足し、`struct_size` の版の決まりに沿わせる（この段ではテーブルを組む側は欄を空にしてビルドを通す）。v3 のテーブルが `request`・`post`・`log` を NULL にできるよう、Rust の 3 つの欄を `Option<unsafe extern "C" fn>` に変え（C の関数ポインタと同じ配置で、二進の形は変わらない）、それを呼ぶ所を直す。v3 のテーブルは `abi_version` が 3、`struct_size` は欄を含む大きさとし、SHIORI は v3 では `SHIORI_HAS_FIELD(host, ShioriHostApi, copy_from_slice)` だけで確かめる（`is_valid` と `SHIORI_HOST_API_IS_VALID` は v4 の検査のまま）。C ヘッダと `shiori4_abi` の大きさの assert を新しい大きさに直す
