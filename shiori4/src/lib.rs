@@ -1,32 +1,45 @@
 //! shiori4 — shiori4_abi の上に載る高水準層（SHIORI 側）
 //!
-//! - v3（SHIORI/3.0 全文）と v4（ヘッダ部分だけ）の文字列形式の変換（Adapter）
-//! - ホストとの間のメッセージの解析と組み立て（protocol）。ホスト側クレート shiori4_host と共有する
+//! - 芯: [`Ghost`] と、それを ABI につなぐ [`Adapter`]。v4 ではホストからの要求の原文（ヘッダ部分）を
+//!   解析せずにそのまま `Ghost` に渡し、v3 では SHIORI/3.0 の全文とヘッダ部分の文字列形式だけを変換する
+//! - 便利関数: [`protocol`]。ホスト側プロトコルの語に合わせたヘッダの解析と組み立て、プロパティの取得など。
+//!   芯はこれを使わず、使わなくても仕様に従える。ホスト側クレート shiori4_host からも再エクスポートで使える
 //!
-//! v3 と v4 の差のうち、このクレートが透過にするのは「文字列形式」だけ。
-//! ホストを呼べるかどうか（プロパティを同期で取れるか）は Ghost の実装に見せる。
+//! 運ぶ中身の語（`getproperty`・`setproperty`・post の `Command`・`Tag`・`OnHostComplete`・拒否の返し方など）は、
+//! ホスト側プロトコル仕様
+//! <https://github.com/ekicyou/shiori4/blob/main/doc/host-protocol.md> が定める。
 //!
-//! ```ignore
-//! struct MyGhost { props: shiori4::protocol::Properties }
+//! ホストを呼べるかどうか（プロパティを同期で取れるか）は `Ghost` の実装に見せる（v4 なら `load` の host が `Some`）。
+//!
+//! ```no_run
+//! use shiori4::protocol::{HeaderWriter, Headers, Lookup, Properties, HEADER_VALUE};
+//!
+//! struct MyGhost {
+//!     props: Properties,
+//! }
 //!
 //! impl shiori4::Ghost for MyGhost {
 //!     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, shiori4::ShioriStatus> {
-//!         Ok(Self { props: shiori4::protocol::Properties::new(host) })
+//!         Ok(Self { props: Properties::new(host) })
 //!     }
+//!
+//!     // req はヘッダ部分の原文。解析は便利関数の Headers で行う
 //!     fn request(&mut self, req: &str) -> shiori4::ShioriResponse {
-//!         match shiori4::protocol::Headers::parse(req).id() {
-//!             Some("OnBoot") => match self.props.get("currentghost.name") {
-//!                 shiori4::protocol::Lookup::Ready(name) => shiori4::protocol::HeaderWriter::new()
-//!                     .push("Value", &format!("\\0{name}だよ\\e"))
-//!                     .into_response(),
-//!                 _ => shiori4::protocol::HeaderWriter::new().push("Value", "\\0……\\e").into_response(),
-//!             },
+//!         match Headers::parse(req).id() {
+//!             Some("OnBoot") => {
+//!                 let script = match self.props.get("currentghost.name") {
+//!                     Lookup::Ready(name) => format!("\\0{name}だよ\\e"),
+//!                     _ => "\\0……\\e".to_owned(),
+//!                 };
+//!                 HeaderWriter::new().push(HEADER_VALUE, &script).into_response()
+//!             }
 //!             _ => shiori4::ShioriResponse::no_content(),
 //!         }
 //!     }
 //! }
 //!
 //! shiori4::export_ghost!(MyGhost);
+//! # fn main() {}
 //! ```
 
 pub use shiori4_abi;
@@ -379,5 +392,48 @@ mod tests {
         let r = inst.request("ID: post\r\n").expect("abi");
         assert_eq!(r.body.as_str().unwrap(), "Value: 204\r\n");
         assert_eq!(host.host().posts.load(Ordering::SeqCst), 1);
+    }
+
+    // ---- 芯が便利関数を参照しないことの検査（要件 9.3・10.1） ----
+
+    /// テストより前（最初の `#[cfg(test)]` の行の手前まで）の、空でなく `//` で始まらない行
+    fn code_lines_before_tests(src: &str) -> impl Iterator<Item = &str> {
+        src.lines()
+            .map(str::trim)
+            .take_while(|l| *l != "#[cfg(test)]")
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+    }
+
+    /// code_lines_before_tests のうち `protocol` を語として含む行
+    fn protocol_lines(src: &str) -> Vec<&str> {
+        code_lines_before_tests(src)
+            .filter(|l| l.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|w| w == "protocol"))
+            .collect()
+    }
+
+    #[test]
+    fn protocol_lines_counts_only_code_before_tests() {
+        let allowed = "//! protocol の doc\n/// protocol::Headers を使ってよい\npub mod protocol;\nlet protocols = my_protocol;\n#[cfg(test)]\nmod tests {\n    use protocol::Headers;\n}\n";
+        assert_eq!(protocol_lines(allowed), ["pub mod protocol;"]);
+
+        let violated = "//! protocol の doc\npub mod protocol;\n    use crate::protocol::Headers;\n#[cfg(test)]\nmod tests {\n    use protocol::Headers;\n}\n";
+        assert_eq!(protocol_lines(violated), ["pub mod protocol;", "use crate::protocol::Headers;"]);
+
+        // 境目が無ければテストの中の参照も数え、検査は黙って通らない
+        let no_boundary = "pub mod protocol;\nmod tests {\n    use protocol::Headers;\n}\n";
+        assert_eq!(protocol_lines(no_boundary).len(), 2);
+    }
+
+    #[test]
+    fn core_refers_to_protocol_only_by_its_declaration() {
+        assert_eq!(protocol_lines(include_str!("lib.rs")), ["pub mod protocol;"]);
+    }
+
+    #[test]
+    fn protocol_module_does_not_refer_to_core() {
+        let found: Vec<&str> = code_lines_before_tests(include_str!("protocol.rs"))
+            .filter(|l| l.contains("Ghost") || l.contains("Adapter") || l.contains("v3::"))
+            .collect();
+        assert!(found.is_empty(), "{found:?}");
     }
 }
