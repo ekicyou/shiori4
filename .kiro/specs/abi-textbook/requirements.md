@@ -17,7 +17,7 @@ shiori4 の ABI を使う人は 2 種類いる。SHIORI の作者（pasta など
 
 読む順は hearing.md の 1 に従う（全体図 → 最小の例 → 規約の一覧 → 語の表 → 細部）。各要件の目的の末尾に、対応する hearing.md の節を「（hearing N）」で示す。
 
-brief.md で決め切れていない所は、要件を最善の推定で書き、**【仮定 Qn】** の印を付けた。Qn は末尾の「未決事項（要件ディスカッションで決める）」の番号である。
+brief.md で決め切れていなかった所は、要件ディスカッション（2026-10-24）で決めた。**【決定 Qn】** の Qn は末尾の「決定事項」の番号である。
 
 ## Boundary Context
 - **In scope**:
@@ -30,8 +30,9 @@ brief.md で決め切れていない所は、要件を最善の推定で書き�
   - ゴーストの配布の決まりの章（hearing.md の 8）。
   - 試験用のホストと、それを使って DLL の境界まで試す CI の検査。
   - 教科書の例（Rust と C）が腐らないための検査。
+  - C ヘッダ冒頭と `shiori4_abi` の `//!` の規約の節に、規約の番号だけを書き入れること（文言は変えない。要件 4.3）。
 - **Out of scope**:
-  - 規約と語彙そのものの決定・変更（ABI の関数・構造体・規約の文言は abi-conventions、host-protocol の語は host-protocol が持つ）。
+  - 規約と語彙そのものの決定・変更（ABI の関数・構造体・規約の文言は abi-conventions、host-protocol の語は host-protocol が持つ）。番号を書き入れることは文言の変更に当たらない。
   - docs.rs 以外のドキュメントサイト。
   - pasta や areka の文書。
   - 従来の SHIORI/3.0 の DLL（HGLOBAL の `load`・`loadu`・`request`・`unload`）を読むこと（shiori3-legacy-host が持つ。試験用のホストへのつなぎも shiori3-legacy-host が持つ）。
@@ -52,7 +53,7 @@ brief.md で決め切れていない所は、要件を最善の推定で書き�
 2. The ABI の教科書 shall 規約の文を、C ヘッダ冒頭と `shiori4_abi` の `//!` の文言のまま引き、語を、`doc/host-protocol.md` の綴りのまま引く。
 3. If 教科書を書く中で、正本の規約や語に欠け・食い違い・二通りに読める所が見つかったら, the ABI の教科書 shall その場で規約や語を決めず、未決のものとして記録して開発者の裁定へ回す（上流の abi-conventions・host-protocol は完了済みなので、直すときは新しい spec か修正の PR になる）。
 4. The ABI の教科書 shall それが当てはまる shiori4 の版を述べ、公開された版の内容はその版のタグの文書で読むことを述べる（`doc/host-protocol.md` 第 0 章と同じ扱い）。
-5. The ABI の教科書 shall 読み物を、docs.rs 以外のドキュメントサイトを使わずに、shiori4 リポジトリの中の文書（GitHub で読める形）と docs.rs のクレートのドキュメントで提供する。【仮定 Q1】読み物の本文はリポジトリの中の文書に置き、docs.rs と README からそこへ導く。
+5. The ABI の教科書 shall 読み物を、docs.rs 以外のドキュメントサイトを使わずに、shiori4 リポジトリの中の文書（GitHub で読める形）と docs.rs のクレートのドキュメントで提供する。読み物の本文はリポジトリの `doc/` の文書に置き、README と docs.rs のクレートのドキュメントから GitHub の URL でそこへ導く。【決定 Q1】
 
 ### Requirement 2: 全体図（誰が誰を、どのスレッドから、いつ呼べるか）
 **Objective:** As a SHIORI の作者・ベースウェアの作者, I want 8 つの関数の呼び出しの決まりが 1 つの表にまとまっていること, so that 会談でいちばん時間を使った規約 2・5 の解釈を、表を見るだけで一通りに読める（hearing 1）
@@ -68,7 +69,7 @@ brief.md で決め切れていない所は、要件を最善の推定で書き�
 
 #### Acceptance Criteria
 1. The ABI の教科書 shall Rust の SHIORI・C の SHIORI・Rust のホスト・C のホストの 4 つの最小の例を持つ。
-2. The 最小の SHIORI の例 shall `shiori_get_api` で関数テーブルを返して `OnBoot` の要求に応答することを、30 行ほどで示す。【仮定 Q2】hearing の「v3 だけで 30 行ほど」は「30 行ほどで足りる」と読み、例は v4 を既定にし、v3 で動く形は要件 7 の例で示す。
+2. The 最小の SHIORI の例 shall `shiori_get_api` で関数テーブルを返して `OnBoot` の要求に応答することを、30 行ほどで示す。Rust の例は `export_ghost!` で v3 と v4 の両方を出し、C の例は v4 のテーブルだけを返す（v3 も返す形は要件 9.4 の版の判定の例で示す）。【決定 Q2】
 3. The 最小のホストの例 shall SHIORI を読む → `OnBoot` を要求する → 応答を受け取る → unload する、の順を示す。
 4. The 最小の例 shall それぞれ、得られる応答（または表示）を例の中か直後に示す。
 
@@ -76,11 +77,12 @@ brief.md で決め切れていない所は、要件を最善の推定で書き�
 **Objective:** As a SHIORI の作者・ベースウェアの作者, I want すべての規約に変わらない番号と短い理由が付いていること, so that 実装や議論から「規約 N」で引用でき、理由を知らずに規約を緩めたり「親切に」破ったりせずに済む（hearing 1・6）
 
 #### Acceptance Criteria
-1. The 規約の一覧 shall C ヘッダ冒頭の規約の節（版／ABI 規約／戻り値／スレッド規約 1〜7／load の規約／ホストのプロセス／DLL の口と発見の順／post の完了通知／配布の決まり）の規約を、節の順のまま、1 つ残らず並べる。
-2. The 規約の一覧 shall スレッド規約 1〜7 の番号を、C ヘッダと `shiori4_abi` の `//!` の番号のまま使う。
-3. The 規約の一覧 shall スレッド規約以外の各規約にも、一覧の中で一意で引用できる番号を付ける。【仮定 Q3】番号は「節の名前 ＋ 節の中の順番」（例「load の規約 3」）とし、C ヘッダと `//!` には手を入れない。
+1. The 規約の一覧 shall C ヘッダ冒頭の規約の節（版／ABI 規約／戻り値／スレッド規約 1〜7／load の規約／ホストのプロセス／DLL の口と発見の順／post の完了通知／配布の決まり）の規約を、節の順のまま、1 つ残らず、正本の文をそのまま写して並べる。【決定 Q4】
+2. The 規約の一覧 shall スレッド規約 1〜7 の番号を、C ヘッダと `shiori4_abi` の `//!` の番号のまま使い、「規約 N」はこれまでどおりスレッド規約 N を指す。
+3. The 規約の一覧 shall スレッド規約以外の各規約に「節の名前 ＋ 番号」（例「load の規約 1」）の番号を付け、同じ番号を C ヘッダ冒頭と `shiori4_abi` の `//!` の両方の規約の節に書き入れる。書き入れるのは番号だけで、規約の文言は変えない。【決定 Q3】
 4. When 一度公開した版で規約に番号を付けたら, the 規約の一覧 shall 後の版でその番号を別の規約に使い回さず、規約が足されたときは新しい番号を足す。
-5. The 規約の一覧 shall 各規約に 1〜2 文の理由を添え、長い経緯は別の所に置いてそこへ導く。【仮定 Q4】理由は教科書にだけ置き、C ヘッダと `//!` には足さない。
+5. The 規約の一覧 shall 各規約に 1〜2 文の理由を添え、長い経緯は別の所に置いてそこへ導く。理由は教科書にだけ置き、C ヘッダと `//!` には足さない。【決定 Q4】
+8. If 完了済みの spec（abi-conventions・host-protocol ほか）の記録から規約の理由を引けなかったら, the 規約の一覧 shall その理由を、記録に無いことを示す印を付けた草案として書き、統合の前に開発者の確認を受ける。【決定 Q4】
 6. The 規約の一覧 shall 少なくとも次の規約の理由を述べる: ABI を緩めない理由（`host.request` をホストの UI スレッドで待つとデッドロックするなど）、再入の禁止、post の完了を post の中で届けないこと、unload で未配送を捨てること、SEND が既定で割り込むこと（SSTP に揃えた）。
 7. The 全体図・C の書き手向けの説明・docs.rs の例 shall 規約に触れる所で、この一覧の番号を引用する。
 
@@ -92,7 +94,8 @@ brief.md で決め切れていない所は、要件を最善の推定で書き�
 2. The 語の表 shall 語を写すときに綴りを変えず、語の意味は `doc/host-protocol.md` と ukadoc の参照先（付録 B）に委ねる。
 3. The 確定の範囲の一覧 shall shiori4 の版ごとに、どの語と API が確定で、どれが変わりうるかを示す。
 4. The 確定の範囲の一覧 shall 0.0.1 から 0.0.2 への変更を、`doc/host-protocol.md` 付録 A を起点にして示す。
-5. The 確定の範囲の一覧 shall `doc/host-protocol.md` に書かれた語を、その文書が当てはまる版で確定とし、文書に無い語（定数の無い `Reference*` の並びの拡張など）を「決まっていない」として示す。どれを「変わりうる」とするかの判断は教科書では決めず、開発者の裁定を記録する。【仮定 Q5】
+5. The 確定の範囲の一覧 shall `doc/host-protocol.md` に書かれた語を、その文書が当てはまる版で確定とし（後の版で変えるときは付録 A と同じく移行を書く）、文書に無い語（定数の無い `Reference*` の並びの拡張など）を「決まっていない」として示す。語ごとの安定度は教科書では決めない。【決定 Q5】
+6. The 確定の範囲の一覧 shall 冒頭で、0.0.x の間は版ごとに互換を壊す変更がありうることを述べる。【決定 Q5】
 
 ### Requirement 6: README（ルートと各クレート）
 **Objective:** As a crates.io や GitHub で shiori4 を見つけた作者, I want README が全体図と最小の例と道案内だけを持つこと, so that 最初の画面で全体を掴み、次に読む文書へ迷わず進める（hearing 1）
@@ -121,7 +124,7 @@ brief.md で決め切れていない所は、要件を最善の推定で書き�
 #### Acceptance Criteria
 1. The `shiori4_host` のクレートのドキュメント shall `LoadError` の 5 つの値（`Library`・`NotShiori4`・`Unsupported`・`InvalidPath`・`LoadFailed`）のそれぞれについて、ホストがすべきことを示す（`NotShiori4` は旧来の SHIORI/3.0 として読む候補に回す、`LoadFailed` は読めなかったゴーストとして扱い SHIORI/3.0 として読み直さない、`Unsupported` は別の版で読み直せる、を含む）。
 2. The `shiori4_host` のクレートのドキュメント shall `GhostRuntime::load` が `NotShiori4` のときに読んだライブラリを手放すこと（別の口で読み直すと DLL が 2 回読まれること）を明記し、2 回読まずに済む `GhostRuntime::from_library` と `FromLibraryError` からライブラリを取り戻す道を示す。
-3. The `shiori4_host` のクレートのドキュメント shall `Host::wake` から `GhostRuntime::pump` へのつなぎ方を、Win32 のメッセージの輪と、std の channel を使うスレッドの 2 通りで示す。【仮定 Q6】Win32 のメッセージの輪の例は、外部の依存を足さずに検査できない部分を、検査しない例であることを明示した形で示す。
+3. The `shiori4_host` のクレートのドキュメント shall `Host::wake` から `GhostRuntime::pump` へのつなぎ方を、Win32 のメッセージの輪と、std の channel を使うスレッドの 2 通りで示す。Win32 のメッセージの輪の例は、外部の crate を足さずに使う Win32 の関数を例の中で宣言し、Windows でビルドまで検査する。【決定 Q6】
 4. The `shiori4_host` のクレートのドキュメント shall `Completer` で `OnHostComplete` を返す例を、SEND の completed と interrupted、NOTIFY のそれぞれについて持つ。
 5. The `shiori4_host` のクレートのドキュメント shall nobreak で待たせた SEND を、待つ間の終了で捨てて 204 の `OnHostComplete` を返す例を持つ（`doc/host-protocol.md` 第 6.3・6.8 節）。
 6. The `shiori4_host` のクレートのドキュメント shall getproperty と setproperty に答える `Host` の例と、拒否を 400 ＋ `Reason: forbidden` で返す例を持つ。
@@ -157,7 +160,7 @@ brief.md で決め切れていない所は、要件を最善の推定で書き�
 #### Acceptance Criteria
 1. The 移行の手引き（SHIORI 側） shall SHIORI/3.0 の DLL → v3 互換モード → v4 の 3 段の差分を表で示し、少なくとも Charset が UTF-8 だけであること（Shift_JIS の要求は来ない）・HGLOBAL が (ptr, len) と `release` に変わること・load の dir の形が変わることを含む。
 2. The 移行の手引き（ホスト側） shall 要求は開始行と Charset を外すだけでヘッダの語は同じであること・応答の状態は戻り値で受けること・旧来の DLL との見分け方（`shiori_get_api` の有無）・両方を持つ DLL の扱い（「DLL の口と発見の順」）を示す。
-3. The 移行の手引き（ホスト側） shall v3 互換モードは Windows 以外のホスト向けであり、Windows のホストは旧来の DLL を今までどおり読めばよいことを述べる。【仮定 Q7】shiori3-legacy-host が統合される前は「旧来の DLL を読む口は shiori4_host に無い」と書き、統合後の書き換えは shiori3-legacy-host に申し送る。
+3. The 移行の手引き（ホスト側） shall v3 互換モードは Windows 以外のホスト向けであり、Windows のホストは旧来の DLL を今までどおり読めばよいことを述べる。shiori3-legacy-host が統合される前は「旧来の DLL を読む口は shiori4_host にまだ無い」と書き、統合後の書き換えは shiori3-legacy-host の brief に申し送る。【決定 Q7】
 4. The 移行の手引き shall shiori4 0.0.1 から 0.0.2 への移行について、`doc/host-protocol.md` 付録 A へ導く。
 
 ### Requirement 12: ゴーストの配布の決まりの章
@@ -177,32 +180,33 @@ brief.md で決め切れていない所は、要件を最善の推定で書き�
 2. When 読み込みが成功したら, the 試験用のホスト shall 与えられた要求（既定は `OnBoot`）を SHIORI に投げ、戻り値（ステータスコードまたは ABI エラー）と応答の全文を表示する。
 3. When 要求を終えたら, the 試験用のホスト shall SHIORI を unload して終わる。
 4. If 口が見つからない・load が失敗する・ABI エラーが返るなど、試験が成り立たなかったら, the 試験用のホスト shall 原因の種類（`LoadError` の値や ABI エラーの値）を表示し、成功と区別できる終了の状態で終わる。
-5. While SHIORI を読んでいる間, the 試験用のホスト shall SHIORI からの `host.request` に最小の `Host` として答え（`name` を返し、ほかは正本の既定どおり）、`post` と `log` を受けたことを表示する。【仮定 Q8】試験用のホストは post の中身を実行せず、`Tag` の付いた post にも完了通知を返さない。
+5. While SHIORI を読んでいる間, the 試験用のホスト shall SHIORI からの `host.request` に最小の `Host` として答え（`name` を返し、ほかは正本の既定どおり）、要求の後に 1 回 pump して、受けた `post` と `log` を表示する。試験用のホストは post の中身を実行せず、`Tag` の付いた post にも完了通知を返さず、届けていない post は unload で捨てる。【決定 Q8】
 6. If 読んだファイルが従来の SHIORI/3.0 の口（`loadu`・`load`）だけを持つなら, the 試験用のホスト shall 従来の口を見つけたことを表示し、読めないものとして終わる（従来の DLL を読むのは shiori3-legacy-host が足す）。
 7. The 試験用のホスト shall Windows・Linux・macOS の 3 OS で動く。
 8. The shiori4 の CI shall 3 OS で試験用のホストにテスト用の SHIORI のライブラリを読ませ、要求と応答の往復が成功することを確かめる。
-9. The 試験用のホスト shall 他のリポジトリ（pasta など）の CI でも使える形で提供され、その使い方が教科書に書かれる。提供の形（クレートの例か、小さな CLI か、crates.io に出すか）は要件ディスカッションで決める。【仮定 Q9】
+9. The 試験用のホスト shall `shiori4_host` の example 1 本として提供され、公開するクレートを増やさない。他のリポジトリ（pasta など）の CI が `cargo install --git`（`--example` 付き）などで取り込める形にし、その取り込み方を教科書に書く。【決定 Q9】
 
 ### Requirement 14: 例が腐らないための検査
 **Objective:** As a shiori4 の開発者, I want 教科書の例が CI で動かされ、API や規約が変わったら壊れて知らせること, so that 読者が古い例を写して迷うことが無い（brief.md の Constraints）
 
 #### Acceptance Criteria
 1. The shiori4 の CI shall docs.rs と README の Rust の例を、3 OS でビルドし、DLL やベースウェアを要しない例は実行して結果を確かめる。
-2. The shiori4 の CI shall C の最小の例（SHIORI とホスト）・版の判定の例・`SHIORI_HAS_FIELD` の例を 3 OS でビルドし、C のホストの例を SHIORI のライブラリに対して実行して往復が成功することを確かめる。【仮定 Q10】C の例は CI でビルドと実行まで行う。C のコンパイラは CI の実行環境にあるものを使う。
+2. The shiori4 の CI shall C の最小の例（SHIORI とホスト）・版の判定の例・`SHIORI_HAS_FIELD` の例を 3 OS でビルドし、言語を入れ替えた組で実行して往復が成功することを確かめる: C のホストの例 × テスト用の Rust の SHIORI（`testdata/testghost`）と、試験用のホスト（要件 13）× C の SHIORI の例。【決定 Q10】
 3. If 検査の対象から外す例（検査しない例）を置くなら, the ABI の教科書 shall その例が検査されないことと理由を、例の隣に明示する。
 4. When 例の検査が失敗したら, the shiori4 の CI shall PR の検査を失敗にする。
 5. The 例の検査 shall 今の DoD（`cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings`）とクレートの公開の検査（`cargo package --workspace`）を壊さない。
+6. The shiori4 の CI shall 規約の一覧（要件 4.1）に写した規約の文と番号が、C ヘッダ冒頭と `shiori4_abi` の `//!` の文と番号に一字一句一致することを確かめ、ずれたら PR の検査を失敗にする。【決定 Q4】
 
-## 未決事項（要件ディスカッションで決める）
-brief.md で決め切れず、上の要件で【仮定】を置いた所である。
+## 決定事項（要件ディスカッション 2026-10-24）
+brief.md で決め切れず、要件ディスカッションで開発者がすべて推奨案で確定した所である。
 
-1. **Q1 読み物の置き場所**: 読み物（全体図・規約の一覧と理由・語の表・確定の範囲・別のプロセスの注意・移行の手引き・配布の決まり・C の説明）の本文を、リポジトリの `doc/` の文書に置くか、docs.rs のクレートのドキュメント（例えば `shiori4_abi` の doc）に置くか。仮定: `doc/` の文書に置き、docs.rs と README から導く（要件 1.5）。
-2. **Q2 最小の SHIORI の例の版**: hearing の「v3 だけで 30 行ほど」を「v3 互換モードだけの例」と読むか「30 行ほどで足りる」と読むか。仮定: 後者。最小の例は v4 を既定にする（要件 3.2）。
-3. **Q3 スレッド規約以外の番号の付け方**: 「規約 N」は今スレッド規約 1〜7 だけを指す。ほかの節の規約にどう番号を付けるか（節の名前＋順番／通し番号／接頭辞つき）と、番号を C ヘッダと `//!` にも書き入れるか（書き入れるなら上流の文言に触れる）。仮定: 「節の名前＋順番」で教科書にだけ付ける（要件 4.3）。上流が節に項目を足すと順番がずれる危うさがある。
-4. **Q4 規約の理由の置き場所**: 理由を教科書にだけ置くか、C ヘッダと `//!` にも 1 文ずつ足すか。仮定: 教科書にだけ置く（要件 4.5）。
-5. **Q5 確定の範囲の決め方**: どの語と API を「確定」、どれを「変わりうる」とするかを誰がどう決めるか。0.0.x の間はすべて変わりうると書くか。仮定: 文書に書かれた語は当てはまる版で確定、文書に無いものは「決まっていない」、それ以上の判断は開発者の裁定を記録する（要件 5.5）。
-6. **Q6 Win32 のメッセージの輪の例**: 外部の依存（Win32 の API の crate）を足さずに検査できない。検査しない例として置くか、Windows だけで検査する別の形にするか、例を std の channel の 1 通りに絞るか。仮定: 検査しない例として明示して置く（要件 8.3・14.3）。
-7. **Q7 移行の手引きと shiori3-legacy-host の順**: shiori3-legacy-host がまだ統合されていない。ホスト側の移行の手引きに、従来の DLL を shiori4_host で読む道をいつ書くか。仮定: 今は「無い」と書き、統合後の書き換えを shiori3-legacy-host に申し送る（要件 11.3）。
-8. **Q8 試験用のホストの post の扱い**: post を表示するだけにするか、`Tag` の付いた post に `OnHostComplete` を返して完了通知の往復まで試せるようにするか。仮定: 表示だけ（要件 13.5）。
-9. **Q9 試験用のホストの形と配り方**: `shiori4_host` の例（cargo の example）にするか、小さな CLI（ワークスペースの別のクレート）にするか。CLI なら crates.io に出すか（出すなら公開の対象が 4 つになり、release.yml・`/release`・版の置き場所に波及する）。pasta の CI がどう取り込むか（git の依存・`cargo install --git` など）。要求を引数で与えるか、ファイルや標準入力で与えるか。仮定: 決めない（要件 13.9）。
-10. **Q10 C の例の検査の深さ**: C の例をビルドだけにするか、実行まで行うか。実行するなら C の SHIORI の例と C のホストの例を組み合わせるか、テスト用の Rust の cdylib（`testdata/testghost`）を相手にするか。CI に C のビルドを足すと CI を変える PR になる（workflow.md: CI の完了を見届けてから統合する）。仮定: ビルドと実行まで行う（要件 14.2）。
+1. **Q1 読み物の置き場所**: 本文はリポジトリの `doc/` に置き、README と docs.rs から GitHub の URL で導く（要件 1.5）。`doc/host-protocol.md` と同じ扱いで、C ヘッダと `//!` の同文の約束を崩さない。
+2. **Q2 最小の SHIORI の例の版**: hearing の「v3 だけで 30 行ほど」は「30 行ほどで足りる」と読む。Rust の例は `export_ghost!` で v3・v4 の両方を出し、C の例は v4 だけを返す。v3 も返す形は版の判定の例で示す（要件 3.2）。
+3. **Q3 規約の番号**: 番号を C ヘッダと `//!` の両方に書き入れる（番号だけで文言は変えない）。スレッド規約 1〜7 はそのままで、「規約 N」はスレッド規約を指し続ける。ほかの節は「節の名前 ＋ 番号」。教科書だけに付けると上流が項目を足したときにずれるため（要件 4.2・4.3）。
+4. **Q4 規約の一覧の中身と理由**: 一覧は正本の文を写し、写しが正本と一致することを CI で確かめる。理由は教科書にだけ置く。記録から引けない理由は印を付けた草案にして、統合の前に開発者が確かめる（要件 4.1・4.5・4.8・14.6）。
+5. **Q5 確定の範囲**: 文書に書かれた語はその版で確定、文書に無いものは「決まっていない」。冒頭に 0.0.x の間は版ごとに互換を壊す変更がありうることを 1 行書く。語ごとの安定度は決めない（要件 5.5・5.6）。
+6. **Q6 Win32 のメッセージの輪の例**: 外部の crate を足さず、使う Win32 の関数を例の中で宣言して、Windows でビルドまで検査する（要件 8.3）。
+7. **Q7 移行の手引きと shiori3-legacy-host**: 今は「旧来の DLL を読む口は shiori4_host にまだ無い」と書き、統合後の書き換えを shiori3-legacy-host の brief に申し送る（要件 11.3）。
+8. **Q8 試験用のホストの post**: 要求の後に 1 回 pump して post と log を表示する。完了通知は返さず、届けていない post は unload で捨てる（要件 13.5）。
+9. **Q9 試験用のホストの形と配り方**: `shiori4_host` の example 1 本。公開するクレートは増やさない。pasta などは `cargo install --git`（`--example` 付き）で取り込む。引数の形と、`--example` での取り込みが実際に動くかは設計で決め・確かめる（要件 13.9）。
+10. **Q10 C の例の検査**: ビルドと実行まで行う。言語を入れ替えた組（C のホスト × `testdata/testghost`、試験用のホスト × C の SHIORI の例）で往復を確かめる。CI を変える PR なので CI を見届けてから統合する（要件 14.2）。
