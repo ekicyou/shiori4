@@ -14,7 +14,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 2. **芯から中身の解釈を外すこと**: `shiori4`・`shiori4_host` の芯は、やり取りされる文字列が UTF-8 であることだけを求め、中身（ID・Command・Tag など）を読まない。
 3. **パースのための便利関数のモジュール**: 仕様の語に合わせた解析・組み立ての関数を、芯から呼ばれない独立したモジュールとして提供する。使いたい人だけが使う。
 
-要件の番号と brief.md の論点の対応は、各要件の目的の末尾に「（論点 N）」で示す。brief.md で決め切れていない所は、受け入れ基準に「【仮定】」と書いて最善の案で起草し、末尾の「要件ディスカッションへの持ち越し」に議題として記録した。
+要件の番号と brief.md の論点の対応は、各要件の目的の末尾に「（論点 N）」で示す。brief.md で決め切れていない所は、要件ディスカッションで確定させた（末尾の「要件ディスカッションの結果」）。
 
 ## Boundary Context
 - **In scope**:
@@ -90,7 +90,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 1. The ホスト側プロトコル仕様 shall v4 のヘッダの名前と意味、ホストが送るイベント（ID と Reference の並び）、SHIORI の応答のヘッダ（`Value`・`ValueNotify`・`Marker`・`ErrorLevel`・`ErrorDescription` など）の名前と意味が ukadoc の SHIORI/3.0 と同じで、違いは開始行が無いことと Charset が無いことだけだと定める。
 2. The ホスト側プロトコル仕様 shall ホストが v4 の要求に必ず付けるヘッダを `ID`・`Sender`（ベースウェアの名前）・`SenderType`（ukadoc の語）・`SecurityLevel`（`local` か `external` の 2 語だけ）・`SecurityOrigin`（ukadoc の形。`null` か起点）と定める。
 3. The ホスト側プロトコル仕様 shall 状況によって付けるヘッダを、`Status`（伝える状態があるときだけ。ukadoc の語のカンマ区切り）・`BaseID`（ukadoc が定めるイベントだけ）・`Reference*` と定める。
-4. The ホスト側プロトコル仕様 shall post から起きた要求（SEND の中の `\![raise]`、NOTIFY で起こしたイベント）に `SenderType: internal` と `SecurityLevel: local` を付けると定める。
+4. The ホスト側プロトコル仕様 shall post から起きた要求（SEND の中の `\![raise]`、NOTIFY で起こしたイベント、post の完了を知らせる `OnHostComplete`）に `SenderType: internal` と `SecurityLevel: local` を付けると定める。
 5. The ホスト側プロトコル仕様 shall SHIORI の名前と版を SHIORI/3.0 と同じく、`ID: version`（ほかに `name`・`craftman`・`craftmanw`）の要求に 200 ＋ `Value:` で答え、答えなければ 204 とすると定める。
 6. The ホスト側プロトコル仕様 shall ABI の版をヘッダに載せないこと（`shiori_get_api` の引数と `abi_version` で分かるため）を述べる。
 
@@ -100,11 +100,11 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 #### Acceptance Criteria
 1. The ホスト側プロトコル仕様 shall `OnHostComplete` の届け方の既定を request とし、SHIORI は request と notify の両方で `OnHostComplete` を受けられなければならないと定める。
 2. The ホスト側プロトコル仕様 shall `OnHostComplete` の共通のヘッダを `ID: OnHostComplete`・`Tag`（post の `Tag` の値）・`Status`（結果のステータスコード）・`Reference0: <コマンド名>` と定める。
-3. The ホスト側プロトコル仕様 shall SEND の完了を「再生が終わった時」に出し、200（再生した。`Reference1` は `completed` か `interrupted`）・204（一度も再生せずに捨てた。`Reference1` は無し）・400 ＋ `Reason`（不正・拒否）と定める。
+3. The ホスト側プロトコル仕様 shall SEND の完了を「再生が終わった時」に出し、200（再生した。`Reference1` は `completed` か `interrupted`）・204（一度も再生せずに捨てた。`Reference1` は無し）・400（不正。拒否なら `Reason: forbidden` を付ける。要件 7）と定める。
 4. The ホスト側プロトコル仕様 shall 204 になる場合の例（`nobreak` で待っている間に終了・切り替えが来た、ホストが受けられない状態だった）を挙げる。
 5. The ホスト側プロトコル仕様 shall NOTIFY の完了を、`Reference1` は無しで、イベントを起こせたら 200、起こせなければ 400 と定める。
 6. The ホスト側プロトコル仕様 shall `OnHostComplete` への応答のスクリプトを `Option: nobreak` の SEND と同じに扱う（再生中なら終わるまで待ち、待つ間に終了・切り替えが来たら捨てる）と定め、その理由（`interrupted` の通知は割り込んだトークの再生中に届くので、通常の応答と同じに扱うと割り込んだ側をさらに置き換えてしまう）を書く。
-7. 【仮定】 The ホスト側プロトコル仕様 shall `OnHostComplete` の `Status` は結果のステータスコードを運び、要件 5.3 の ukadoc の `Status`（ベースウェアの状態）とは別の意味であることを明記する（議題 1）。
+7. The ホスト側プロトコル仕様 shall `OnHostComplete` の `Status` は結果のステータスコードを運び、要件 5.3 の ukadoc の `Status`（ベースウェアの状態）とは別の意味であることを明記する。名前は変えない（3 者で合意した並びのため）。
 
 ### Requirement 7: 拒否の返し方
 **Objective:** As a SHIORI 実装者・ベースウェア実装者, I want 「拒否」と「存在しない」と「不正」を応答で見分けられること, so that SHIORI が拒否に応じた振る舞いを選べる（論点 8・12）
@@ -112,7 +112,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 #### Acceptance Criteria
 1. The ホスト側プロトコル仕様 shall 拒否を 400 ＋ `Reason: forbidden` で返すと定め、「存在しない」の 204 と区別する。
 2. The ホスト側プロトコル仕様 shall 403 を足さないことと、その理由（ステータスを SHIORI/3.0 の集合に収め、v3 と v4 で要求と応答のコードを分けないため）を書く。
-3. The ホスト側プロトコル仕様 shall `Reason` の語を当面 `forbidden` だけと定め、未知の語は「理由不明の拒否」と読むと定める。
+3. The ホスト側プロトコル仕様 shall `Reason` を付けるかは任意とし、`Reason` の無い 400 は「不正」、`Reason: forbidden` は「拒否」、未知の語は「理由不明の拒否」と読むと定める。`Reason` の語は当面 `forbidden` だけとする。
 4. The ホスト側プロトコル仕様 shall 拒否の返し方が、host.request の応答（`getproperty`・`setproperty` など）と `OnHostComplete` の 400 の両方に当てはまることを述べる。
 
 ### Requirement 8: ホスト側の芯から中身の解釈を外す
@@ -121,19 +121,19 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 #### Acceptance Criteria
 1. When SHIORI が規約 2 の期間の中で `host->request` を呼ぶ, the shiori4_host shall 要求の文字列を解析せずにそのまま `Host` に渡し、`Host` の応答をそのまま SHIORI に返す。
 2. The shiori4_host shall 組み込みの `property`（`getproperty` を含む）の応答を持たず、どの `ID` にも芯が独自に答えない。
-3. 【仮定】 Where `Host` の実装が同期の要求に答える処理を持たない, the shiori4_host shall どの要求にも 400 を返す（議題 2）。
+3. Where `Host` の実装が同期の要求に答えない, the shiori4_host shall どの要求にも 400（このホストでは扱えない）を返す。0.0.1 が知らない ID に返していた応答と同じにする。
 4. The shiori4_host shall abi-conventions の規約 2 の門（別スレッド・期間の外の `host->request` には `Host` を呼ばず `SHIORI_E_WRONG_THREAD` と空の out を返す）を、振り分けの前に残す。
 5. If `host->request` の要求、または post のメッセージが UTF-8 でない, the shiori4_host shall それを `Host` に渡さず 400 を返す（芯が求めるのは UTF-8 であることだけ）。
 6. When SHIORI が post する, the shiori4_host shall 既定では中身（`Command` の有無を含む）を見ずに受け付け、`Host` の実装が受付の判定を持つときだけその判定に従う。
 7. The shiori4_host shall 完了通知の芯として、`Host` が与えたヘッダの全文を、指定された届け方（request か notify）で post したインスタンスに届ける口を持ち、芯はそのヘッダに何も足さず、何も検査しない。
-8. 【仮定】 The shiori4_host の芯の型（受け付けた post・SHIORI に届けるイベント・完了通知の口） shall 中身を解析して返すメソッド（`Command`・`Tag`・`ID` を読むもの、`OnHostComplete` を組み立てるもの）を持たず、原文を渡すことだけをする。解析と組み立ては便利関数のモジュール（要件 10）が受け持つ（議題 3）。
+8. The shiori4_host の芯（`Host` trait の同期要求と post の受付の判定・受け付けた post・SHIORI に届けるイベント・完了通知の口） shall 原文（文字列）を受け渡し、中身を解析して返すメソッド（`Command`・`Tag`・`ID` を読むもの、`OnHostComplete` を組み立てるもの）を持たない。解析と組み立ては便利関数のモジュール（要件 10）が受け持つ。
 9. The shiori4_host shall 芯から中身の解釈を外した後も、post のキュー・`pump` での配送・unload での破棄・`Host::wake` の呼び出しの振る舞いを変えない。
 
 ### Requirement 9: SHIORI 側の芯から中身の解釈を外す
 **Objective:** As a SHIORI 実装者, I want `shiori4` の芯が v4 のヘッダの中身を解釈しないこと, so that 自分の SHIORI で好きな解析を使え、芯が便利関数のモジュールに縛られない（方針）
 
 #### Acceptance Criteria
-1. 【仮定】 While v4 で動いている, the shiori4 の芯（`Ghost` と、それを ABI につなぐ層） shall ホストからの request・notify の文字列を解析せずに Ghost 実装へ渡す（議題 4）。
+1. While v4 で動いている, the shiori4 の芯（`Ghost` と、それを ABI につなぐ層） shall ホストからの request・notify の文字列を解析せずに原文（文字列）のまま Ghost 実装へ渡す。解析は実装者が便利関数のモジュールで行う。
 2. While v3 互換モードで動いている, the shiori4 の芯 shall SHIORI/3.0 の全文とヘッダ部分の変換（開始行の読み書き・Charset の検査と補い）を、インターフェースの変換としてこれまでどおり行う。
 3. The shiori4 の芯 shall 便利関数のモジュールに依存しない。
 4. The shiori4 の芯 shall `host->request`・post・log を、文字列を解析せずに運ぶ口（`ShioriHostHandle`・`ShioriHostPoster`）をこれまでどおり提供する。
@@ -149,7 +149,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 5. The 便利関数のモジュール shall ホスト側のために、`getproperty`・`setproperty` の応答（200 ＋ `Value`（値の改行を取り除く）・204・400・400 ＋ `Reason: forbidden`）を組み立てる関数を提供する（要求を読むのは 10.2 の解析で足りる）。
 6. The 便利関数のモジュール shall ホスト側のために、受け付けた post の原文から `Tag` とコマンド名を引き継ぎ、`ID: OnHostComplete`・`Tag`・`Status`・`Reference0: <コマンド名>`・`Reference1..` を並べた完了通知のヘッダを組み立てる関数を提供する。`Tag` の無い post からは組み立てない。
 7. The 便利関数のモジュール shall SHIORI 側のために、`Tag` を発行して登録してから post し、`OnHostComplete` の `Tag` で登録を取り出す待ち合わせ（`PendingTags`）を、今と同じ使い方で提供する。
-8. 【仮定】 The 便利関数のモジュール shall v4 でホストに同期で問い合わせるプロパティの取得（今の `Properties`／`Lookup`）を、`getproperty` を使う形で提供する（議題 5）。
+8. The 便利関数のモジュール shall v4 でホストに同期で問い合わせるプロパティの取得（今の `Properties`／`Lookup`。芯から移す）を `getproperty` を使う形で提供し、`setproperty` の送信はキャッシュへの取り込みと紛れない別の関数で提供する。
 9. The 便利関数のモジュール shall 知らない `Command`・知らない `Reason`・知らない `Option` の語を判定・拒否しない。
 10. The 便利関数のモジュール shall 組み立てるヘッダに Charset を付けない。
 
@@ -162,18 +162,17 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 3. The 3 クレート shall 版を上げない（0.0.2 は `/release` が上げる）。
 4. The 3 クレート shall この spec の振る舞い（芯が要求・post を解析せずに渡すこと、既定で post を全部受け付けること、既定の応答、規約 2 の門が先頭に残ること、完了通知の全文の配送、芯と便利関数が Charset を付けないこと、便利関数の組み立てと解析が仕様どおりであること、`PendingTags` の往復）をテストで確かめる。
 5. The 3 クレート shall ubuntu・windows・macos の CI（`cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings`）を通す。
-6. When ホスト側プロトコル仕様の文書の置き場所が決まる, the shiori4 の開発者 shall その場所を pasta と areka の両セッションへ知らせる。
+6. The shiori4 の開発者 shall pasta と areka の両セッションへ 2 回知らせる: 要件の承認の後に確定した語（論点 1〜12 と、要件ディスカッションで足した `Reason` の読み分け・`OnHostComplete` のヘッダ・`Ghost`／`Host` が原文を受けること）を、設計で置き場所が決まった後に正本の場所を。送るのは開発者の明示の指示による。
 7. The steering（`tech.md`・`structure.md`） shall `host_protocol` の置き場所と「芯は中身を解釈しない」方針について、この spec の結果と食い違う記述を持たない。
 
-## 要件ディスカッションへの持ち越し
-brief.md だけでは決め切れなかった所。受け入れ基準では【仮定】の案で起草した。
+## 要件ディスカッションの結果（2026-10-24 確定）
+brief.md だけでは決め切れなかった所を、開発者が全議題とも推奨案で確定した。
 
-1. **`OnHostComplete` の `Status` と ukadoc の `Status` の意味の重なり**（要件 6.7）: 論点 5 は `Status` を ukadoc の語（ベースウェアの状態のカンマ区切り）とし、論点 7 は `OnHostComplete` の `Status` に結果のステータスコードを載せる。同じ名前に 2 つの意味がある。【仮定】`OnHostComplete` の中だけは結果のコードとし、その旨を明記する。
-2. **`Host` が同期の要求に答えないときの既定の応答**（要件 8.3）: 芯が中身を読まなくなると、`getproperty` の 204 と「知らない ID」の 400 を芯が分けられない。【仮定】既定はどの要求にも 400。
-3. **芯の型の解析つきメソッドの扱い**（要件 8.8）: `Post::command`・`tag`・`wants_result`・`headers`、`Event::id`・`parsed`、`Completer::complete`（`OnHostComplete` の組み立て）と、`complete_with` が `Tag` を自動で先頭に足すこと。【仮定】芯からは外し、便利関数へ移す。`Tag` は便利関数が post の原文から読んで足す。
-4. **`Ghost` trait が受け取る型**（要件 9.1）: 今の `Ghost::request`／`notify` は解析済みの `Headers` を受ける。`Headers` を便利関数へ移し「芯は便利関数に依存しない」とすると、`Ghost` は原文（文字列）を受けることになる。【仮定】`Ghost` は原文を受け、解析は実装者が便利関数で行う。
-5. **`Properties`／`Lookup` の置き場所と `setproperty`**（要件 10.8）: `Properties` は host.request を使う SHIORI 側の便利な層で、brief の「移すもの」の一覧に名前が無い。また `Properties::set` は今「キャッシュに取り込む」意味で、`setproperty` と名前が紛らわしい。【仮定】便利関数のモジュールへ移し、`setproperty` は別の関数で出す。
-6. **C ヘッダ・`shiori4_abi` の doc の「post の完了通知」の節**（要件 1.5）: ABI の doc が `Tag` ヘッダの意味（「Tag を付けない post は結果は不要」）に触れている。【仮定】ABI の文は変えず（ABI は変えない。要件 11.2）、語彙の正本としてホスト側プロトコル仕様を指す 1 行だけを足す。
-7. **便利関数のモジュールの名前と置き場所**（要件 10.1）: brief は設計で決めるとしている。要件では「独立したモジュール」とだけ定めた。
-8. **仕様の文書の置き場所**（要件 1.1・11.6）: brief は例として `doc/host-protocol.md` を挙げ、設計で確定させるとしている。
-9. **pasta・areka への連絡の時期**（要件 11.6）: brief の Constraints は「要件の段に入ったら、決まった語を両セッションへ知らせる」とし、Scope は「正本の場所の連絡」とする。要件の承認後に語を、設計で置き場所が決まったら場所を知らせる、の 2 回とするかを決める。
+1. **`OnHostComplete` の `Status`**（要件 6.7）: 名前は変えず、`OnHostComplete` の中だけは結果のステータスコードを運ぶと明記する。
+2. **`Host` が答えないときの既定の応答**（要件 8.3）: どの要求にも 400。
+3. **芯は原文だけを運ぶ**（要件 8.8・9.1・10.8）: `Ghost`・`Host` は原文（文字列）を受ける。`Post`・`Event`・`Completer` の解析つきメソッドと `Properties`／`Lookup` は便利関数のモジュールへ移す。
+4. **400 と `Reason` の読み分け**（要件 6.3・7.3）: `Reason` は任意。無ければ「不正」、`forbidden` は「拒否」、未知の語は「理由不明の拒否」。すべての 400 に共通。3 者の合意に足した決め事。
+5. **`OnHostComplete` のヘッダ**（要件 5.4）: post から起きた要求に含め、`SenderType: internal`・`SecurityLevel: local` を付ける。3 者の合意に足した決め事。
+6. **pasta・areka への連絡**（要件 11.6）: 要件の承認の後に語を、設計の後に置き場所を知らせる。送るのは開発者の明示の指示による。
+
+設計フェーズへ回した事項（モジュールの名前と置き場所・文書の置き場所・C ヘッダの 1 行・v3 の私的な解析・完了通知の口の形・`setproperty` の関数名・`Option` の語の定数）は research.md の「Recommendations for Design Phase」にある。
