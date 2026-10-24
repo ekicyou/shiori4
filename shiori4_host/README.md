@@ -24,6 +24,8 @@ v4 と v3 互換モードの DLL を同じ手順で読みたいときは `load_g
 
 使用例、スレッドモデル、設計方針は [docs.rs](https://docs.rs/shiori4_host) のクレートのドキュメントにあります。
 
+規約の理由や書き方の手引きは [shiori4 の ABI の教科書](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/README.md) にあります（読む順は目次にあります）。ID・ヘッダ名・ステータスの語は [語の表と確定の範囲](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/vocabulary.md) に、SHIORI を別のプロセスで動かすときの注意は [別のプロセスの注意](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/process.md) に、CI で SHIORI を試す方法は [試験用のホストの使い方](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/testhost.md) にあります。
+
 ## ライセンス
 
 MIT ライセンスです。本文はクレートに同梱の [LICENSE](https://github.com/ekicyou/shiori4/blob/main/shiori4_host/LICENSE) にあります。

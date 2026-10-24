@@ -25,6 +25,8 @@ SHIORI 作者です。
 
 使用例、v3 と v4 の扱いの違い、設計方針は [docs.rs](https://docs.rs/shiori4) のクレートのドキュメントにあります。
 
+規約の理由や書き方の手引きは [shiori4 の ABI の教科書](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/README.md) にあります（読む順は目次にあります）。SHIORI の DLL の名前と置き場所は [配布の決まり](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/distribution.md) に、SHIORI/3.0 からの移り方は [移行の手引き](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/migration.md) にあります。
+
 ## ライセンス
 
 MIT ライセンスです。本文はクレートに同梱の [LICENSE](https://github.com/ekicyou/shiori4/blob/main/shiori4/LICENSE) にあります。

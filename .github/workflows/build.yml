@@ -73,3 +73,86 @@ jobs:
       - uses: actions/checkout@v6
       - name: Release scripts test
         run: pwsh -NoProfile -File .github/scripts/release/release-scripts-test.ps1
+
+  textbook:
+    name: textbook-${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build testghost and shiori4-testhost
+        shell: bash
+        run: |
+          cargo build --manifest-path testdata/testghost/Cargo.toml --target-dir target/testghost
+          cargo build -p shiori4_host --example shiori4-testhost
+      # SHIORI は静的 CRT（/MT）の DLL（9.3）
+      - name: Build C examples (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSDIR=%%i"
+          if not defined VSDIR exit /b 1
+          call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          if not exist target\textbook mkdir target\textbook || exit /b 1
+          set "CL_FLAGS=/nologo /std:c11 /utf-8 /W4 /WX /I shiori4_abi\include /Fotarget\textbook\"
+          cl %CL_FLAGS% /MT /LD doc\textbook\c\minimal_shiori.c /Fetarget\textbook\minimal_shiori.dll || exit /b 1
+          cl %CL_FLAGS% /MT /LD doc\textbook\c\versioned_shiori.c /Fetarget\textbook\versioned_shiori.dll || exit /b 1
+          cl %CL_FLAGS% doc\textbook\c\minimal_host.c /Fetarget\textbook\minimal_host.exe || exit /b 1
+      - name: Build C examples (Linux, macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/textbook
+          cflags="-std=c11 -Wall -Wextra -Werror -I shiori4_abi/include"
+          if [ "$RUNNER_OS" = macOS ]; then so="-dynamiclib"; ext=dylib; dl=""; else so="-shared -fPIC"; ext=so; dl="-ldl"; fi
+          for n in minimal_shiori versioned_shiori; do
+            cc $cflags $so -o "target/textbook/lib$n.$ext" "doc/textbook/c/$n.c"
+          done
+          cc $cflags -o target/textbook/minimal_host doc/textbook/c/minimal_host.c $dl
+      - name: Round trips
+        shell: bash
+        run: |
+          set -euo pipefail
+          # ghost dir: absolute, OS form, trailing separator (relative paths are InvalidPath)
+          case "$RUNNER_OS" in
+            Windows) ws="$(cygpath -w "$GITHUB_WORKSPACE")\\"; s='\'; pre=; ext=dll; exe=.exe ;;
+            macOS) ws="$GITHUB_WORKSPACE/"; s=/; pre=lib; ext=dylib; exe= ;;
+            *) ws="$GITHUB_WORKSPACE/"; s=/; pre=lib; ext=so; exe= ;;
+          esac
+          testhost="${ws}target${s}debug${s}examples${s}shiori4-testhost$exe"
+          chost="${ws}target${s}textbook${s}minimal_host$exe"
+          testghost="${ws}target${s}testghost${s}debug${s}${pre}testghost.$ext"
+          minimal="${ws}target${s}textbook${s}${pre}minimal_shiori.$ext"
+          versioned="${ws}target${s}textbook${s}${pre}versioned_shiori.$ext"
+          faildir="${ws}fail${s}"
+          failed=0
+          # expect <exit status> <command...>: runs it, prints its output, keeps the output in $out
+          expect() {
+            local want=$1; shift
+            echo "::group::$* (expect $want)"
+            set +e; out=$("$@" 2>&1); rc=$?; set -e
+            printf '%s\n' "$out"
+            echo "::endgroup::"
+            if [ "$rc" -ne "$want" ]; then
+              echo "::error::exit $rc (expected $want): $*"
+              failed=1
+            fi
+          }
+          expect 0 "$chost" "$testghost" "$ws"
+          if ! grep -q '^Value: testghost' <<<"$out"; then
+            echo "::error::C host x testghost: output has no 'Value: testghost'"
+            failed=1
+          fi
+          expect 0 "$testhost" "$minimal" "$ws"
+          expect 0 "$testhost" "$versioned" "$ws"
+          expect 0 "$testhost" "$testghost" "$ws"
+          expect 3 "$testhost" "$testghost" "$faildir"
+          expect 0 "$testhost" --entry v3 "$versioned" "$ws"
+          expect 0 "$testhost" --entry v3 "$testghost" "$ws"
+          exit "$failed"

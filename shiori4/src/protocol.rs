@@ -455,6 +455,95 @@ pub enum SetPropertyError {
 
 /// SHIORI が Tag を発行し、登録してから post する（完了イベントとの競合を防ぐ）
 /// 任意のスレッドから使える（T: Send なら Sync）
+///
+/// # 例: post → Tag → OnHostComplete（post の完了通知 1・3）
+///
+/// 受付 ID（Tag）は SHIORI が発行し、文脈を登録してから post する（post の完了通知 1）。
+/// 完了はホストのイベントループから `OnHostComplete` として届く（post の完了通知 3）ので、
+/// ワーカーのスレッドで post した場合には、post が返ってから登録するまでの間に、SHIORI のスレッドへ完了が届くことがある。
+/// post が返ってから登録したのでは、その完了の文脈が見つからない。[`PendingTags::post`] は
+/// 登録してから post し、受け付けられなければ登録を取り消す。
+/// この例は偽のホストで往復を実行して確かめている。
+///
+/// ```
+/// use shiori4::protocol::{
+///     host_complete, send_post, HeaderWriter, Headers, HostComplete, PendingTags, HEADER_VALUE,
+///     OUTCOME_COMPLETED,
+/// };
+/// # use std::sync::Mutex;
+/// # #[derive(Default)]
+/// # struct FakeHost {
+/// #     posts: Mutex<Vec<String>>,
+/// # }
+/// # impl shiori4::ShioriHost for FakeHost {
+/// #     fn request(&self, _req: &[u8]) -> shiori4::ShioriResponse {
+/// #         shiori4::ShioriResponse::no_content()
+/// #     }
+/// #     // post を受け付けて覚えておく。完了は post の中では届けない（post の完了通知 3）
+/// #     fn post(&self, msg: &[u8]) -> shiori4::ShioriStatus {
+/// #         self.posts.lock().unwrap().push(String::from_utf8(msg.to_vec()).unwrap());
+/// #         shiori4::SHIORI_204_NO_CONTENT
+/// #     }
+/// # }
+///
+/// struct TalkGhost {
+///     poster: shiori4::ShioriHostPoster,
+///     /// Tag ごとの文脈（ここでは何のための post か）
+///     tags: PendingTags<String>,
+/// }
+///
+/// impl shiori4::Ghost for TalkGhost {
+///     const SUPPORTS_V3: bool = false;
+///
+///     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, shiori4::ShioriStatus> {
+///         let host = host.ok_or(shiori4::SHIORI_E_UNSUPPORTED)?;
+///         Ok(Self { poster: host.poster(), tags: PendingTags::new() })
+///     }
+///
+///     fn request(&mut self, req: &str) -> shiori4::ShioriResponse {
+///         let h = Headers::parse(req);
+///         match h.id() {
+///             Some("OnBoot") => {
+///                 // Tag は post が付ける。headers には Tag 以外（Command を含む）を渡す
+///                 let headers = send_post("\\0こんにちは\\e", &[], None);
+///                 match self.tags.post(&self.poster, "あいさつ".to_owned(), &headers) {
+///                     Ok(_tag) => shiori4::ShioriResponse::no_content(),
+///                     Err(_) => shiori4::ShioriResponse::error(),
+///                 }
+///             }
+///             Some("OnHostComplete") => {
+///                 let (Some(c), Some((_tag, what))) = (HostComplete::parse(&h), self.tags.take_from(&h))
+///                 else {
+///                     // 知らない Tag（二度目の完了など）は文脈が無い
+///                     return shiori4::ShioriResponse::no_content();
+///                 };
+///                 let script = format!("\\0{what}は{}\\e", c.outcome.unwrap_or("?"));
+///                 HeaderWriter::new().push(HEADER_VALUE, &script).into_response()
+///             }
+///             _ => shiori4::ShioriResponse::no_content(),
+///         }
+///     }
+/// }
+///
+/// static API: shiori4::ShioriApi =
+///     shiori4::ShioriApi::new::<shiori4::Adapter<TalkGhost>, { shiori4::SHIORI_ABI_VERSION }>();
+///
+/// let host = shiori4::ShioriHostBox::new(FakeHost::default());
+/// let mut inst = API.load(&host, "/ghost").expect("load");
+/// inst.request("ID: OnBoot\r\n").expect("abi");
+///
+/// // 偽のホスト: 受け取った post の Tag を写して OnHostComplete を組み、request で届ける
+/// let post = host.host().posts.lock().unwrap().pop().expect("post");
+/// assert!(post.starts_with("Tag: 1\r\nCommand: SEND\r\n"));
+/// let done = host_complete(&post, "fake", shiori4::SHIORI_200_OK, &[OUTCOME_COMPLETED], None)
+///     .expect("Tag 付きの post");
+/// let r = inst.request(&done).expect("abi");
+/// assert_eq!(r.body.as_str().unwrap(), "Value: \\0あいさつはcompleted\\e\r\n");
+///
+/// // 文脈は取り出すと消える。同じ完了がもう一度来ても取り戻せない
+/// let r = inst.request(&done).expect("abi");
+/// assert_eq!(r.status, shiori4::SHIORI_204_NO_CONTENT);
+/// ```
 pub struct PendingTags<T> {
     next: AtomicU64,
     map: Mutex<HashMap<u64, T>>,
