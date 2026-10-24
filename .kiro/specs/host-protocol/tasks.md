@@ -38,7 +38,7 @@
   - _Requirements: 1.1, 1.6, 2.3, 10.3, 11.1_
 
 - [ ] 3. 便利関数: 語に合わせた組み立てと読み分け
-- [ ] 3.1 (P) 新しい語の定数と、SHIORI 側の要求と post の組み立てを足す
+- [x] 3.1 (P) 新しい語の定数と、SHIORI 側の要求と post の組み立てを足す
   - getproperty・setproperty・OnHostComplete の ID、必須ヘッダ、post のヘッダ、`SEND`／`NOTIFY`、`Option` の 3 語、`forbidden`、`completed`／`interrupted`、`internal`、`local` の定数を足す（`property` の定数は 5.1 で消す）
   - getproperty・setproperty の要求と、SEND・NOTIFY の post を design.md の Data Contracts の並びで組み立てる（Tag の有無、Option が 2 つ以上ならカンマ区切り、値の CR・LF を除く）
   - 知らない `Option` の語も判定せずにそのまま載せる

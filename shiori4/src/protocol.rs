@@ -124,14 +124,82 @@ impl HeaderWriter {
 // ホストとの間のメッセージ名
 // ============================================================
 
+// 文書（doc/host-protocol.md）の第 8 章と同じ綴り
 pub const ID_PROPERTY: &str = "property";
+pub const ID_GETPROPERTY: &str = "getproperty";
+pub const ID_SETPROPERTY: &str = "setproperty";
+pub const ID_HOST_COMPLETE: &str = "OnHostComplete";
+pub const HEADER_ID: &str = "ID";
+pub const HEADER_SENDER: &str = "Sender";
+pub const HEADER_SENDER_TYPE: &str = "SenderType";
+pub const HEADER_SECURITY_LEVEL: &str = "SecurityLevel";
+pub const HEADER_SECURITY_ORIGIN: &str = "SecurityOrigin";
 pub const HEADER_VALUE: &str = "Value";
-
 pub const HEADER_COMMAND: &str = "Command";
 pub const HEADER_TAG: &str = "Tag";
-
-pub const ID_HOST_COMPLETE: &str = "OnHostComplete";
+pub const HEADER_SCRIPT: &str = "Script";
+pub const HEADER_EVENT: &str = "Event";
+pub const HEADER_OPTION: &str = "Option";
 pub const HEADER_STATUS: &str = "Status";
+pub const HEADER_REASON: &str = "Reason";
+pub const COMMAND_SEND: &str = "SEND";
+pub const COMMAND_NOTIFY: &str = "NOTIFY";
+pub const OPTION_NOBREAK: &str = "nobreak";
+pub const OPTION_NOTRANSLATE: &str = "notranslate";
+pub const OPTION_STRICT: &str = "strict";
+pub const REASON_FORBIDDEN: &str = "forbidden";
+pub const OUTCOME_COMPLETED: &str = "completed";
+pub const OUTCOME_INTERRUPTED: &str = "interrupted";
+pub const SENDER_TYPE_INTERNAL: &str = "internal";
+pub const SECURITY_LEVEL_LOCAL: &str = "local";
+
+// ============================================================
+// SHIORI 側: 要求と post の組み立て
+// ============================================================
+
+/// `ID: getproperty` / `Reference0: <名前>`
+pub fn getproperty_request(name: &str) -> String {
+    HeaderWriter::new().push(HEADER_ID, ID_GETPROPERTY).push("Reference0", name).finish()
+}
+
+/// `ID: setproperty` / `Reference0: <名前>` / `Reference1: <値>`
+pub fn setproperty_request(name: &str, value: &str) -> String {
+    HeaderWriter::new()
+        .push(HEADER_ID, ID_SETPROPERTY)
+        .push("Reference0", name)
+        .push("Reference1", value)
+        .finish()
+}
+
+/// `Command: SEND` / [`Tag`] / `Script` / [`Option: a,b`]
+pub fn send_post(script: &str, options: &[&str], tag: Option<&str>) -> String {
+    let w = post_head(COMMAND_SEND, tag).push(HEADER_SCRIPT, script);
+    post_options(w, options).finish()
+}
+
+/// `Command: NOTIFY` / [`Tag`] / `Event` / `Reference0..` / [`Option: a,b`]
+pub fn notify_post(event: &str, refs: &[&str], options: &[&str], tag: Option<&str>) -> String {
+    let w = post_head(COMMAND_NOTIFY, tag).push(HEADER_EVENT, event);
+    let w = refs.iter().enumerate().fold(w, |w, (i, r)| w.push(&format!("Reference{i}"), r));
+    post_options(w, options).finish()
+}
+
+fn post_head(command: &str, tag: Option<&str>) -> HeaderWriter {
+    let w = HeaderWriter::new().push(HEADER_COMMAND, command);
+    match tag {
+        Some(t) => w.push(HEADER_TAG, t),
+        None => w,
+    }
+}
+
+/// 語は判定せずにそのまま載せる（知らない語も含む）
+fn post_options(w: HeaderWriter, options: &[&str]) -> HeaderWriter {
+    if options.is_empty() {
+        w
+    } else {
+        w.push(HEADER_OPTION, &options.join(","))
+    }
+}
 
 // ============================================================
 // プロパティ
@@ -308,6 +376,52 @@ mod tests {
     fn header_writer_strips_newlines() {
         let s = HeaderWriter::new().push("Value", "a\r\nb").push_raw("X: 1\r\n\r\n").finish();
         assert_eq!(s, "Value: ab\r\nX: 1\r\n");
+    }
+
+    #[test]
+    fn property_requests() {
+        assert_eq!(getproperty_request("baseware.name"), "ID: getproperty\r\nReference0: baseware.name\r\n");
+        assert_eq!(
+            setproperty_request("a.b", "x\r\ny"),
+            "ID: setproperty\r\nReference0: a.b\r\nReference1: xy\r\n"
+        );
+    }
+
+    #[test]
+    fn send_posts() {
+        assert_eq!(send_post(r"\0hi\e", &[], None), "Command: SEND\r\nScript: \\0hi\\e\r\n");
+        assert_eq!(
+            send_post("a\r\nb\nc", &[OPTION_NOBREAK], Some("42")),
+            "Command: SEND\r\nTag: 42\r\nScript: abc\r\nOption: nobreak\r\n"
+        );
+        // 知らない語もそのまま載せる
+        assert_eq!(
+            send_post("x", &[OPTION_NOBREAK, "unknownword"], Some("t-1")),
+            "Command: SEND\r\nTag: t-1\r\nScript: x\r\nOption: nobreak,unknownword\r\n"
+        );
+    }
+
+    #[test]
+    fn notify_posts() {
+        assert_eq!(notify_post("OnX", &[], &[], None), "Command: NOTIFY\r\nEvent: OnX\r\n");
+        assert_eq!(
+            notify_post("OnX", &["a", "b\nc"], &[OPTION_NOTRANSLATE, OPTION_STRICT], Some("7")),
+            "Command: NOTIFY\r\nTag: 7\r\nEvent: OnX\r\nReference0: a\r\nReference1: bc\r\nOption: notranslate,strict\r\n"
+        );
+    }
+
+    #[test]
+    fn shiori_side_builders_have_no_charset() {
+        let all = [
+            getproperty_request("a"),
+            setproperty_request("a", "b"),
+            send_post("s", &[OPTION_NOBREAK], Some("1")),
+            notify_post("e", &["r"], &[OPTION_STRICT], Some("1")),
+        ];
+        for s in all {
+            assert!(!s.is_empty());
+            assert!(!s.to_ascii_lowercase().contains("charset"), "{s}");
+        }
     }
 
     /// Reference0 が "a" なら 200 + Value、それ以外は 204。post は全文を覚える
