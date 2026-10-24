@@ -286,7 +286,7 @@ sequenceDiagram
 | 1. 書式 | `名前: 値`・CRLF・ヘッダ部分だけ（開始行と終端の空行が無い）・Charset を付けない（abi-conventions）・受け手は大文字小文字を区別せず送り手は ukadoc の綴り | 1.3, 1.7 |
 | 2. v4 の要求と応答 | SHIORI/3.0 と同じ語（違いは開始行と Charset）、必須ヘッダ 5 つ、状況によるヘッダ、post 起点の要求の `SenderType`（`internal,raise`／`internal`）と `SecurityLevel: local` の表、`version`・`name`・`craftman`・`craftmanw`、ABI の版を載せないこと | 5.1〜5.6 |
 | 3. プロパティ | getproperty・setproperty の要求と応答、`property` からの改名と互換なし、名前の決まり（ukadoc の名前・接頭辞・大文字小文字）、値の改行の除去、一覧は ukadoc | 2.1〜2.6 |
-| 4. post | 同じプロセスからの SSTP、SEND・NOTIFY、宛先の固定、`Option`（効く語・読まない語・知らない語・カンマ区切り）、戻り値は受付だけ、`Tag` の性質（値は `:` の後の空白を除いたもの。送り手は値の前後に空白を置かない）、要るヘッダ | 3.1〜3.8 |
+| 4. post | 同じプロセスからの SSTP、SEND・NOTIFY、宛先の固定、`Option`（効く語・読まない語・知らない語・カンマ区切り）、戻り値は受付だけ、`Tag` の性質、要るヘッダ | 3.1〜3.8 |
 | 5. 割り込みと待ち | 既定は割り込み・`nobreak` で待つ・新しいヘッダを作らない、優先度、列はホストの仕事、割り込まれた側への知らせ（3 つの場合の表）、`OnBalloonBreak` を使わない理由、NOTIFY への適用 | 4.1〜4.6 |
 | 6. OnHostComplete | 届け方の既定、共通ヘッダ、SEND と NOTIFY の結果の表（200／204／400）、204 の例、応答の台本の扱いとその理由、`Status` の意味の別、1 対 1、終了の前 | 6.1〜6.9 |
 | 7. 拒否とエラー | 400 ＋ `Reason: forbidden`、403 を足さない理由、`Reason` の読み分けの表（無し＝不正（未対応を含む）・`forbidden`＝拒否・未知＝理由不明の拒否）、当てはまる所（host.request の応答と OnHostComplete）、500 はホストの中の失敗、芯の既定は 400 | 7.1〜7.5 |
@@ -295,7 +295,7 @@ sequenceDiagram
 | 付録 B. ukadoc の参照先 | SHIORI/3.0（`spec_shiori3.html`）、SSTP（`spec_sstp.html` の SEND・NOTIFY・Option）、プロパティシステム（`list_propertysystem.html`）、`OnBalloonBreak`（`list_shiori_event.html`） | 1.6 |
 
 **Implementation Notes**
-- Validation: 要件 1〜7 の各 AC を、章の中の 1 文以上で満たす。文書を書くタスクの完了条件に「要件 1.1〜7.5 の AC を 1 つずつ照らし、対応する章と文を一覧にする」を入れ、レビューはその一覧で照合する。
+- Validation: 要件 1〜7 の各 AC を、章の中の 1 文以上で満たす。レビューでは requirements.md の AC を順に照らす。
 - Risks: 第 2 章の必須ヘッダの並び（ukadoc は `SecurityLevel` を「少なくとも ID より前」とする）を文書に書くかは、ukadoc の参照で足りる。文書は「ukadoc どおり」と書き、`host_complete` の lead で前に置けるようにする。
 
 ### SHIORI 側の芯
@@ -633,7 +633,7 @@ impl<T> PendingTags<T> {
 ### HelperCrate（`shiori4_helper/src/lib.rs`）
 - 組み立ての表のテスト: `getproperty_request`・`setproperty_request`・`send_post`（Option 0・1・2 個、Tag の有無、Script の改行の除去）・`notify_post` の出力が Data Contracts の並びと一字一句一致する（10.4、3.5）。
 - `getproperty_response`（値の改行の除去、None で 204）・`rejection_response`（Reason の有無）（10.5、2.5）。
-- `host_complete`: Tag の値を変えずに写す（`Tag: abc-01` のような数でない値。`Tag:  abc` は `abc` として写す）、Command を Reference0 に、lead が ID より前、Reason の有無、Tag の無い post で None（10.6、3.7、5.4）。
+- `host_complete`: Tag の値を変えずに写す（`Tag: abc-01` のような数でない値）、Command を Reference0 に、lead が ID より前、Reason の有無、Tag の無い post で None（10.6、3.7、5.4）。
 - 読み分け: `Rejection::from_reason`（None・`forbidden`・未知の語）、`Rejection::of`（400 以外は None）、`HostComplete::parse`（SEND 200 completed・204・400 forbidden・ID 違い・Status 無し）（7.3、6.2〜6.5）。知らない Command・Option の語を拒まない（10.9）。
 - `PendingTags`: `register` → `take` の往復、`post` の失敗で登録が消える、`take_from` の往復（10.7）。`Properties::set_on_host`: 204 でキャッシュ更新、400 ＋ forbidden で `Rejected(Forbidden)`、v3 で `Offline`（10.8。`ShioriHostBox` に載せたテスト用の `ShioriHost` で応答を返し分ける）。
 
@@ -664,12 +664,11 @@ impl<T> PendingTags<T> {
 | `shiori4_host::{HeaderWriter, Headers, host_protocol}` の再エクスポート | 無し。`shiori4_helper` を依存に足して使う |
 
 ## Integration & Migration Notes
-- 2 回目の連絡（要件 11.6。送るのは開発者の明示の指示による）の中身: 正本の場所（`doc/host-protocol.md` と GitHub の URL）、便利関数のモジュールの場所と主な関数（`send_post`・`notify_post`・`Rejection`・`HostComplete`・`host_complete` の lead・`PendingTags::register`）、照合で足した語（requirements.md の「pasta・areka の照合で足したもの」1〜11）と設計で足した語（`Tag` の値の前後に空白を置かない）、上の移行の一覧、crates.io に出る版は `/release` の後に別に知らせること。
-- `/release` の後のお知らせでは、版に固定した URL（`https://github.com/ekicyou/shiori4/blob/v0.0.2/doc/host-protocol.md`）を示す。クレートの doc と README は `main` を指したまま、文書の第 0 章の版の記述で当てはまる版を示す（`main` には未公開の語が載りうるため）。
+- 2 回目の連絡（要件 11.6。送るのは開発者の明示の指示による）の中身: 正本の場所（`doc/host-protocol.md` と GitHub の URL）、便利関数のクレート `shiori4_helper` と主な関数（`send_post`・`notify_post`・`Rejection`・`HostComplete`・`host_complete` の lead・`PendingTags::register`）、照合で足した語（requirements.md の「pasta・areka の照合で足したもの」1〜11）、上の移行の一覧、crates.io に出る版は `/release` の後に別に知らせること。
 - 実装の順: ① `shiori4_helper` を作り移す（芯からの参照を残したまま）→ ② `shiori4` の芯を原文に替える → ③ `shiori4_host` の芯を替える → ④ テスト・testghost・doc・README → ⑤ 文書 → ⑥ steering。①〜③はコンパイルが通る単位で 1 つのタスクにまとめてよい。
 
 ## Open Questions（設計ディスカッションで確定させる）
-入力（requirements.md・research.md）だけでは決め切れず、仮定を置いて書いた所。2〜9 は 2026-10-24 に開発者が推奨案（仮定のまま）で確定した。8 は文書の第 4 章とテストに入れ、2 回目の連絡に含める。検証の重大課題 1（文書の中身の照合）は HostProtocolSpec の Validation に、2（版の固定）は Integration & Migration Notes に反映した。1 は議論中。
+入力（requirements.md・research.md）だけでは決め切れず、仮定を置いて書いた所。本文はそれぞれ「仮定」の案で書いてある。 1 は 2026-10-24 の設計ディスカッションで確定した。
 
 1. **便利関数の置き場所**（確定）: 新しいクレート `shiori4_helper`（依存は `shiori4_abi` だけ）。当初の仮定 `shiori4::host_protocol` から、開発者の指摘（SHIORI 側とホスト側の両方で使う）で変えた。芯が依存しないことをコンパイラが守り、pasta は `shiori4` を入れずに使える。代わりに公開するクレートが 4 つになり、リリースの道具の更新と初回の手元からの公開が要る。
 2. **完了通知の口の形**: 仮定は `Completer` を残して `complete_with(delivery, headers)` だけにする。代案は `complete` への改名、または `Completer` を消して `EventSender` を渡す。推奨は仮定のまま（brief の語と一致し、移行が小さい）。
