@@ -280,3 +280,78 @@ NOTIFY の完了の `Reference1` は無しとする。
 ホストは、ホストの中の失敗（IPC が切れた、など答えを作れないとき）を 500 で返してよい。400 は SHIORI の誤り（不正・拒否）を表し、500 とは区別する。
 
 ホストの実装が要求に答えないときの shiori4_host の芯の既定の応答は 400 のままとする（このホストでは扱えない）。
+
+## 8. 語の一覧
+
+この文書の語（ID・ヘッダ名・値の語）と、便利関数 `shiori4::protocol`（`shiori4_host::protocol` からも使える）の定数名の対応である。定数の値は、この表の語と同じ綴りである。便利関数を使わない実装は、この表の語をそのまま書けばよい。
+
+| 種類 | 語 | 定数名 |
+|------|----|--------|
+| ID | `getproperty` | `ID_GETPROPERTY` |
+| ID | `setproperty` | `ID_SETPROPERTY` |
+| ID | `OnHostComplete` | `ID_HOST_COMPLETE` |
+| ヘッダ名 | `ID` | `HEADER_ID` |
+| ヘッダ名 | `Sender` | `HEADER_SENDER` |
+| ヘッダ名 | `SenderType` | `HEADER_SENDER_TYPE` |
+| ヘッダ名 | `SecurityLevel` | `HEADER_SECURITY_LEVEL` |
+| ヘッダ名 | `SecurityOrigin` | `HEADER_SECURITY_ORIGIN` |
+| ヘッダ名 | `Value` | `HEADER_VALUE` |
+| ヘッダ名 | `Command` | `HEADER_COMMAND` |
+| ヘッダ名 | `Tag` | `HEADER_TAG` |
+| ヘッダ名 | `Script` | `HEADER_SCRIPT` |
+| ヘッダ名 | `Event` | `HEADER_EVENT` |
+| ヘッダ名 | `Option` | `HEADER_OPTION` |
+| ヘッダ名 | `Status` | `HEADER_STATUS` |
+| ヘッダ名 | `Reason` | `HEADER_REASON` |
+| `Command` の値 | `SEND` | `COMMAND_SEND` |
+| `Command` の値 | `NOTIFY` | `COMMAND_NOTIFY` |
+| `Option` の値 | `nobreak` | `OPTION_NOBREAK` |
+| `Option` の値 | `notranslate` | `OPTION_NOTRANSLATE` |
+| `Option` の値 | `strict` | `OPTION_STRICT` |
+| `Reason` の値 | `forbidden` | `REASON_FORBIDDEN` |
+| `OnHostComplete` の `Reference1` の値 | `completed` | `OUTCOME_COMPLETED` |
+| `OnHostComplete` の `Reference1` の値 | `interrupted` | `OUTCOME_INTERRUPTED` |
+| `SenderType` の値 | `internal` | `SENDER_TYPE_INTERNAL` |
+| `SecurityLevel` の値 | `local` | `SECURITY_LEVEL_LOCAL` |
+
+- 0.0.1 の `ID: property` の定数（`ID_PROPERTY`）は無い（第 3.3 節）。
+- `Reference*`・`SecurityOrigin: null`・`SenderType` の `raise` など、この表に無い語にも定数は無い。綴りは本文と ukadoc のとおりに書く。
+
+## 付録 A. 0.0.1 からの移行
+
+shiori4 0.0.1 から 0.0.2 への変更の一覧である。語の変更は 1 つで、残りは API の変更である。
+
+### A.1 語の変更
+
+| 0.0.1 | 0.0.2 |
+|-------|-------|
+| `ID: property` | `ID: getproperty`（`property` は受けない。第 3.3 節） |
+
+### A.2 API の変更
+
+| 0.0.1 | 0.0.2 |
+|-------|-------|
+| `shiori4::{Headers, HeaderWriter, Properties, Lookup, PendingTags}` | `shiori4::protocol::{…}` |
+| `shiori4::host_protocol::ID_PROPERTY` | `shiori4::protocol::ID_GETPROPERTY`（と `ID_SETPROPERTY` ほかの新しい定数。第 8 章） |
+| `Ghost::request(&mut self, &Headers)`／`notify(&mut self, &Headers)` | `request(&mut self, &str)`／`notify(&mut self, &str)`。解析は `protocol::Headers::parse(req)` |
+| `shiori4::v3::parse_request -> (Method, Headers)` | `-> (Method, &str)` |
+| `Host::property(&self, &str) -> Option<String>` | 削除。`Host::request` で `getproperty` に答える（`protocol::getproperty_response`） |
+| `Host::request(&self, &Headers) -> Option<ShioriResponse>`（None で組み込みへ） | `Host::request(&self, &str) -> ShioriResponse`（既定 400） |
+| `Host::accept_post(&self, &Headers) -> bool`（既定は `Command` の有無） | `accept_post(&self, &str) -> bool`（既定 true） |
+| `Post::headers`・`command`・`tag`・`wants_result` | 削除。`protocol::Headers::parse(post.text())` |
+| `Completer::tag`・`is_wanted`・`complete(delivery, status, refs)` | 削除。`protocol::host_complete(..)` → `Completer::complete_with` |
+| `Completer::complete_with`（Tag を自動で先頭に足す。Tag 無しは送らない） | 全文をそのまま届ける（何も足さない・検査しない） |
+| `Event::parsed`・`Event::id` | 削除。`protocol::Headers::parse(&ev.headers)` |
+| `shiori4_host::{HeaderWriter, Headers, host_protocol}` の再エクスポート | `shiori4_host::protocol::{…}` |
+| （無し） | `Host::name(&self) -> &str`（必須） |
+
+## 付録 B. ukadoc の参照先
+
+この文書が語をそのまま使う ukadoc の頁である。語の意味はこれらの頁のとおりとする。
+
+| 頁 | URL | この文書で使う所 |
+|----|-----|------------------|
+| SHIORI/3.0 | <https://ssp.shillest.net/ukadoc/manual/spec_shiori3.html> | 書式・ヘッダの名前と意味・ステータスコード（第 1・2・7 章）。要求は `#request`、応答は `#response` の節。`SecurityLevel` の位置、`SenderType` の語、`SecurityOrigin` の形 |
+| SSTP | <https://ssp.shillest.net/ukadoc/manual/spec_sstp.html> | post の語（第 4・5 章）。SEND は `#method_send`、NOTIFY は `#method_notify` の節。`Option` の `nobreak`・`notranslate`・`nodescript`・`strict` |
+| プロパティシステム | <https://ssp.shillest.net/ukadoc/manual/list_propertysystem.html> | プロパティの名前と一覧（第 3 章） |
+| イベント一覧 | <https://ssp.shillest.net/ukadoc/manual/list_shiori_event.html> | ホストが送るイベント（第 2 章）、`OnBalloonBreak`（第 5 章） |
