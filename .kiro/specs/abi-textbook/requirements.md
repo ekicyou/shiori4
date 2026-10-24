@@ -50,7 +50,7 @@ brief.md で決め切れていない所は、要件を最善の推定で書き�
 #### Acceptance Criteria
 1. The ABI の教科書 shall 日本語で書かれ、全体図 → 最小の例 → 番号付きの規約の一覧 → host-protocol の語の表 → 細部（docs.rs の例・C ヘッダの説明・移行の手引き・配布の決まり）の順に読めるよう道案内を持つ。
 2. The ABI の教科書 shall 規約の文を、C ヘッダ冒頭と `shiori4_abi` の `//!` の文言のまま引き、語を、`doc/host-protocol.md` の綴りのまま引く。
-3. If 教科書を書く中で、正本の規約や語に欠け・食い違い・二通りに読める所が見つかったら, the ABI の教科書 shall その場で規約や語を決めず、未決のものとして記録して上流（abi-conventions・host-protocol の持ち場）へ申し送る。
+3. If 教科書を書く中で、正本の規約や語に欠け・食い違い・二通りに読める所が見つかったら, the ABI の教科書 shall その場で規約や語を決めず、未決のものとして記録して開発者の裁定へ回す（上流の abi-conventions・host-protocol は完了済みなので、直すときは新しい spec か修正の PR になる）。
 4. The ABI の教科書 shall それが当てはまる shiori4 の版を述べ、公開された版の内容はその版のタグの文書で読むことを述べる（`doc/host-protocol.md` 第 0 章と同じ扱い）。
 5. The ABI の教科書 shall 読み物を、docs.rs 以外のドキュメントサイトを使わずに、shiori4 リポジトリの中の文書（GitHub で読める形）と docs.rs のクレートのドキュメントで提供する。【仮定 Q1】読み物の本文はリポジトリの中の文書に置き、docs.rs と README からそこへ導く。
 
@@ -88,7 +88,7 @@ brief.md で決め切れていない所は、要件を最善の推定で書き�
 **Objective:** As a ベースウェアの作者, I want ID・ヘッダ・ステータス・Reason の語の表と、どの語が確定でどれが変わりうるかの一覧があること, so that 自分の実装が依存してよい語を、版ごとに見分けられる（hearing 1・8）
 
 #### Acceptance Criteria
-1. The 語の表 shall ID・ヘッダ名・ステータス・`Reason` の語を、`doc/host-protocol.md` 第 8 章の語と定数名の対応に沿って一覧にし、各語から正本の章・節へ導く。
+1. The 語の表 shall ID・ヘッダ名・ステータス・`Reason` の語を、`doc/host-protocol.md` 第 8 章の語と定数名の対応に沿って一覧にし、各語から正本の章・節へ導く。第 8 章に行の無いステータスは、`shiori4_abi` の定数名（`SHIORI_<コード>_<理由>`・`SHIORI_E_*`）と、それを使う `doc/host-protocol.md` の節から引く。
 2. The 語の表 shall 語を写すときに綴りを変えず、語の意味は `doc/host-protocol.md` と ukadoc の参照先（付録 B）に委ねる。
 3. The 確定の範囲の一覧 shall shiori4 の版ごとに、どの語と API が確定で、どれが変わりうるかを示す。
 4. The 確定の範囲の一覧 shall 0.0.1 から 0.0.2 への変更を、`doc/host-protocol.md` 付録 A を起点にして示す。
@@ -119,7 +119,7 @@ brief.md で決め切れていない所は、要件を最善の推定で書き�
 **Objective:** As a ベースウェアの作者（areka）, I want 読み込み・post・完了通知・プロパティ・unload・テストの書き方の例が docs.rs にあること, so that ホストの責任を一通り規約どおりに果たせる（hearing 3）
 
 #### Acceptance Criteria
-1. The `shiori4_host` のクレートのドキュメント shall `LoadError` の値ごとに、ホストがすべきことを示す（少なくとも `NotShiori4` は旧来の SHIORI/3.0 として読む候補に回す、`LoadFailed` は読めなかったゴーストとして扱い SHIORI/3.0 として読み直さない、`Unsupported` は別の版で読み直せる）。
+1. The `shiori4_host` のクレートのドキュメント shall `LoadError` の 5 つの値（`Library`・`NotShiori4`・`Unsupported`・`InvalidPath`・`LoadFailed`）のそれぞれについて、ホストがすべきことを示す（`NotShiori4` は旧来の SHIORI/3.0 として読む候補に回す、`LoadFailed` は読めなかったゴーストとして扱い SHIORI/3.0 として読み直さない、`Unsupported` は別の版で読み直せる、を含む）。
 2. The `shiori4_host` のクレートのドキュメント shall `GhostRuntime::load` が `NotShiori4` のときに読んだライブラリを手放すこと（別の口で読み直すと DLL が 2 回読まれること）を明記し、2 回読まずに済む `GhostRuntime::from_library` と `FromLibraryError` からライブラリを取り戻す道を示す。
 3. The `shiori4_host` のクレートのドキュメント shall `Host::wake` から `GhostRuntime::pump` へのつなぎ方を、Win32 のメッセージの輪と、std の channel を使うスレッドの 2 通りで示す。【仮定 Q6】Win32 のメッセージの輪の例は、外部の依存を足さずに検査できない部分を、検査しない例であることを明示した形で示す。
 4. The `shiori4_host` のクレートのドキュメント shall `Completer` で `OnHostComplete` を返す例を、SEND の completed と interrupted、NOTIFY のそれぞれについて持つ。
