@@ -50,6 +50,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 4. The ホスト側プロトコル仕様 shall その語彙が当てはまる shiori4 の版（この spec が入る版）を述べる。
 5. The shiori4・shiori4_host の doc と README、および `host_protocol` に当たる便利関数のモジュールの doc shall ホスト側プロトコル仕様の文書を指し、語彙を「暫定」と書かない。
 6. The ホスト側プロトコル仕様 shall ukadoc（SHIORI/3.0・SSTP・プロパティシステム）の語をそのまま使う所では、ukadoc を参照先として示し、意味を書き換えない。
+7. The ホスト側プロトコル仕様 shall ヘッダ名について、受け手は大文字小文字を区別せずに読み、送り手は ukadoc の綴りで書くと定める。
 
 ### Requirement 2: プロパティの読み書きと名前の決まり
 **Objective:** As a SHIORI 実装者, I want プロパティの読みと書きの要求と応答が get / set の対で決まっていること, so that ベースウェアの状態を同期で読み、変えられる（論点 1・4）
@@ -70,8 +71,10 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 2. The ホスト側プロトコル仕様 shall `Command: SEND` ＋ `Script: <さくらスクリプト>` を「その台本を再生する」と定める。
 3. The ホスト側プロトコル仕様 shall `Command: NOTIFY` ＋ `Event: <イベント名>` ＋ `Reference*` を「ホストがそのイベントを SHIORI に送る」と定め、イベントの名前に制限を掛けないこと（台本の `\![raise]` と同じ）と、ホストが安全上の理由で特定のイベントを拒否（要件 7）してよいことを述べる。
 4. The ホスト側プロトコル仕様 shall post の宛先を「post したインスタンス」に固定し、SSTP の宛先指定（`IfGhost` など）を読まないと定める。
-5. The ホスト側プロトコル仕様 shall SEND が読む SSTP の `Option` を、`nobreak`・`notranslate`・`strict` は ukadoc どおりに効き、`nodescript` は読まず、知らない語は無視すると定める。
+5. The ホスト側プロトコル仕様 shall SEND と NOTIFY が読む SSTP の `Option` を、`nobreak`・`notranslate`・`strict` は ukadoc どおりに効き、`nodescript` は読まず、知らない語は無視し、2 つ以上なら ukadoc どおりカンマで区切ると定める。
 6. The ホスト側プロトコル仕様 shall post の戻り値は受付の可否だけ（abi-conventions の C ヘッダの「post の完了通知」）であり、結果は `Tag` を付けた post の `OnHostComplete`（要件 6）で返ると述べる。
+7. The ホスト側プロトコル仕様 shall `Tag` を中身を解釈しない文字列（CR・LF を含まない。数でなくてよい）とし、ホストは受け取った値を一字も変えずに `OnHostComplete` で返すと定める。
+8. The ホスト側プロトコル仕様 shall post に要るヘッダを `Command` と、そのコマンドのヘッダ（`Script`・`Event`・`Reference*`・`Option`・`Tag`）だけとし、SSTP の `Sender`・`Charset` は要らない（付いていてもホストは読まない）と定める。
 
 ### Requirement 4: SEND の割り込みと待ち
 **Objective:** As a SHIORI 実装者・ベースウェア実装者, I want SEND が今のトークを切るのか待つのかが SSTP と同じ既定で決まっていること, so that 3 者が同じ再生の順を前提にできる（論点 9）
@@ -82,6 +85,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 3. The ホスト側プロトコル仕様 shall 待つための列はホストの仕事であると述べる。
 4. The ホスト側プロトコル仕様 shall 割り込まれた側への知らせを次のとおり定める: 切られたトークが `Tag` 付きの SEND から始まったものなら、その `OnHostComplete` が `interrupted` を運ぶ。通常のイベントの応答として出たトークが SEND に切られたときは何も出さない。利用者の中断なら、今どおり `OnBalloonBreak` を出す。
 5. The ホスト側プロトコル仕様 shall SEND による割り込みの知らせに `OnBalloonBreak` を使わないと述べ、その理由（ukadoc では「SSTP 以外でブレイクされた際」のイベントであること）を書く。
+6. The ホスト側プロトコル仕様 shall NOTIFY で起こしたイベントへの応答の台本にも、要件 4.1〜4.2 の割り込みと待ち（既定は割り込み、`Option: nobreak` なら待つ）を当てはめると定める（ukadoc の SSTP で SEND と NOTIFY は同じ扱いのため）。
 
 ### Requirement 5: v4 の要求と応答のヘッダの語彙、SHIORI の名前と版
 **Objective:** As a SHIORI 実装者・ベースウェア実装者, I want v4 の要求・応答のヘッダとイベントの語彙が SHIORI/3.0 と同じだと決まっていること, so that 既存の SHIORI/3.0 の知識と ukadoc をそのまま使える（論点 5・6）
@@ -90,7 +94,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 1. The ホスト側プロトコル仕様 shall v4 のヘッダの名前と意味、ホストが送るイベント（ID と Reference の並び）、SHIORI の応答のヘッダ（`Value`・`ValueNotify`・`Marker`・`ErrorLevel`・`ErrorDescription` など）の名前と意味が ukadoc の SHIORI/3.0 と同じで、違いは開始行が無いことと Charset が無いことだけだと定める。
 2. The ホスト側プロトコル仕様 shall ホストが v4 の要求に必ず付けるヘッダを `ID`・`Sender`（ベースウェアの名前）・`SenderType`（ukadoc の語）・`SecurityLevel`（`local` か `external` の 2 語だけ）・`SecurityOrigin`（ukadoc の形。`null` か起点）と定める。
 3. The ホスト側プロトコル仕様 shall 状況によって付けるヘッダを、`Status`（伝える状態があるときだけ。ukadoc の語のカンマ区切り）・`BaseID`（ukadoc が定めるイベントだけ）・`Reference*` と定める。
-4. The ホスト側プロトコル仕様 shall post から起きた要求（SEND の中の `\![raise]`、NOTIFY で起こしたイベント、post の完了を知らせる `OnHostComplete`）に `SenderType: internal` と `SecurityLevel: local` を付けると定める。
+4. The ホスト側プロトコル仕様 shall post から起きた要求（SEND の中の `\![raise]`、NOTIFY で起こしたイベント、post の完了を知らせる `OnHostComplete`）に、先頭の語が `internal` の `SenderType` と `SecurityLevel: local` を付けると定める。SEND の中の `\![raise]` で起きた要求は ukadoc どおり `raise` を足し（`SenderType: internal,raise`）、NOTIFY で起こしたイベントと `OnHostComplete` は `internal` だけとする。
 5. The ホスト側プロトコル仕様 shall SHIORI の名前と版を SHIORI/3.0 と同じく、`ID: version`（ほかに `name`・`craftman`・`craftmanw`）の要求に 200 ＋ `Value:` で答え、答えなければ 204 とすると定める。
 6. The ホスト側プロトコル仕様 shall ABI の版をヘッダに載せないこと（`shiori_get_api` の引数と `abi_version` で分かるため）を述べる。
 
@@ -102,9 +106,11 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 2. The ホスト側プロトコル仕様 shall `OnHostComplete` の共通のヘッダを `ID: OnHostComplete`・`Tag`（post の `Tag` の値）・`Status`（結果のステータスコード）・`Reference0: <コマンド名>` と定める。
 3. The ホスト側プロトコル仕様 shall SEND の完了を「再生が終わった時」に出し、200（再生した。`Reference1` は `completed` か `interrupted`）・204（一度も再生せずに捨てた。`Reference1` は無し）・400（不正。拒否なら `Reason: forbidden` を付ける。要件 7）と定める。
 4. The ホスト側プロトコル仕様 shall 204 になる場合の例（`nobreak` で待っている間に終了・切り替えが来た、ホストが受けられない状態だった）を挙げる。
-5. The ホスト側プロトコル仕様 shall NOTIFY の完了を、`Reference1` は無しで、イベントを起こせたら 200、起こせなければ 400 と定める。
+5. The ホスト側プロトコル仕様 shall NOTIFY の完了を、`Reference1` は無しで、200（イベントを起こし、SHIORI がその要求に答えた。応答の台本の再生の終わりは待たない）・204（起こさずに捨てた。受けられない状態・終了・切り替え）・400（不正。拒否なら `Reason: forbidden` を付ける。要件 7）と定める。
 6. The ホスト側プロトコル仕様 shall `OnHostComplete` への応答のスクリプトを `Option: nobreak` の SEND と同じに扱う（再生中なら終わるまで待ち、待つ間に終了・切り替えが来たら捨てる）と定め、その理由（`interrupted` の通知は割り込んだトークの再生中に届くので、通常の応答と同じに扱うと割り込んだ側をさらに置き換えてしまう）を書く。
-7. The ホスト側プロトコル仕様 shall `OnHostComplete` の `Status` は結果のステータスコードを運び、要件 5.3 の ukadoc の `Status`（ベースウェアの状態）とは別の意味であることを明記する。名前は変えない（3 者で合意した並びのため）。
+7. The ホスト側プロトコル仕様 shall `OnHostComplete` の `Status` は結果のステータスコードを運び、要件 5.3 の ukadoc の `Status`（ベースウェアの状態）とは別の意味であることを明記する。名前は変えない（3 者で合意した並びのため）。ホストは `OnHostComplete` にベースウェアの状態の `Status` を付けない。
+8. The ホスト側プロトコル仕様 shall `Tag` 付きの post 1 つに `OnHostComplete` をちょうど 1 つ出すと定める。利用者が `Tag` 付きの SEND のトークを中断したときは、`OnBalloonBreak` と、その post の `OnHostComplete`（200 ＋ `interrupted`）の両方を出す。
+9. The ホスト側プロトコル仕様 shall 終了・切り替えで post を捨てたときの `OnHostComplete`（204）を、終了のイベント（`OnClose`・`OnGhostChanging` など）より前に出し、それに間に合わない unload では出さなくてよい（unload で未配送を捨てる規約どおり）と定める。
 
 ### Requirement 7: 拒否の返し方
 **Objective:** As a SHIORI 実装者・ベースウェア実装者, I want 「拒否」と「存在しない」と「不正」を応答で見分けられること, so that SHIORI が拒否に応じた振る舞いを選べる（論点 8・12）
@@ -112,8 +118,9 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 #### Acceptance Criteria
 1. The ホスト側プロトコル仕様 shall 拒否を 400 ＋ `Reason: forbidden` で返すと定め、「存在しない」の 204 と区別する。
 2. The ホスト側プロトコル仕様 shall 403 を足さないことと、その理由（ステータスを SHIORI/3.0 の集合に収め、v3 と v4 で要求と応答のコードを分けないため）を書く。
-3. The ホスト側プロトコル仕様 shall `Reason` を付けるかは任意とし、`Reason` の無い 400 は「不正」、`Reason: forbidden` は「拒否」、未知の語は「理由不明の拒否」と読むと定める。`Reason` の語は当面 `forbidden` だけとする。
+3. The ホスト側プロトコル仕様 shall `Reason` を付けるかは任意とし、`Reason` の無い 400 は「不正」（その ID・コマンドを扱えない未対応を含む）、`Reason: forbidden` は「拒否」、未知の語は「理由不明の拒否」と読むと定める。`Reason` の語は当面 `forbidden` だけとする。
 4. The ホスト側プロトコル仕様 shall 拒否の返し方が、host.request の応答（`getproperty`・`setproperty` など）と `OnHostComplete` の 400 の両方に当てはまることを述べる。
+5. The ホスト側プロトコル仕様 shall ホストの中の失敗（IPC が切れた、など答えを作れないとき）を 500 で返してよいと定め、SHIORI の誤りを表す 400 と区別する。芯の既定の応答（要件 8.3）は 400 のままとする。
 
 ### Requirement 8: ホスト側の芯から中身の解釈を外す
 **Objective:** As a ベースウェア実装者, I want `shiori4_host` の芯が SHIORI からの要求と post の中身を読まずに `Host` へ渡すこと, so that 語の扱いをすべて自分の `Host` の実装で決められ、将来中身が別の語（JSON-RPC など）に替わっても芯が邪魔をしない（方針）
@@ -162,7 +169,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 3. The 3 クレート shall 版を上げない（0.0.2 は `/release` が上げる）。
 4. The 3 クレート shall この spec の振る舞い（芯が要求・post を解析せずに渡すこと、既定で post を全部受け付けること、既定の応答、規約 2 の門が先頭に残ること、完了通知の全文の配送、芯と便利関数が Charset を付けないこと、便利関数の組み立てと解析が仕様どおりであること、`PendingTags` の往復）をテストで確かめる。
 5. The 3 クレート shall ubuntu・windows・macos の CI（`cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings`）を通す。
-6. The shiori4 の開発者 shall pasta と areka の両セッションへ 2 回知らせる: 要件の承認の後に確定した語（論点 1〜12 と、要件ディスカッションで足した `Reason` の読み分け・`OnHostComplete` のヘッダ・`Ghost`／`Host` が原文を受けること）を、設計で置き場所が決まった後に正本の場所を。送るのは開発者の明示の指示による。
+6. The shiori4 の開発者 shall pasta と areka の両セッションへ 2 回知らせる: 要件の承認の後に確定した語（論点 1〜12 と、要件ディスカッションで足した `Reason` の読み分け・`OnHostComplete` のヘッダ・`Ghost`／`Host` が原文を受けること）を、設計で置き場所が決まった後に正本の場所と、pasta・areka の照合で足した語（下の「pasta・areka の照合で足したもの」）を。送るのは開発者の明示の指示による。
 7. The steering（`tech.md`・`structure.md`） shall `host_protocol` の置き場所と「芯は中身を解釈しない」方針について、この spec の結果と食い違う記述を持たない。
 
 ## 要件ディスカッションの結果（2026-10-24 確定）
@@ -173,6 +180,23 @@ brief.md だけでは決め切れなかった所を、開発者が全議題と�
 3. **芯は原文だけを運ぶ**（要件 8.8・9.1・10.8）: `Ghost`・`Host` は原文（文字列）を受ける。`Post`・`Event`・`Completer` の解析つきメソッドと `Properties`／`Lookup` は便利関数のモジュールへ移す。
 4. **400 と `Reason` の読み分け**（要件 6.3・7.3）: `Reason` は任意。無ければ「不正」、`forbidden` は「拒否」、未知の語は「理由不明の拒否」。すべての 400 に共通。3 者の合意に足した決め事。
 5. **`OnHostComplete` のヘッダ**（要件 5.4）: post から起きた要求に含め、`SenderType: internal`・`SecurityLevel: local` を付ける。3 者の合意に足した決め事。
-6. **pasta・areka への連絡**（要件 11.6）: 要件の承認の後に語を、設計の後に置き場所を知らせる。送るのは開発者の明示の指示による。
+6. **pasta・areka への連絡**（要件 11.6）: 要件の承認の後に語を、設計の後に置き場所を知らせる。送るのは開発者の明示の指示による。1 回目は 2026-10-24 に両セッションへ送った。
+
+### pasta・areka の照合で足したもの（2026-10-24 確定）
+1 回目の連絡に両者が返した要望を、開発者が推奨案で確定した。1〜3 は 3 者の合意に足した語。
+
+1. **NOTIFY の完了に 204**（要件 6.5。areka）: 起こさずに捨てたら 204。SEND の 200／204／400 と同じ形にする。
+2. **`SenderType` は先頭の語が `internal`**（要件 5.4。両者）: `\![raise]` なら `internal,raise`。NOTIFY と `OnHostComplete` は `internal` だけ。
+3. **ホストの中の失敗は 500**（要件 7.5。areka）: 400（SHIORI の誤り）と区別する。芯の既定は 400 のまま。
+4. **`Reason` の無い 400 は未対応を含む**（要件 7.3。pasta）。
+5. **ヘッダ名の大文字小文字**（要件 1.7。pasta）: 受け手は区別しない。送り手は ukadoc の綴り。
+6. **`Tag` は解釈しない文字列で、一字も変えずに返す**（要件 3.7。pasta）。
+7. **`Tag` 付きの post 1 つに `OnHostComplete` は 1 つ**（要件 6.8。areka）: 利用者の中断では `OnBalloonBreak` と `interrupted` の両方。
+8. **終了・切り替えの 204 は終了のイベントより前**（要件 6.9。areka）: 間に合わない unload では出さない。
+9. **NOTIFY の 200 は SHIORI が答えた時。応答の台本も `nobreak` を読む**（要件 6.5・4.6・3.5。areka）。
+10. **post に要るヘッダは `Command` とそのコマンドのヘッダだけ**（要件 3.8。pasta）。
+11. **`Option` が 2 つ以上ならカンマ区切り**（要件 3.5。pasta）。
+
+知らない `Command` の扱いの推奨を注記で書く案（areka）は、brief の裁定（決め事は要らない）に従い見送った。
 
 設計フェーズへ回した事項（モジュールの名前と置き場所・文書の置き場所・C ヘッダの 1 行・v3 の私的な解析・完了通知の口の形・`setproperty` の関数名・`Option` の語の定数）は research.md の「Recommendations for Design Phase」にある。

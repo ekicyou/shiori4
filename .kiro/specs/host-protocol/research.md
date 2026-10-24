@@ -131,4 +131,10 @@
   6. 文書の置き場所と、crate doc・README・C ヘッダからの導線。
   7. C ヘッダ・`shiori4_abi` の doc の「post の完了通知」の節から正本を指す 1 行の書き方（ABI の文は変えない。要件 1.5・11.2）。
   8. SEND が読む `Option` の語（`nobreak`・`notranslate`・`strict`）を便利関数の定数に入れるか（要件 10.3 は `Option` の名前だけを挙げる）。
+  9. pasta・areka の要望（2026-10-24 の照合）:
+     - 便利関数は `ShioriHostHandle` を持たず、文字列を受けて文字列を返す形にする（例 `getproperty_request(name)`・`send_post(script, options, tag: Option<&str>)`）。`Properties`・`PendingTags` はその上に載せる。pasta は要求をアクタースレッドで組み立てて中継するため。
+     - 400 の読み分けと `OnHostComplete` の解析を型 1 つずつで持つ（例 `Rejection { Invalid | Forbidden | Unknown }`・`HostComplete { tag, status, command, outcome, rejection }`）。
+     - 便利関数を `Ghost`／`Adapter` なしで使えること。依存はできれば `shiori4_abi` だけ（pasta）。v3 の変換（`parse_request`／`response`）か、その逆向きの変換を公開するか。
+     - `OnHostComplete` の組み立て関数が、必須のヘッダ（`Sender`・`SenderType`・`SecurityLevel`・`SecurityOrigin`）を `ID` より前に置けること（ukadoc の「`SecurityLevel` は少なくとも ID より前」。areka）。
+     - 0.0.1 → 0.0.2 の移行の一覧をリリースノートに置くこと、crates.io に出た版を両者に知らせること。
 - **守ること**: `Bridge::request` の先頭の規約 2 の門、UTF-8 の検査、`Host::log`・`accept_post`・`wake` の「Drop するスレッドを同期で待たない」の doc、Charset を付けないことのテスト。
