@@ -73,7 +73,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 4. The ホスト側プロトコル仕様 shall post の宛先を「post したインスタンス」に固定し、SSTP の宛先指定（`IfGhost` など）を読まないと定める。
 5. The ホスト側プロトコル仕様 shall SEND と NOTIFY が読む SSTP の `Option` を、`nobreak`・`notranslate`・`strict` は ukadoc どおりに効き、`nodescript` は読まず、知らない語は無視し、2 つ以上なら ukadoc どおりカンマで区切ると定める。
 6. The ホスト側プロトコル仕様 shall post の戻り値は受付の可否だけ（abi-conventions の C ヘッダの「post の完了通知」）であり、結果は `Tag` を付けた post の `OnHostComplete`（要件 6）で返ると述べる。
-7. The ホスト側プロトコル仕様 shall `Tag` を中身を解釈しない文字列（CR・LF を含まない。数でなくてよい）とし、ホストは受け取った値を一字も変えずに `OnHostComplete` で返すと定める。
+7. The ホスト側プロトコル仕様 shall `Tag` を中身を解釈しない文字列（CR・LF を含まない。数でなくてよい）とし、ホストは受け取った値を一字も変えずに `OnHostComplete` で返すと定める。値は `:` の後の空白を除いたものとし、送り手は値の前後に空白を置かない（設計ディスカッションで足した）。
 8. The ホスト側プロトコル仕様 shall post に要るヘッダを `Command` と、そのコマンドのヘッダ（`Script`・`Event`・`Reference*`・`Option`・`Tag`）だけとし、SSTP の `Sender`・`Charset` は要らない（付いていてもホストは読まない）と定める。
 
 ### Requirement 4: SEND の割り込みと待ち
