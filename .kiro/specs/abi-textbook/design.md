@@ -169,7 +169,7 @@ shiori4_host/
 - `shiori4_host/src/lib.rs` — `//!` に教科書への道案内を 1 行。`LoadError`・`GhostRuntime`（`load`・`from_static`・Drop）・`Host`（`request`・`wake`）・`Completer` の `///` に例。ファイル末尾の `mod tests` より前に、doctest だけの取り込みの節（`#[cfg(doctest)]` の項目。下の DoctestHooks）。
 - `shiori4_abi/README.md`・`shiori4/README.md`・`shiori4_host/README.md` — 「詳しいドキュメント」に教科書の目次と関係する章への GitHub の絶対 URL を足す。コードの例は置かない。
 - `.github/workflows/build.yml` — job `textbook`（3 OS）を足す。
-- `.kiro/steering/tech.md`・`.kiro/steering/structure.md` — CI の job・`doc/textbook/`・検査の置き場所を書き足す（最終タスクの Doc Gate）。
+- `.kiro/steering/tech.md`・`.kiro/steering/structure.md` — CI の job・`doc/textbook/`・検査の置き場所と、規約の番号の方針（「節の名前 ＋ 番号」・公開した番号は使い回さない・規約を足すときは節の末尾に新しい番号）を書き足す（最終タスクの Doc Gate。上流が規約を足すときに守れるよう、方針を steering にも置く）。
 
 ## System Flows
 
@@ -645,7 +645,7 @@ impl ShioriApi {
 | テスト | 確かめること | 落ちるとき |
 |--------|--------------|------------|
 | `header_and_crate_doc_rules_agree` | C ヘッダの注釈と `//!` の 9 つの節が、節の順・行とも一致する | 片方だけを直した（tech.md の「両方を直す」の機械の検査） |
-| `rule_numbers_are_sequential` | 9 つの節の最上位の項目が、どの節も `1.` から飛ばずに並ぶ（項目数 40） | 番号の飛び・重なり・`- ` の残り（4.3） |
+| `rule_numbers_are_sequential` | 9 つの節の最上位の項目が、どの節も `1.` から飛ばずに並ぶ（項目の総数は固定しない。規約の足し忘れは `rules_catalog_copies_every_rule` が落とす） | 番号の飛び・重なり・`- ` の残り（4.3） |
 | `rules_catalog_copies_every_rule` | `rules.md` の `## <節の見出し>` の下の引用の行（`>` で始まる行）を節ごとに集め、C ヘッダの節と一致する。9 つの節がこの順ですべてある | 写しの抜け・ずれ・番号の違い（4.1, 14.6） |
 | `distribution_chapter_quotes_canon` | `distribution.md` の引用の行が「配布の決まり」の節と一致する | 12.1 の写しのずれ |
 | `c_blocks_are_excerpts` | `README.md`・`c.md` の ```` ```c ```` の塊が、どれも `doc/textbook/c/` のファイルか C ヘッダの中にそのまま（正規化した行の並びとして）ある。README の C の塊 2 つは `minimal_shiori.c`・`minimal_host.c` の全文と一致する | C の例の写しが古い（6.4, 14.3） |
@@ -737,7 +737,7 @@ CI の job ごとの結果（既存の GitHub の PR の検査）だけを使う
 - **Unit（`shiori4_abi/tests/textbook.rs`）**
   - 抽出と正規化の関数が、手書きの入力（2 つの節、`host->`、CRLF、続きの行の字下げ）で期待どおりの節と行を返す（テストが黙って通らないことの確かめ）。
   - `header_and_crate_doc_rules_agree`: C ヘッダと `//!` の 9 つの節が一致する（RuleNumbering の両方の直し）。
-  - `rule_numbers_are_sequential`: 9 つの節が 1 から連番で、計 40 項目（4.3）。
+  - `rule_numbers_are_sequential`: 9 つの節が 1 から連番（4.3）。
   - `rules_catalog_copies_every_rule`・`distribution_chapter_quotes_canon`: 写しが一字一句一致する（4.1, 12.1, 14.6）。
   - `c_blocks_are_excerpts`・`vocabulary_table_keeps_chapter8`: C の断片と語の表が正本のまま（6.4, 5.2）。
 - **Doctest（3 OS の job test）**
