@@ -14,7 +14,9 @@ use std::{
 pub(crate) fn dll_path() -> &'static Path {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
     PATH.get_or_init(|| {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("ワークスペースのルート");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("ワークスペースのルート");
         let target_dir = root.join("target").join("testghost");
         let out = Command::new(env!("CARGO"))
             .arg("build")
@@ -31,7 +33,9 @@ pub(crate) fn dll_path() -> &'static Path {
             "テスト用 DLL のビルドに失敗した:\n{}",
             String::from_utf8_lossy(&out.stderr)
         );
-        target_dir.join("debug").join(format!("{DLL_PREFIX}testghost{DLL_SUFFIX}"))
+        target_dir
+            .join("debug")
+            .join(format!("{DLL_PREFIX}testghost{DLL_SUFFIX}"))
     })
 }
 
@@ -46,7 +50,8 @@ pub(crate) const MODE_DEFAULT: u32 = MODE_V4 | MODE_V3;
 ///
 /// モードは DLL の static なので、lib を全部閉じると DLL が外れて既定に戻る。開いたままの lib に掛ける
 pub(crate) fn set_mode(lib: &libloading::Library, mode: u32) {
-    let f = unsafe { lib.get::<unsafe extern "C" fn(u32)>(b"testghost_set_mode") }.expect("testghost_set_mode が無い");
+    let f = unsafe { lib.get::<unsafe extern "C" fn(u32)>(b"testghost_set_mode") }
+        .expect("testghost_set_mode が無い");
     unsafe { f(mode) };
 }
 
@@ -60,7 +65,12 @@ pub(crate) fn lock() -> MutexGuard<'static, ()> {
 fn dll_has_four_exports() {
     let _g = lock();
     let lib = unsafe { libloading::Library::new(dll_path()) }.expect("テスト用 DLL を開けない");
-    for name in [&b"shiori_get_api"[..], b"testghost_set_mode", b"loadu", b"load"] {
+    for name in [
+        &b"shiori_get_api"[..],
+        b"testghost_set_mode",
+        b"loadu",
+        b"load",
+    ] {
         let sym = unsafe { lib.get::<unsafe extern "C" fn()>(name) };
         assert!(sym.is_ok(), "{} が無い", String::from_utf8_lossy(name));
     }

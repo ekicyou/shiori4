@@ -12,8 +12,8 @@ use std::{
 
 use shiori4::protocol::HeaderWriter;
 use shiori4::{
-    Adapter, Ghost, ShioriApi, ShioriHostHandle, ShioriResponse,
-    ShioriStatus, SHIORI_500_INTERNAL_SERVER_ERROR, SHIORI_ABI_VERSION, SHIORI_ABI_VERSION_3,
+    Adapter, Ghost, SHIORI_500_INTERNAL_SERVER_ERROR, SHIORI_ABI_VERSION, SHIORI_ABI_VERSION_3,
+    ShioriApi, ShioriHostHandle, ShioriResponse, ShioriStatus,
 };
 
 /// v4 のテーブルを出す
@@ -36,7 +36,9 @@ impl Ghost for TestGhost {
     }
 
     fn request(&mut self, _req: &str) -> ShioriResponse {
-        HeaderWriter::new().push("Value", "testghost").into_response()
+        HeaderWriter::new()
+            .push("Value", "testghost")
+            .into_response()
     }
 }
 

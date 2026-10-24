@@ -114,7 +114,10 @@ impl<G: Ghost> Shiori for Adapter<G> {
             ShioriLoadMode::V4(h) => (Some(h), false),
             ShioriLoadMode::V3 => (None, true),
         };
-        Ok(Self { ghost: G::load(host, dir)?, v3 })
+        Ok(Self {
+            ghost: G::load(host, dir)?,
+            v3,
+        })
     }
 
     fn request(&mut self, req: &str) -> ShioriResponse {
@@ -196,15 +199,22 @@ pub mod v3 {
     fn charset(headers: &str) -> Option<&str> {
         headers.lines().find_map(|line| {
             let (k, v) = line.split_once(':')?;
-            k.trim().eq_ignore_ascii_case("Charset").then(|| v.trim_start())
+            k.trim()
+                .eq_ignore_ascii_case("Charset")
+                .then(|| v.trim_start())
         })
     }
 
     /// ステータスとヘッダ部分から SHIORI/3.0 の応答全文を組み立てる
     /// Charset がなければ "Charset: UTF-8" を補う
     pub fn response(status: ShioriStatus, body: &[u8]) -> Vec<u8> {
-        let status = if status < 0 { SHIORI_500_INTERNAL_SERVER_ERROR } else { status };
-        let mut v = format!("SHIORI/3.0 {} {}\r\n", status, shiori_reason_phrase(status)).into_bytes();
+        let status = if status < 0 {
+            SHIORI_500_INTERNAL_SERVER_ERROR
+        } else {
+            status
+        };
+        let mut v =
+            format!("SHIORI/3.0 {} {}\r\n", status, shiori_reason_phrase(status)).into_bytes();
 
         let mut b = body;
         while b.ends_with(b"\r\n") {
@@ -264,17 +274,24 @@ mod tests {
         const SUPPORTS_V3: bool = false;
         fn load(host: Option<ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
             let host = host.ok_or(SHIORI_E_UNSUPPORTED)?;
-            Ok(Counter { count: 0, poster: host.poster() })
+            Ok(Counter {
+                count: 0,
+                poster: host.poster(),
+            })
         }
         fn request(&mut self, req: &str) -> ShioriResponse {
             let v = if Headers::parse(req).id() == Some("post") {
                 let p = self.poster.clone();
-                std::thread::spawn(move || p.post_str("Command: test")).join().unwrap()
+                std::thread::spawn(move || p.post_str("Command: test"))
+                    .join()
+                    .unwrap()
             } else {
                 self.count += 1;
                 self.count as ShioriStatus
             };
-            HeaderWriter::new().push("Value", &v.to_string()).into_response()
+            HeaderWriter::new()
+                .push("Value", &v.to_string())
+                .into_response()
         }
     }
 
@@ -309,7 +326,9 @@ mod tests {
         assert!(text.ends_with("\r\n\r\n"));
 
         // v3 は UTF-8 以外の Charset を 400 で拒む
-        let r = inst.request("GET SHIORI/3.0\r\nCharset: Shift_JIS\r\nID: OnBoot\r\n\r\n").expect("abi");
+        let r = inst
+            .request("GET SHIORI/3.0\r\nCharset: Shift_JIS\r\nID: OnBoot\r\n\r\n")
+            .expect("abi");
         assert_eq!(r.status, 400);
 
         let r = inst.request("GET SHIORI/2.6\r\n\r\n").expect("abi");
@@ -342,11 +361,29 @@ mod tests {
     #[test]
     fn v3_ghost_receives_headers_without_start_line_and_blank_line() {
         let mut inst = RECORD_V3.load_v3("/tmp").expect("load");
-        assert_eq!(inst.request("GET SHIORI/3.0\r\nCharset: UTF-8\r\nID: OnBoot\r\n\r\n").expect("abi").status, 204);
-        assert_eq!(inst.notify("NOTIFY SHIORI/3.0\r\ncharset :  utf-8\r\nID: x\r\n\r\n"), Ok(204));
-        assert_eq!(inst.request("GET SHIORI/3.0\nID: lf\n\n").expect("abi").status, 204);
+        assert_eq!(
+            inst.request("GET SHIORI/3.0\r\nCharset: UTF-8\r\nID: OnBoot\r\n\r\n")
+                .expect("abi")
+                .status,
+            204
+        );
+        assert_eq!(
+            inst.notify("NOTIFY SHIORI/3.0\r\ncharset :  utf-8\r\nID: x\r\n\r\n"),
+            Ok(204)
+        );
+        assert_eq!(
+            inst.request("GET SHIORI/3.0\nID: lf\n\n")
+                .expect("abi")
+                .status,
+            204
+        );
         // 名前の大文字小文字・値の先頭の空白は Headers と同じ規則で読む
-        assert_eq!(inst.request("GET SHIORI/3.0\r\nCHARSET:Shift_JIS\r\nID: x\r\n\r\n").expect("abi").status, 400);
+        assert_eq!(
+            inst.request("GET SHIORI/3.0\r\nCHARSET:Shift_JIS\r\nID: x\r\n\r\n")
+                .expect("abi")
+                .status,
+            400
+        );
         assert_eq!(
             *RECEIVED.lock().unwrap(),
             [
@@ -357,19 +394,23 @@ mod tests {
         );
     }
 
-
     // ---- v4 の Charset・複数インスタンス・Poster の複製 ----
 
     #[test]
     fn v4_ignores_charset_and_adds_none() {
         let host = ShioriHostBox::new(CountHost::default());
         let mut inst = V4_API.load(&host, "/ghost").expect("load");
-        let r = inst.request("Charset: Shift_JIS\r\nID: OnBoot\r\n").expect("abi");
+        let r = inst
+            .request("Charset: Shift_JIS\r\nID: OnBoot\r\n")
+            .expect("abi");
         assert_eq!(r.status, 200);
         let text = r.body.as_str().unwrap();
         assert_eq!(text, "Value: 1\r\n");
         assert!(!text.to_ascii_lowercase().contains("charset"));
-        assert_eq!(inst.notify("Charset: Shift_JIS\r\nID: OnSecondChange\r\n"), Ok(204));
+        assert_eq!(
+            inst.notify("Charset: Shift_JIS\r\nID: OnSecondChange\r\n"),
+            Ok(204)
+        );
     }
 
     #[test]
@@ -377,7 +418,14 @@ mod tests {
         let host = ShioriHostBox::new(CountHost::default());
         let mut a = V4_API.load(&host, "/a").expect("load a");
         let mut b = V4_API.load(&host, "/b").expect("load b");
-        let value = |i: &mut ShioriInstance<'_>| i.request("ID: x\r\n").unwrap().body.as_str().unwrap().to_owned();
+        let value = |i: &mut ShioriInstance<'_>| {
+            i.request("ID: x\r\n")
+                .unwrap()
+                .body
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
         assert_eq!(value(&mut a), "Value: 1\r\n");
         assert_eq!(value(&mut a), "Value: 2\r\n");
         assert_eq!(value(&mut b), "Value: 1\r\n");
@@ -407,7 +455,10 @@ mod tests {
     /// code_lines_before_tests のうち `protocol` を語として含む行
     fn protocol_lines(src: &str) -> Vec<&str> {
         code_lines_before_tests(src)
-            .filter(|l| l.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|w| w == "protocol"))
+            .filter(|l| {
+                l.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|w| w == "protocol")
+            })
             .collect()
     }
 
@@ -417,7 +468,10 @@ mod tests {
         assert_eq!(protocol_lines(allowed), ["pub mod protocol;"]);
 
         let violated = "//! protocol の doc\npub mod protocol;\n    use crate::protocol::Headers;\n#[cfg(test)]\nmod tests {\n    use protocol::Headers;\n}\n";
-        assert_eq!(protocol_lines(violated), ["pub mod protocol;", "use crate::protocol::Headers;"]);
+        assert_eq!(
+            protocol_lines(violated),
+            ["pub mod protocol;", "use crate::protocol::Headers;"]
+        );
 
         // 境目が無ければテストの中の参照も数え、検査は黙って通らない
         let no_boundary = "pub mod protocol;\nmod tests {\n    use protocol::Headers;\n}\n";
@@ -426,7 +480,10 @@ mod tests {
 
     #[test]
     fn core_refers_to_protocol_only_by_its_declaration() {
-        assert_eq!(protocol_lines(include_str!("lib.rs")), ["pub mod protocol;"]);
+        assert_eq!(
+            protocol_lines(include_str!("lib.rs")),
+            ["pub mod protocol;"]
+        );
     }
 
     #[test]

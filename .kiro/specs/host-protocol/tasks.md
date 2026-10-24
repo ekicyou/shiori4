@@ -122,7 +122,7 @@
   - _Requirements: 11.7_
 
 - [ ] 7. 検証
-- [ ] 7.1 ワークスペース全体の検査と、ABI・版を変えていないことを確かめる
+- [x] 7.1 ワークスペース全体の検査と、ABI・版を変えていないことを確かめる
   - `cargo fmt --all --check`・`cargo test --all`・`cargo clippy --all-targets --workspace -- -D warnings` を通す
   - `main` からの差分で、C ヘッダの変更がコメントの 1 行だけであり、`Cargo.toml` の版が変わっていないことを確かめる
   - `*.rs` と 3 つの README に `ID_PROPERTY`・`host_protocol`・`Host::property`・`fn property(` が残っていないことを `git grep`（追跡しているファイルだけ。`target/` を含まない）で確かめる（`doc/` の付録 A と `.kiro/` は移行の記録として残るので対象外）
@@ -137,7 +137,7 @@
   - _Requirements: 1.1, 11.1, 11.6_
 
 ## Implementation Notes
-- `cargo fmt --all --check` は main の時点でリポジトリ全体が通らない（rustfmt 未適用・rustfmt.toml 無し）。CI は fmt を見ない。7.1 で扱いを決める
+- `cargo fmt --all --check` は main の時点でリポジトリ全体が通らない（rustfmt 未適用・rustfmt.toml 無し）。CI は fmt を見ない。7.1 で開発者の判断によりワークスペース全体（testghost を含む）に既定の `cargo fmt` を掛けた
 - `cargo test --all` が testdata/testghost を test_dll.rs 経由でビルドして DLL のテストを回す
 - テストの文字列は `\r\n` のエスケープで 1 行に書く（シェルで書き込むとエスケープが生の改行に化けた。Edit で直す）
 - 独立の検査の境目: shiori4 は最初の `#[cfg(test)]`、shiori4_host は `mod tests {`（途中に `#[cfg(test)] mod test_dll;` があるため）で止める。design.md の IndependenceCheck は `#[cfg(test)]` と書いている

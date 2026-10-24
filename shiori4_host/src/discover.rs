@@ -2,7 +2,7 @@
 
 use std::{ffi::OsStr, path::Path};
 
-use crate::{normalize_dir, GhostRuntime, Host, LoadError, V3Runtime};
+use crate::{GhostRuntime, Host, LoadError, V3Runtime, normalize_dir};
 
 /// 許可する口の種類。発見の順は並びによらず固定（V4 → V3 → Loadu → Load）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -29,7 +29,10 @@ pub enum LoadedGhost<H: Host> {
     /// v3 互換モードで読んだ
     V3(V3Runtime),
     /// 従来の口で解決した。entry は Loadu か Load。この spec では初期化しない（`loadu`・`load` は呼んでいない）
-    Legacy { entry: EntryKind, library: libloading::Library },
+    Legacy {
+        entry: EntryKind,
+        library: libloading::Library,
+    },
 }
 
 /// すべての口を許可して読む（[`load_ghost_with`] に [`EntryKind::ALL`] を渡すのと同じ）
@@ -88,11 +91,20 @@ pub fn load_ghost_with<H: Host>(
 }
 
 /// 従来の口を有無だけ見る（呼ばない）
-fn legacy<H: Host>(lib: libloading::Library, allows: &impl Fn(EntryKind) -> bool) -> Result<LoadedGhost<H>, LoadError> {
-    for (entry, sym) in [(EntryKind::Loadu, &b"loadu\0"[..]), (EntryKind::Load, b"load\0")] {
+fn legacy<H: Host>(
+    lib: libloading::Library,
+    allows: &impl Fn(EntryKind) -> bool,
+) -> Result<LoadedGhost<H>, LoadError> {
+    for (entry, sym) in [
+        (EntryKind::Loadu, &b"loadu\0"[..]),
+        (EntryKind::Load, b"load\0"),
+    ] {
         // SAFETY: 書き出しの有無を見るだけで、呼ばない
         if allows(entry) && unsafe { lib.get::<unsafe extern "C" fn()>(sym) }.is_ok() {
-            return Ok(LoadedGhost::Legacy { entry, library: lib });
+            return Ok(LoadedGhost::Legacy {
+                entry,
+                library: lib,
+            });
         }
     }
     Err(LoadError::NotShiori4)
@@ -101,7 +113,7 @@ fn legacy<H: Host>(lib: libloading::Library, allows: &impl Fn(EntryKind) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{test_dll, Post};
+    use crate::{Post, test_dll};
 
     #[cfg(windows)]
     const GHOST_DIR: &str = r"C:\ghost";
@@ -125,7 +137,8 @@ mod tests {
     /// モードを設定して f を動かし、既定に戻す（ロックとモード用の別のハンドルを持つ）
     fn in_mode(mode: u32, f: impl FnOnce()) {
         let _g = test_dll::lock();
-        let mode_lib = unsafe { libloading::Library::new(test_dll::dll_path()) }.expect("テスト用 DLL を開けない");
+        let mode_lib = unsafe { libloading::Library::new(test_dll::dll_path()) }
+            .expect("テスト用 DLL を開けない");
         test_dll::set_mode(&mode_lib, mode);
         f();
         test_dll::set_mode(&mode_lib, test_dll::MODE_DEFAULT);
@@ -151,7 +164,10 @@ mod tests {
     fn no_table_is_unsupported_without_legacy() {
         // loadu・load はあるが、shiori_get_api があるので進まない
         in_mode(0, || {
-            assert!(matches!(with(&EntryKind::ALL), Err(LoadError::Unsupported(_))));
+            assert!(matches!(
+                with(&EntryKind::ALL),
+                Err(LoadError::Unsupported(_))
+            ));
         });
     }
 
@@ -169,11 +185,26 @@ mod tests {
         assert!(matches!(with(&[EntryKind::V3]), Ok(LoadedGhost::V3(_))));
         assert!(matches!(
             with(&[EntryKind::Loadu, EntryKind::Load]),
-            Ok(LoadedGhost::Legacy { entry: EntryKind::Loadu, .. })
+            Ok(LoadedGhost::Legacy {
+                entry: EntryKind::Loadu,
+                ..
+            })
         ));
-        assert!(matches!(with(&[EntryKind::Load]), Ok(LoadedGhost::Legacy { entry: EntryKind::Load, .. })));
+        assert!(matches!(
+            with(&[EntryKind::Load]),
+            Ok(LoadedGhost::Legacy {
+                entry: EntryKind::Load,
+                ..
+            })
+        ));
         // shiori_get_api があっても V4・V3 を許可しなければ無いものとして従来の口へ
-        assert!(matches!(with(&[EntryKind::Loadu]), Ok(LoadedGhost::Legacy { entry: EntryKind::Loadu, .. })));
+        assert!(matches!(
+            with(&[EntryKind::Loadu]),
+            Ok(LoadedGhost::Legacy {
+                entry: EntryKind::Loadu,
+                ..
+            })
+        ));
         assert!(matches!(with(&[]), Err(LoadError::NotShiori4)));
     }
 
@@ -181,10 +212,16 @@ mod tests {
     fn allowed_version_missing_is_unsupported_without_legacy() {
         // 許可した版が無くても shiori_get_api があるので従来の口へ進まない
         in_mode(test_dll::MODE_V3, || {
-            assert!(matches!(with(&[EntryKind::V4, EntryKind::Loadu]), Err(LoadError::Unsupported(_))));
+            assert!(matches!(
+                with(&[EntryKind::V4, EntryKind::Loadu]),
+                Err(LoadError::Unsupported(_))
+            ));
         });
         in_mode(test_dll::MODE_V4, || {
-            assert!(matches!(with(&[EntryKind::V3, EntryKind::Load]), Err(LoadError::Unsupported(_))));
+            assert!(matches!(
+                with(&[EntryKind::V3, EntryKind::Load]),
+                Err(LoadError::Unsupported(_))
+            ));
         });
     }
 
@@ -196,12 +233,18 @@ mod tests {
         const OS_LIB: &str = "/usr/lib/libSystem.B.dylib";
         #[cfg(all(unix, not(target_os = "macos")))]
         const OS_LIB: &str = "libc.so.6";
-        assert!(matches!(load_ghost(OS_LIB, GHOST_DIR, NoHost), Err(LoadError::NotShiori4)));
+        assert!(matches!(
+            load_ghost(OS_LIB, GHOST_DIR, NoHost),
+            Err(LoadError::NotShiori4)
+        ));
     }
 
     #[test]
     fn relative_dir_is_invalid_path() {
         // ライブラリのパスは存在しない。dir の検査が先なので Library ではなく InvalidPath になる
-        assert!(matches!(load_ghost("no-such-library", "ghost", NoHost), Err(LoadError::InvalidPath)));
+        assert!(matches!(
+            load_ghost("no-such-library", "ghost", NoHost),
+            Err(LoadError::InvalidPath)
+        ));
     }
 }

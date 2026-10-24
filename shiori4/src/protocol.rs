@@ -19,14 +19,14 @@
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Mutex, MutexGuard,
+        atomic::{AtomicU64, Ordering},
     },
 };
 
 use shiori4_abi::{
-    shiori_is_success, ShioriHostHandle, ShioriHostPoster, ShioriResponse, ShioriStatus, SHIORI_200_OK,
-    SHIORI_204_NO_CONTENT, SHIORI_400_BAD_REQUEST,
+    SHIORI_200_OK, SHIORI_204_NO_CONTENT, SHIORI_400_BAD_REQUEST, ShioriHostHandle,
+    ShioriHostPoster, ShioriResponse, ShioriStatus, shiori_is_success,
 };
 
 // ============================================================
@@ -93,7 +93,8 @@ impl HeaderWriter {
     pub fn push(mut self, name: &str, value: &str) -> Self {
         self.buf.push_str(name);
         self.buf.push_str(": ");
-        self.buf.extend(value.chars().filter(|&c| c != '\r' && c != '\n'));
+        self.buf
+            .extend(value.chars().filter(|&c| c != '\r' && c != '\n'));
         self.buf.push_str("\r\n");
         self
     }
@@ -156,7 +157,10 @@ pub const SECURITY_LEVEL_LOCAL: &str = "local";
 
 /// `ID: getproperty` / `Reference0: <名前>`
 pub fn getproperty_request(name: &str) -> String {
-    HeaderWriter::new().push(HEADER_ID, ID_GETPROPERTY).push("Reference0", name).finish()
+    HeaderWriter::new()
+        .push(HEADER_ID, ID_GETPROPERTY)
+        .push("Reference0", name)
+        .finish()
 }
 
 /// `ID: setproperty` / `Reference0: <名前>` / `Reference1: <値>`
@@ -177,7 +181,10 @@ pub fn send_post(script: &str, options: &[&str], tag: Option<&str>) -> String {
 /// `Command: NOTIFY` / \[`Tag`\] / `Event` / `Reference0..` / \[`Option: a,b`\]
 pub fn notify_post(event: &str, refs: &[&str], options: &[&str], tag: Option<&str>) -> String {
     let w = post_head(COMMAND_NOTIFY, tag).push(HEADER_EVENT, event);
-    let w = refs.iter().enumerate().fold(w, |w, (i, r)| w.push(&format!("Reference{i}"), r));
+    let w = refs
+        .iter()
+        .enumerate()
+        .fold(w, |w, (i, r)| w.push(&format!("Reference{i}"), r));
     post_options(w, options).finish()
 }
 
@@ -277,7 +284,10 @@ pub fn getproperty_response(value: Option<&str>) -> ShioriResponse {
 
 /// 400。reason が Some なら `Reason` を付ける
 pub fn rejection_response(reason: Option<&str>) -> ShioriResponse {
-    ShioriResponse::with_status(SHIORI_400_BAD_REQUEST, push_reason(HeaderWriter::new(), reason).finish())
+    ShioriResponse::with_status(
+        SHIORI_400_BAD_REQUEST,
+        push_reason(HeaderWriter::new(), reason).finish(),
+    )
 }
 
 /// post の原文から Tag（値を変えずに）と Command を引き継ぎ、完了通知のヘッダ部分を組み立てる。
@@ -303,7 +313,10 @@ pub fn host_complete(
         .push(HEADER_TAG, tag)
         .push(HEADER_STATUS, &status.to_string())
         .push("Reference0", h.get(HEADER_COMMAND).unwrap_or(""));
-    let w = refs.iter().enumerate().fold(w, |w, (i, r)| w.push(&format!("Reference{}", i + 1), r));
+    let w = refs
+        .iter()
+        .enumerate()
+        .fold(w, |w, (i, r)| w.push(&format!("Reference{}", i + 1), r));
     Some(push_reason(w, reason).finish())
 }
 
@@ -341,7 +354,10 @@ pub struct Properties {
 
 impl Properties {
     pub fn new(host: Option<ShioriHostHandle>) -> Self {
-        Self { host, cache: HashMap::new() }
+        Self {
+            host,
+            cache: HashMap::new(),
+        }
     }
 
     /// ホストに問い合わせられるか（v4 なら true）
@@ -394,7 +410,9 @@ impl Properties {
     /// 204 ならキャッシュも改行を除いた値に更新する
     pub fn set_on_host(&mut self, name: &str, value: &str) -> Result<(), SetPropertyError> {
         let host = self.host.as_ref().ok_or(SetPropertyError::Offline)?;
-        let r = host.request_str(&setproperty_request(name, value)).map_err(SetPropertyError::Failed)?;
+        let r = host
+            .request_str(&setproperty_request(name, value))
+            .map_err(SetPropertyError::Failed)?;
         match r.status {
             SHIORI_204_NO_CONTENT => {
                 let v = value.chars().filter(|&c| c != '\r' && c != '\n').collect();
@@ -403,7 +421,9 @@ impl Properties {
             }
             SHIORI_400_BAD_REQUEST => {
                 let h = Headers::parse(r.body.as_str().unwrap_or(""));
-                Err(SetPropertyError::Rejected(Rejection::from_reason(h.get(HEADER_REASON))))
+                Err(SetPropertyError::Rejected(Rejection::from_reason(
+                    h.get(HEADER_REASON),
+                )))
             }
             st => Err(SetPropertyError::Failed(st)),
         }
@@ -448,7 +468,10 @@ impl<T> Default for PendingTags<T> {
 
 impl<T> PendingTags<T> {
     pub fn new() -> Self {
-        Self { next: AtomicU64::new(1), map: Mutex::new(HashMap::new()) }
+        Self {
+            next: AtomicU64::new(1),
+            map: Mutex::new(HashMap::new()),
+        }
     }
 
     fn map(&self) -> MutexGuard<'_, HashMap<u64, T>> {
@@ -465,7 +488,12 @@ impl<T> PendingTags<T> {
 
     /// Tag を付けて post する。受け付けられなければ登録を取り消して Err を返す
     /// headers はヘッダ部分（Tag 以外。Command を含めること）
-    pub fn post(&self, poster: &ShioriHostPoster, context: T, headers: &str) -> Result<u64, ShioriStatus> {
+    pub fn post(
+        &self,
+        poster: &ShioriHostPoster,
+        context: T,
+        headers: &str,
+    ) -> Result<u64, ShioriStatus> {
         let tag = self.register(context);
         let st = poster.post_str(&format!("{}: {tag}\r\n{headers}", HEADER_TAG));
         if shiori_is_success(st) {
@@ -507,8 +535,8 @@ impl<T> PendingTags<T> {
 mod tests {
     use super::*;
     use shiori4_abi::{
-        Shiori, ShioriApi, ShioriHost, ShioriHostBox, ShioriInstance, ShioriLoadMode, SHIORI_ABI_VERSION,
-        SHIORI_E_UNSUPPORTED,
+        SHIORI_ABI_VERSION, SHIORI_E_UNSUPPORTED, Shiori, ShioriApi, ShioriHost, ShioriHostBox,
+        ShioriInstance, ShioriLoadMode,
     };
 
     #[test]
@@ -520,13 +548,19 @@ mod tests {
 
     #[test]
     fn header_writer_strips_newlines() {
-        let s = HeaderWriter::new().push("Value", "a\r\nb").push_raw("X: 1\r\n\r\n").finish();
+        let s = HeaderWriter::new()
+            .push("Value", "a\r\nb")
+            .push_raw("X: 1\r\n\r\n")
+            .finish();
         assert_eq!(s, "Value: ab\r\nX: 1\r\n");
     }
 
     #[test]
     fn property_requests() {
-        assert_eq!(getproperty_request("baseware.name"), "ID: getproperty\r\nReference0: baseware.name\r\n");
+        assert_eq!(
+            getproperty_request("baseware.name"),
+            "ID: getproperty\r\nReference0: baseware.name\r\n"
+        );
         assert_eq!(
             setproperty_request("a.b", "x\r\ny"),
             "ID: setproperty\r\nReference0: a.b\r\nReference1: xy\r\n"
@@ -535,7 +569,10 @@ mod tests {
 
     #[test]
     fn send_posts() {
-        assert_eq!(send_post(r"\0hi\e", &[], None), "Command: SEND\r\nScript: \\0hi\\e\r\n");
+        assert_eq!(
+            send_post(r"\0hi\e", &[], None),
+            "Command: SEND\r\nScript: \\0hi\\e\r\n"
+        );
         assert_eq!(
             send_post("a\r\nb\nc", &[OPTION_NOBREAK], Some("42")),
             "Command: SEND\r\nTag: 42\r\nScript: abc\r\nOption: nobreak\r\n"
@@ -549,9 +586,17 @@ mod tests {
 
     #[test]
     fn notify_posts() {
-        assert_eq!(notify_post("OnX", &[], &[], None), "Command: NOTIFY\r\nEvent: OnX\r\n");
         assert_eq!(
-            notify_post("OnX", &["a", "b\nc"], &[OPTION_NOTRANSLATE, OPTION_STRICT], Some("7")),
+            notify_post("OnX", &[], &[], None),
+            "Command: NOTIFY\r\nEvent: OnX\r\n"
+        );
+        assert_eq!(
+            notify_post(
+                "OnX",
+                &["a", "b\nc"],
+                &[OPTION_NOTRANSLATE, OPTION_STRICT],
+                Some("7")
+            ),
             "Command: NOTIFY\r\nTag: 7\r\nEvent: OnX\r\nReference0: a\r\nReference1: bc\r\nOption: notranslate,strict\r\n"
         );
     }
@@ -573,22 +618,36 @@ mod tests {
     #[test]
     fn rejection_reads_reason() {
         assert_eq!(Rejection::from_reason(None), Rejection::Invalid);
-        assert_eq!(Rejection::from_reason(Some(REASON_FORBIDDEN)), Rejection::Forbidden);
-        assert_eq!(Rejection::from_reason(Some(" forbidden ")), Rejection::Forbidden);
-        assert_eq!(Rejection::from_reason(Some("Forbidden")), Rejection::Unknown);
+        assert_eq!(
+            Rejection::from_reason(Some(REASON_FORBIDDEN)),
+            Rejection::Forbidden
+        );
+        assert_eq!(
+            Rejection::from_reason(Some(" forbidden ")),
+            Rejection::Forbidden
+        );
+        assert_eq!(
+            Rejection::from_reason(Some("Forbidden")),
+            Rejection::Unknown
+        );
         assert_eq!(Rejection::from_reason(Some("busy")), Rejection::Unknown);
 
         let none = Headers::parse("");
         let forbidden = Headers::parse("Reason: forbidden\r\n");
-        assert_eq!(Rejection::of(SHIORI_400_BAD_REQUEST, &none), Some(Rejection::Invalid));
-        assert_eq!(Rejection::of(SHIORI_400_BAD_REQUEST, &forbidden), Some(Rejection::Forbidden));
+        assert_eq!(
+            Rejection::of(SHIORI_400_BAD_REQUEST, &none),
+            Some(Rejection::Invalid)
+        );
+        assert_eq!(
+            Rejection::of(SHIORI_400_BAD_REQUEST, &forbidden),
+            Some(Rejection::Forbidden)
+        );
         assert_eq!(Rejection::of(SHIORI_200_OK, &forbidden), None);
         assert_eq!(Rejection::of(SHIORI_204_NO_CONTENT, &none), None);
         assert_eq!(Rejection::of(500, &forbidden), None);
     }
 
-    const COMPLETE_HEAD: &str =
-        "Sender: areka\r\nSenderType: internal\r\nSecurityLevel: local\r\nSecurityOrigin: null\r\nID: OnHostComplete\r\n";
+    const COMPLETE_HEAD: &str = "Sender: areka\r\nSenderType: internal\r\nSecurityLevel: local\r\nSecurityOrigin: null\r\nID: OnHostComplete\r\n";
 
     fn complete(rest: &str) -> String {
         format!("{COMPLETE_HEAD}{rest}")
@@ -635,13 +694,15 @@ mod tests {
 
     #[test]
     fn host_complete_passes_unknown_words() {
-        let t = complete("Tag: 1\r\nStatus: 200\r\nReference0: FUTURECMD\r\nReference1: someday\r\n");
+        let t =
+            complete("Tag: 1\r\nStatus: 200\r\nReference0: FUTURECMD\r\nReference1: someday\r\n");
         let c = HostComplete::parse(&Headers::parse(&t)).unwrap();
         assert_eq!((c.command, c.outcome), ("FUTURECMD", Some("someday")));
         // Reference0 が無ければ ""
-        let c =
-            HostComplete::parse(&Headers::parse("ID: OnHostComplete\r\nTag: 1\r\nStatus: 204\r\n"))
-                .unwrap();
+        let c = HostComplete::parse(&Headers::parse(
+            "ID: OnHostComplete\r\nTag: 1\r\nStatus: 204\r\n",
+        ))
+        .unwrap();
         assert_eq!(c.command, "");
     }
 
@@ -677,7 +738,10 @@ mod tests {
         let r = rejection_response(None);
         assert_eq!((r.status, body(&r)), (SHIORI_400_BAD_REQUEST, ""));
         let r = rejection_response(Some(REASON_FORBIDDEN));
-        assert_eq!((r.status, body(&r)), (SHIORI_400_BAD_REQUEST, "Reason: forbidden\r\n"));
+        assert_eq!(
+            (r.status, body(&r)),
+            (SHIORI_400_BAD_REQUEST, "Reason: forbidden\r\n")
+        );
     }
 
     #[test]
@@ -694,19 +758,45 @@ mod tests {
         // `:` の後の空白 2 つは除いて写す。Reason を最後に付ける
         let post = "Command: NOTIFY\r\nTag:  abc\r\nEvent: OnX\r\n";
         assert_eq!(
-            host_complete(post, "areka", SHIORI_400_BAD_REQUEST, &[], Some(REASON_FORBIDDEN)).as_deref(),
+            host_complete(
+                post,
+                "areka",
+                SHIORI_400_BAD_REQUEST,
+                &[],
+                Some(REASON_FORBIDDEN)
+            )
+            .as_deref(),
             Some(
                 "Sender: areka\r\nSenderType: internal\r\nSecurityLevel: local\r\nSecurityOrigin: null\r\nID: OnHostComplete\r\nTag: abc\r\nStatus: 400\r\nReference0: NOTIFY\r\nReason: forbidden\r\n"
             )
         );
 
         // 組み立てたものを読み分けで読み戻せる
-        let t = host_complete(post, "areka", SHIORI_400_BAD_REQUEST, &[], Some(REASON_FORBIDDEN)).unwrap();
+        let t = host_complete(
+            post,
+            "areka",
+            SHIORI_400_BAD_REQUEST,
+            &[],
+            Some(REASON_FORBIDDEN),
+        )
+        .unwrap();
         let c = HostComplete::parse(&Headers::parse(&t)).unwrap();
-        assert_eq!((c.tag, c.command, c.rejection), ("abc", COMMAND_NOTIFY, Some(Rejection::Forbidden)));
+        assert_eq!(
+            (c.tag, c.command, c.rejection),
+            ("abc", COMMAND_NOTIFY, Some(Rejection::Forbidden))
+        );
 
         // Tag の無い post からは組み立てない
-        assert_eq!(host_complete(&send_post("x", &[], None), "areka", SHIORI_200_OK, &[], None), None);
+        assert_eq!(
+            host_complete(
+                &send_post("x", &[], None),
+                "areka",
+                SHIORI_200_OK,
+                &[],
+                None
+            ),
+            None
+        );
         assert_eq!(host_complete("", "areka", SHIORI_200_OK, &[], None), None);
     }
 
@@ -716,7 +806,14 @@ mod tests {
         let all = [
             body(&getproperty_response(Some("v"))).to_owned(),
             body(&rejection_response(Some(REASON_FORBIDDEN))).to_owned(),
-            host_complete(&post, "areka", SHIORI_400_BAD_REQUEST, &[OUTCOME_COMPLETED], Some("x")).unwrap(),
+            host_complete(
+                &post,
+                "areka",
+                SHIORI_400_BAD_REQUEST,
+                &[OUTCOME_COMPLETED],
+                Some("x"),
+            )
+            .unwrap(),
         ];
         for s in all {
             assert!(!s.is_empty());
@@ -736,7 +833,9 @@ mod tests {
         fn request(&self, req: &[u8]) -> ShioriResponse {
             let h = Headers::parse(std::str::from_utf8(req).unwrap());
             match (h.id(), h.reference(0)) {
-                (Some(ID_GETPROPERTY), Some("a")) => HeaderWriter::new().push(HEADER_VALUE, "1").into_response(),
+                (Some(ID_GETPROPERTY), Some("a")) => {
+                    HeaderWriter::new().push(HEADER_VALUE, "1").into_response()
+                }
                 (Some(ID_SETPROPERTY), Some("ok")) => ShioriResponse::no_content(),
                 (Some(ID_SETPROPERTY), Some("deny")) => rejection_response(Some(REASON_FORBIDDEN)),
                 (Some(ID_SETPROPERTY), Some("bad")) => rejection_response(None),
@@ -746,7 +845,11 @@ mod tests {
         }
         fn post(&self, msg: &[u8]) -> ShioriStatus {
             let msg = String::from_utf8(msg.to_vec()).unwrap();
-            let st = if msg.contains("Command: fail") { SHIORI_400_BAD_REQUEST } else { SHIORI_204_NO_CONTENT };
+            let st = if msg.contains("Command: fail") {
+                SHIORI_400_BAD_REQUEST
+            } else {
+                SHIORI_204_NO_CONTENT
+            };
             *self.posted.lock().unwrap() = msg;
             st
         }
@@ -761,21 +864,36 @@ mod tests {
 
     impl Shiori for Probe {
         fn load(mode: ShioriLoadMode, _dir: &str) -> Result<Self, ShioriStatus> {
-            let ShioriLoadMode::V4(host) = mode else { return Err(SHIORI_E_UNSUPPORTED) };
-            Ok(Self { poster: host.poster(), props: Properties::new(Some(host)), tags: PendingTags::new() })
+            let ShioriLoadMode::V4(host) = mode else {
+                return Err(SHIORI_E_UNSUPPORTED);
+            };
+            Ok(Self {
+                poster: host.poster(),
+                props: Properties::new(Some(host)),
+                tags: PendingTags::new(),
+            })
         }
         fn request(&mut self, req: &str) -> ShioriResponse {
             let h = Headers::parse(req);
             let v = match h.id() {
-                Some("post") => format!("{:?}", self.tags.post(&self.poster, "ctx", "Command: test\r\n")),
+                Some("post") => format!(
+                    "{:?}",
+                    self.tags.post(&self.poster, "ctx", "Command: test\r\n")
+                ),
                 Some("postfail") => {
                     let r = self.tags.post(&self.poster, "ctx", "Command: fail\r\n");
                     format!("{r:?} {}", self.tags.len())
                 }
                 Some("set") => {
-                    let r: Vec<_> =
-                        ["ok", "deny", "bad", "other"].map(|n| format!("{:?}", self.props.set_on_host(n, "x\r\ny"))).into();
-                    format!("{} {:?} {:?}", r.join(" "), self.props.cached("ok"), self.props.cached("deny"))
+                    let r: Vec<_> = ["ok", "deny", "bad", "other"]
+                        .map(|n| format!("{:?}", self.props.set_on_host(n, "x\r\ny")))
+                        .into();
+                    format!(
+                        "{} {:?} {:?}",
+                        r.join(" "),
+                        self.props.cached("ok"),
+                        self.props.cached("deny")
+                    )
                 }
                 Some(ID_HOST_COMPLETE) => format!("{:?}", self.tags.take_from(&h)),
                 _ => {
@@ -790,14 +908,22 @@ mod tests {
     static API: ShioriApi = ShioriApi::new::<Probe, { SHIORI_ABI_VERSION }>();
 
     fn value(inst: &mut ShioriInstance<'_>, req: &str) -> String {
-        inst.request(req).expect("abi").body.as_str().unwrap().to_owned()
+        inst.request(req)
+            .expect("abi")
+            .body
+            .as_str()
+            .unwrap()
+            .to_owned()
     }
 
     #[test]
     fn properties_get() {
         let host = ShioriHostBox::new(PropHost::default());
         let mut inst = API.load(&host, "/ghost").expect("load");
-        assert_eq!(value(&mut inst, "ID: get\r\n"), "Value: Ready(\"1\") Missing\r\n");
+        assert_eq!(
+            value(&mut inst, "ID: get\r\n"),
+            "Value: Ready(\"1\") Missing\r\n"
+        );
 
         // v3 はホストに問い合わせず、取り込んだ値だけを返す
         let mut v3 = Properties::new(None);
@@ -811,7 +937,10 @@ mod tests {
         let host = ShioriHostBox::new(PropHost::default());
         let mut inst = API.load(&host, "/ghost").expect("load");
         assert_eq!(value(&mut inst, "ID: post\r\n"), "Value: Ok(1)\r\n");
-        assert_eq!(*host.host().posted.lock().unwrap(), "Tag: 1\r\nCommand: test\r\n");
+        assert_eq!(
+            *host.host().posted.lock().unwrap(),
+            "Tag: 1\r\nCommand: test\r\n"
+        );
 
         let done = "ID: OnHostComplete\r\nTag: 1\r\nStatus: 200\r\n";
         assert_eq!(value(&mut inst, done), "Value: Some((1, \"ctx\"))\r\n");
@@ -845,7 +974,8 @@ mod tests {
 
         // 発行した Tag で組み立てた post から完了通知を作り、そこから取り出す
         let post = send_post("x", &[], Some(&b.to_string()));
-        let done = host_complete(&post, "areka", SHIORI_200_OK, &[OUTCOME_COMPLETED], None).unwrap();
+        let done =
+            host_complete(&post, "areka", SHIORI_200_OK, &[OUTCOME_COMPLETED], None).unwrap();
         assert_eq!(tags.take_from(&Headers::parse(&done)), Some((b, "b")));
         assert!(tags.is_empty());
     }
@@ -854,7 +984,13 @@ mod tests {
     fn pending_tags_failed_post_unregisters() {
         let host = ShioriHostBox::new(PropHost::default());
         let mut inst = API.load(&host, "/ghost").expect("load");
-        assert_eq!(value(&mut inst, "ID: postfail\r\n"), "Value: Err(400) 0\r\n");
-        assert_eq!(*host.host().posted.lock().unwrap(), "Tag: 1\r\nCommand: fail\r\n");
+        assert_eq!(
+            value(&mut inst, "ID: postfail\r\n"),
+            "Value: Err(400) 0\r\n"
+        );
+        assert_eq!(
+            *host.host().posted.lock().unwrap(),
+            "Tag: 1\r\nCommand: fail\r\n"
+        );
     }
 }

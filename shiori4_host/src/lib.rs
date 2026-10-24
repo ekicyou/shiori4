@@ -151,8 +151,9 @@ use std::{
     mem::ManuallyDrop,
     path::Path,
     sync::{
+        Arc,
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
+        mpsc,
     },
 };
 
@@ -161,23 +162,23 @@ pub use shiori4;
 pub use libloading;
 pub use shiori4::protocol;
 pub use shiori4::shiori4_abi::{
-    shiori_is_abi_error, shiori_is_success, ShioriApi, ShioriOwnedBytes, ShioriOwnedResponse,
-    ShioriResponse, ShioriStatus, SHIORI_200_OK, SHIORI_204_NO_CONTENT, SHIORI_400_BAD_REQUEST,
-    SHIORI_500_INTERNAL_SERVER_ERROR, SHIORI_ABI_VERSION, SHIORI_E_INVALID_ARG,
-    SHIORI_E_INVALID_UTF8, SHIORI_E_PANIC, SHIORI_E_REENTRANT, SHIORI_E_SHUTDOWN,
-    SHIORI_E_UNSUPPORTED, SHIORI_E_WRONG_THREAD, SHIORI_LOG_DEBUG, SHIORI_LOG_ERROR,
-    SHIORI_LOG_INFO, SHIORI_LOG_WARN,
+    SHIORI_200_OK, SHIORI_204_NO_CONTENT, SHIORI_400_BAD_REQUEST, SHIORI_500_INTERNAL_SERVER_ERROR,
+    SHIORI_ABI_VERSION, SHIORI_E_INVALID_ARG, SHIORI_E_INVALID_UTF8, SHIORI_E_PANIC,
+    SHIORI_E_REENTRANT, SHIORI_E_SHUTDOWN, SHIORI_E_UNSUPPORTED, SHIORI_E_WRONG_THREAD,
+    SHIORI_LOG_DEBUG, SHIORI_LOG_ERROR, SHIORI_LOG_INFO, SHIORI_LOG_WARN, ShioriApi,
+    ShioriOwnedBytes, ShioriOwnedResponse, ShioriResponse, ShioriStatus, shiori_is_abi_error,
+    shiori_is_success,
 };
 use shiori4::shiori4_abi::{
-    ShioriBytes, ShioriGetApiFn, ShioriHost, ShioriHostBox, ShioriInstance, SHIORI_GET_API_SYMBOL,
+    SHIORI_GET_API_SYMBOL, ShioriBytes, ShioriGetApiFn, ShioriHost, ShioriHostBox, ShioriInstance,
 };
 
 mod v3;
 pub use v3::V3Runtime;
 mod discover;
-pub use discover::{load_ghost, load_ghost_with, EntryKind, LoadedGhost};
+pub use discover::{EntryKind, LoadedGhost, load_ghost, load_ghost_with};
 mod dist;
-pub use dist::{machine_matches, shiori_file_candidates, TargetArch, TargetOs};
+pub use dist::{TargetArch, TargetOs, machine_matches, shiori_file_candidates};
 #[cfg(test)]
 mod test_dll;
 
@@ -247,11 +248,17 @@ pub struct Event {
 
 impl Event {
     pub fn request(headers: impl Into<String>) -> Self {
-        Self { delivery: Delivery::Request, headers: headers.into() }
+        Self {
+            delivery: Delivery::Request,
+            headers: headers.into(),
+        }
     }
 
     pub fn notify(headers: impl Into<String>) -> Self {
-        Self { delivery: Delivery::Notify, headers: headers.into() }
+        Self {
+            delivery: Delivery::Notify,
+            headers: headers.into(),
+        }
     }
 }
 
@@ -308,7 +315,9 @@ impl EventSender {
 
 impl fmt::Debug for EventSender {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EventSender").field("closed", &self.is_closed()).finish()
+        f.debug_struct("EventSender")
+            .field("closed", &self.is_closed())
+            .finish()
     }
 }
 
@@ -325,7 +334,10 @@ pub struct Post {
 
 impl Post {
     fn new(text: String, sender: EventSender) -> Self {
-        Self { text, completer: Completer { sender } }
+        Self {
+            text,
+            completer: Completer { sender },
+        }
     }
 
     /// ヘッダ部分の原文
@@ -353,7 +365,10 @@ pub struct Completer {
 impl Completer {
     /// headers を何も足さず、何も検査せず、delivery で届ける。ランタイムが破棄された後は false
     pub fn complete_with(self, delivery: Delivery, headers: &str) -> bool {
-        self.sender.send(Event { delivery, headers: headers.to_owned() })
+        self.sender.send(Event {
+            delivery,
+            headers: headers.to_owned(),
+        })
     }
 }
 
@@ -448,7 +463,9 @@ impl fmt::Display for LoadError {
             Self::Library(e) => write!(f, "failed to open SHIORI library: {e}"),
             Self::NotShiori4 => f.write_str("no allowed SHIORI entry point found"),
             Self::Unsupported(s) => write!(f, "unsupported SHIORI ABI version (status {s})"),
-            Self::InvalidPath => f.write_str("ghost directory is not an absolute path or not valid UTF-8"),
+            Self::InvalidPath => {
+                f.write_str("ghost directory is not an absolute path or not valid UTF-8")
+            }
             Self::LoadFailed => f.write_str("SHIORI load failed"),
         }
     }
@@ -519,7 +536,11 @@ fn normalize_dir(dir: &Path) -> Result<String, LoadError> {
     }
     let s = dir.to_str().ok_or(LoadError::InvalidPath)?;
     // `\\?\` の形では `/` は区切りではないので置き換えない。Unix では `\` は名前の文字
-    let mut s = if cfg!(windows) && !s.starts_with(r"\\?\") { s.replace('/', "\\") } else { s.to_owned() };
+    let mut s = if cfg!(windows) && !s.starts_with(r"\\?\") {
+        s.replace('/', "\\")
+    } else {
+        s.to_owned()
+    };
     let sep = std::path::MAIN_SEPARATOR;
     s.truncate(s.trim_end_matches(sep).len());
     s.push(sep);
@@ -538,8 +559,8 @@ unsafe fn library_entry(
     version: u32,
 ) -> Result<(String, &'static ShioriApi), LoadError> {
     let dir = normalize_dir(ghost_dir)?;
-    let get: ShioriGetApiFn =
-        *unsafe { lib.get::<ShioriGetApiFn>(SHIORI_GET_API_SYMBOL) }.map_err(|_| LoadError::NotShiori4)?;
+    let get: ShioriGetApiFn = *unsafe { lib.get::<ShioriGetApiFn>(SHIORI_GET_API_SYMBOL) }
+        .map_err(|_| LoadError::NotShiori4)?;
     let p = unsafe { get(version) };
     let api = unsafe { ShioriApi::from_raw(p, version) }.map_err(LoadError::Unsupported)?;
     Ok((dir, api))
@@ -602,12 +623,21 @@ impl<H: Host> GhostRuntime<H> {
     ) -> Result<Self, FromLibraryError> {
         // SAFETY: lib は GhostRuntime の最後のフィールドとして保持し、instance より後に解放する。
         // 'static はこの構造体の外へ漏らさない
-        let (dir, api) = match unsafe { library_entry(&lib, ghost_dir.as_ref(), SHIORI_ABI_VERSION) } {
-            Ok(v) => v,
-            Err(error) => return Err(FromLibraryError { error, library: Some(lib) }),
-        };
+        let (dir, api) =
+            match unsafe { library_entry(&lib, ghost_dir.as_ref(), SHIORI_ABI_VERSION) } {
+                Ok(v) => v,
+                Err(error) => {
+                    return Err(FromLibraryError {
+                        error,
+                        library: Some(lib),
+                    });
+                }
+            };
         // with_api が失敗したとき lib は中で捨てられる（LoadFailed は読み直さない）
-        Self::with_api(api, &dir, host, Some(lib)).map_err(|error| FromLibraryError { error, library: None })
+        Self::with_api(api, &dir, host, Some(lib)).map_err(|error| FromLibraryError {
+            error,
+            library: None,
+        })
     }
 
     /// 同じプロセス内のテーブル（ShioriApi::new で作った static）を使う。テスト用
@@ -638,7 +668,11 @@ impl<H: Host> GhostRuntime<H> {
             let h = Arc::clone(&host);
             Arc::new(move || h.wake())
         };
-        let sender = EventSender { tx: tx.clone(), wake, shutdown: Arc::clone(&shutdown) };
+        let sender = EventSender {
+            tx: tx.clone(),
+            wake,
+            shutdown: Arc::clone(&shutdown),
+        };
         let host_box = ShioriHostBox::new(Bridge {
             host: Arc::clone(&host),
             tx,
@@ -654,7 +688,8 @@ impl<H: Host> GhostRuntime<H> {
         .ok_or(LoadError::LoadFailed)?;
         // SAFETY: instance が参照するのは api（lib が生きている間有効）と host_box の中身（ヒープ上で
         // 位置が変わらない）。どちらも Drop で instance より後に解放する
-        let instance = unsafe { std::mem::transmute::<ShioriInstance<'_>, ShioriInstance<'static>>(inst) };
+        let instance =
+            unsafe { std::mem::transmute::<ShioriInstance<'_>, ShioriInstance<'static>>(inst) };
 
         Ok(Self {
             instance: ManuallyDrop::new(instance),
@@ -781,8 +816,8 @@ impl<H: Host> Drop for GhostRuntime<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shiori4::shiori4_abi::{ShioriHostHandle, ShioriHostPoster};
     use shiori4::protocol::{HeaderWriter, Headers, Lookup, PendingTags, Properties};
+    use shiori4::shiori4_abi::{ShioriHostHandle, ShioriHostPoster};
     use shiori4::{Adapter, Ghost};
     use std::sync::atomic::AtomicUsize;
 
@@ -810,7 +845,11 @@ mod tests {
         fn load(host: Option<ShioriHostHandle>, dir: &str) -> Result<Self, ShioriStatus> {
             *LOADED_DIR.lock().unwrap() = dir.to_owned();
             let poster = host.as_ref().map(|h| h.poster());
-            Ok(Self { props: Properties::new(host), poster, pending: PendingTags::new() })
+            Ok(Self {
+                props: Properties::new(host),
+                poster,
+                pending: PendingTags::new(),
+            })
         }
 
         fn request(&mut self, req: &str) -> ShioriResponse {
@@ -822,7 +861,11 @@ mod tests {
                         _ => "?".to_owned(),
                     };
                     if let Some(p) = &self.poster {
-                        let _ = self.pending.post(p, "dl", &protocol::send_post(r"\0\s[0]hi\e", &[], None));
+                        let _ = self.pending.post(
+                            p,
+                            "dl",
+                            &protocol::send_post(r"\0\s[0]hi\e", &[], None),
+                        );
                     }
                     HeaderWriter::new().push("Value", &name).into_response()
                 }
@@ -854,7 +897,9 @@ mod tests {
     fn answer_getproperty(req: &str, value: impl FnOnce(&str) -> Option<String>) -> ShioriResponse {
         let h = Headers::parse(req);
         match (h.id(), h.reference(0)) {
-            (Some(protocol::ID_GETPROPERTY), Some(name)) => protocol::getproperty_response(value(name).as_deref()),
+            (Some(protocol::ID_GETPROPERTY), Some(name)) => {
+                protocol::getproperty_response(value(name).as_deref())
+            }
             _ => protocol::rejection_response(None),
         }
     }
@@ -870,8 +915,12 @@ mod tests {
 
         fn on_post(&self, post: Post) {
             let (text, done) = post.into_parts();
-            assert_eq!(Headers::parse(&text).get(protocol::HEADER_COMMAND), Some(protocol::COMMAND_SEND));
-            let headers = protocol::host_complete(&text, self.name(), SHIORI_200_OK, &["ok"], None).expect("Tag 付き");
+            assert_eq!(
+                Headers::parse(&text).get(protocol::HEADER_COMMAND),
+                Some(protocol::COMMAND_SEND)
+            );
+            let headers = protocol::host_complete(&text, self.name(), SHIORI_200_OK, &["ok"], None)
+                .expect("Tag 付き");
             assert!(done.complete_with(Delivery::Request, &headers));
         }
 
@@ -881,8 +930,14 @@ mod tests {
     }
 
     fn runtime() -> GhostRuntime<TestHost> {
-        GhostRuntime::from_static(&API, GHOST_DIR, TestHost { woken: AtomicUsize::new(0) })
-            .expect("load")
+        GhostRuntime::from_static(
+            &API,
+            GHOST_DIR,
+            TestHost {
+                woken: AtomicUsize::new(0),
+            },
+        )
+        .expect("load")
     }
 
     #[test]
@@ -970,7 +1025,11 @@ mod tests {
     #[test]
     fn bridge_passes_request_verbatim() {
         let (b, _rx) = bridge(RecordHost::default(), true);
-        let reqs = ["ID: x-unknown\r\nfoo:  bar \r\nReference0: a\r\n", "ID: getproperty\r\nReference0: name\r\n", ""];
+        let reqs = [
+            "ID: x-unknown\r\nfoo:  bar \r\nReference0: a\r\n",
+            "ID: getproperty\r\nReference0: name\r\n",
+            "",
+        ];
         for req in reqs {
             let r = ShioriHost::request(&b, req.as_bytes()).into_owned();
             // 芯は getproperty にも答えず、Host の応答をそのまま返す
@@ -983,7 +1042,11 @@ mod tests {
     #[test]
     fn default_host_request_is_400_for_any_id() {
         let (b, _rx) = bridge(DefaultHost, true);
-        for req in [PROP_REQ, b"ID: property\r\nReference0: name\r\n", b"ID: unknown\r\n"] {
+        for req in [
+            PROP_REQ,
+            b"ID: property\r\nReference0: name\r\n",
+            b"ID: unknown\r\n",
+        ] {
             let r = ShioriHost::request(&b, req).into_owned();
             assert_eq!(r.status, SHIORI_400_BAD_REQUEST);
             assert!(r.body.is_empty());
@@ -995,16 +1058,30 @@ mod tests {
         let (b, rx) = bridge(DefaultHost, true);
         for msg in ["Tag: 1\r\n", ""] {
             assert_eq!(ShioriHost::post(&b, msg.as_bytes()), SHIORI_204_NO_CONTENT);
-            let Ok(Msg::Post(text)) = rx.try_recv() else { panic!("post が積まれない") };
+            let Ok(Msg::Post(text)) = rx.try_recv() else {
+                panic!("post が積まれない")
+            };
             assert_eq!(text, msg);
         }
     }
 
     #[test]
     fn rejected_post_is_400() {
-        let (b, rx) = bridge(RecordHost { reject: true, ..Default::default() }, true);
-        assert_eq!(ShioriHost::post(&b, b"Command: SEND\r\nTag: 1\r\n"), SHIORI_400_BAD_REQUEST);
-        assert_eq!(*b.host.accepts.lock().unwrap(), ["Command: SEND\r\nTag: 1\r\n"]);
+        let (b, rx) = bridge(
+            RecordHost {
+                reject: true,
+                ..Default::default()
+            },
+            true,
+        );
+        assert_eq!(
+            ShioriHost::post(&b, b"Command: SEND\r\nTag: 1\r\n"),
+            SHIORI_400_BAD_REQUEST
+        );
+        assert_eq!(
+            *b.host.accepts.lock().unwrap(),
+            ["Command: SEND\r\nTag: 1\r\n"]
+        );
         assert!(rx.try_recv().is_err());
     }
 
@@ -1014,7 +1091,10 @@ mod tests {
         let r = ShioriHost::request(&b, b"ID: \xff\r\n").into_owned();
         assert_eq!(r.status, SHIORI_400_BAD_REQUEST);
         assert!(r.body.is_empty());
-        assert_eq!(ShioriHost::post(&b, b"Tag: \xff\r\n"), SHIORI_400_BAD_REQUEST);
+        assert_eq!(
+            ShioriHost::post(&b, b"Tag: \xff\r\n"),
+            SHIORI_400_BAD_REQUEST
+        );
         assert!(b.host.requests.lock().unwrap().is_empty());
         assert!(b.host.accepts.lock().unwrap().is_empty());
         assert!(rx.try_recv().is_err());
@@ -1023,7 +1103,14 @@ mod tests {
     /// 送り口と、その送り口が積むキュー
     fn test_sender() -> (EventSender, mpsc::Receiver<Msg>) {
         let (tx, rx) = mpsc::channel();
-        (EventSender { tx, wake: Arc::new(|| {}), shutdown: Arc::new(AtomicBool::new(false)) }, rx)
+        (
+            EventSender {
+                tx,
+                wake: Arc::new(|| {}),
+                shutdown: Arc::new(AtomicBool::new(false)),
+            },
+            rx,
+        )
     }
 
     #[test]
@@ -1031,14 +1118,24 @@ mod tests {
         let (sender, rx) = test_sender();
         // Tag 付きの post でも Tag の無い post（空文字列を含む）でも、引数をそのまま積む
         let cases = [
-            ("Command: SEND\r\nTag: 1\r\n", Delivery::Request, "ID: x-any\r\nfoo:  bar \r\n"),
-            ("Command: SEND\r\n", Delivery::Notify, "ID: OnHostComplete\r\nStatus: 200\r\n"),
+            (
+                "Command: SEND\r\nTag: 1\r\n",
+                Delivery::Request,
+                "ID: x-any\r\nfoo:  bar \r\n",
+            ),
+            (
+                "Command: SEND\r\n",
+                Delivery::Notify,
+                "ID: OnHostComplete\r\nStatus: 200\r\n",
+            ),
             ("", Delivery::Request, ""),
         ];
         for (post, delivery, headers) in cases {
             let post = Post::new(post.to_owned(), sender.clone());
             assert!(post.into_completer().complete_with(delivery, headers));
-            let Ok(Msg::Event(ev)) = rx.try_recv() else { panic!("event が積まれない") };
+            let Ok(Msg::Event(ev)) = rx.try_recv() else {
+                panic!("event が積まれない")
+            };
             assert_eq!(ev.delivery, delivery);
             assert_eq!(ev.headers, headers);
         }
@@ -1054,7 +1151,10 @@ mod tests {
         let r = ShioriHost::request(&b, PROP_REQ).into_owned();
         assert_eq!(r.status, SHIORI_400_BAD_REQUEST);
         no_charset(r.body.as_str().unwrap());
-        assert_eq!(ShioriHost::post(&b, b"Command: SEND\r\nTag: 1\r\n"), SHIORI_204_NO_CONTENT);
+        assert_eq!(
+            ShioriHost::post(&b, b"Command: SEND\r\nTag: 1\r\n"),
+            SHIORI_204_NO_CONTENT
+        );
 
         let post = protocol::send_post(r"\0hi\e", &["nobreak"], Some("1"));
         for s in [
@@ -1062,7 +1162,14 @@ mod tests {
             protocol::setproperty_request("currentghost.name", "x"),
             protocol::notify_post("OnTest", &["a"], &["nobreak"], Some("2")),
             protocol::host_complete(&post, "test", SHIORI_200_OK, &["ok"], None).expect("Tag 付き"),
-            protocol::host_complete(&post, "test", SHIORI_400_BAD_REQUEST, &[], Some("forbidden")).expect("Tag 付き"),
+            protocol::host_complete(
+                &post,
+                "test",
+                SHIORI_400_BAD_REQUEST,
+                &[],
+                Some("forbidden"),
+            )
+            .expect("Tag 付き"),
             post,
         ] {
             no_charset(&s);
@@ -1113,7 +1220,11 @@ mod tests {
     fn request_from_other_thread_is_wrong_thread() {
         // 持ち主のスレッドが処理中でも、別スレッドからの request は -7 で Host に渡らない
         let b = count_bridge(true);
-        let r = std::thread::scope(|s| s.spawn(|| ShioriHost::request(&b, PROP_REQ).into_owned()).join().unwrap());
+        let r = std::thread::scope(|s| {
+            s.spawn(|| ShioriHost::request(&b, PROP_REQ).into_owned())
+                .join()
+                .unwrap()
+        });
         assert_eq!(r.status, SHIORI_E_WRONG_THREAD);
         assert!(r.body.is_empty());
         assert_eq!(b.host.calls.load(Ordering::Relaxed), 0);
@@ -1151,14 +1262,20 @@ mod tests {
             let poster = host.as_ref().map(|h| h.poster());
             let mut props = Properties::new(host);
             let at_load = value(&mut props, "load");
-            Ok(Self { props, poster, at_load })
+            Ok(Self {
+                props,
+                poster,
+                at_load,
+            })
         }
 
         fn request(&mut self, req: &str) -> ShioriResponse {
             match Headers::parse(req).id() {
                 Some("OnLog") => {
                     let p = self.poster.clone().unwrap();
-                    std::thread::spawn(move || p.log(SHIORI_LOG_INFO, "from worker")).join().unwrap();
+                    std::thread::spawn(move || p.log(SHIORI_LOG_INFO, "from worker"))
+                        .join()
+                        .unwrap();
                     ShioriResponse::no_content()
                 }
                 _ => {
@@ -1169,7 +1286,11 @@ mod tests {
         }
 
         fn notify(&mut self, _req: &str) -> ShioriStatus {
-            if value(&mut self.props, "notify") == "v:notify" { SHIORI_200_OK } else { SHIORI_500_INTERNAL_SERVER_ERROR }
+            if value(&mut self.props, "notify") == "v:notify" {
+                SHIORI_200_OK
+            } else {
+                SHIORI_500_INTERNAL_SERVER_ERROR
+            }
         }
     }
 
@@ -1183,7 +1304,11 @@ mod tests {
     fn property_inside_load_request_notify() {
         let mut rt = guard_runtime();
         let r = rt.request("ID: OnBoot\r\n").expect("abi");
-        assert!(r.body.as_str().unwrap().contains("Value: v:load|v:req"), "{:?}", r.body.as_str());
+        assert!(
+            r.body.as_str().unwrap().contains("Value: v:load|v:req"),
+            "{:?}",
+            r.body.as_str()
+        );
         drop(r);
         assert_eq!(rt.notify("ID: OnTest\r\n"), Ok(SHIORI_200_OK));
         // 呼び出しが返った後は印が下りている
@@ -1231,7 +1356,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn normalize_dir_table_windows() {
-        let ok = |input: &str, want: &str| assert_eq!(norm(input).as_deref(), Some(want), "{input}");
+        let ok =
+            |input: &str, want: &str| assert_eq!(norm(input).as_deref(), Some(want), "{input}");
         ok(r"C:\a\b", r"C:\a\b\");
         ok(r"C:\a\b\", r"C:\a\b\");
         ok(r"C:\a\b\\", r"C:\a\b\");
@@ -1258,7 +1384,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn normalize_dir_table_unix() {
-        let ok = |input: &str, want: &str| assert_eq!(norm(input).as_deref(), Some(want), "{input}");
+        let ok =
+            |input: &str, want: &str| assert_eq!(norm(input).as_deref(), Some(want), "{input}");
         ok("/a/b", "/a/b/");
         ok("/a/b/", "/a/b/");
         ok("/a/b//", "/a/b/");
@@ -1277,9 +1404,18 @@ mod tests {
     #[test]
     fn from_static_passes_normalized_dir_to_shiori() {
         // 末尾の区切りを二重にして渡す（Windows では `/` を混ぜることにもなる）
-        let messy = format!("{}//", GHOST_DIR.trim_end_matches(std::path::MAIN_SEPARATOR));
-        let _rt = GhostRuntime::from_static(&API, &messy, TestHost { woken: AtomicUsize::new(0) })
-            .expect("load");
+        let messy = format!(
+            "{}//",
+            GHOST_DIR.trim_end_matches(std::path::MAIN_SEPARATOR)
+        );
+        let _rt = GhostRuntime::from_static(
+            &API,
+            &messy,
+            TestHost {
+                woken: AtomicUsize::new(0),
+            },
+        )
+        .expect("load");
         let got = LOADED_DIR.lock().unwrap().clone();
         assert_eq!(got, GHOST_DIR_NORMALIZED);
     }
@@ -1287,7 +1423,13 @@ mod tests {
     #[test]
     fn from_static_rejects_relative_dir() {
         for bad in ["ghost", "ghost/master"] {
-            let r = GhostRuntime::from_static(&API, bad, TestHost { woken: AtomicUsize::new(0) });
+            let r = GhostRuntime::from_static(
+                &API,
+                bad,
+                TestHost {
+                    woken: AtomicUsize::new(0),
+                },
+            );
             assert!(matches!(r, Err(LoadError::InvalidPath)), "{bad}");
         }
     }
@@ -1295,7 +1437,13 @@ mod tests {
     #[test]
     fn load_rejects_relative_dir_before_opening_library() {
         // ライブラリのパスは存在しない。dir の検査が先なので Library ではなく InvalidPath になる
-        let r = GhostRuntime::load("no-such-shiori.dll", "ghost", TestHost { woken: AtomicUsize::new(0) });
+        let r = GhostRuntime::load(
+            "no-such-shiori.dll",
+            "ghost",
+            TestHost {
+                woken: AtomicUsize::new(0),
+            },
+        );
         assert!(matches!(r, Err(LoadError::InvalidPath)));
     }
 
@@ -1306,7 +1454,10 @@ mod tests {
 
     #[test]
     fn not_shiori4_display_is_no_allowed_entry() {
-        assert_eq!(LoadError::NotShiori4.to_string(), "no allowed SHIORI entry point found");
+        assert_eq!(
+            LoadError::NotShiori4.to_string(),
+            "no allowed SHIORI entry point found"
+        );
     }
 
     // ---- from_library（要件 7.6・12.1〜12.4） ----
@@ -1327,7 +1478,13 @@ mod tests {
 
     #[test]
     fn from_static_load_null_is_load_failed() {
-        let r = GhostRuntime::from_static(&FAIL_API, GHOST_DIR, TestHost { woken: AtomicUsize::new(0) });
+        let r = GhostRuntime::from_static(
+            &FAIL_API,
+            GHOST_DIR,
+            TestHost {
+                woken: AtomicUsize::new(0),
+            },
+        );
         assert!(matches!(r, Err(LoadError::LoadFailed)));
     }
 
@@ -1348,7 +1505,11 @@ mod tests {
     #[test]
     fn load_failure_reason_reaches_host_log() {
         let logs = std::sync::Arc::default();
-        let r = GhostRuntime::from_static(&FAIL_API, GHOST_DIR, FailLogHost(std::sync::Arc::clone(&logs)));
+        let r = GhostRuntime::from_static(
+            &FAIL_API,
+            GHOST_DIR,
+            FailLogHost(std::sync::Arc::clone(&logs)),
+        );
         assert!(matches!(r, Err(LoadError::LoadFailed)));
         let logs = logs.lock().unwrap();
         assert_eq!(logs.len(), 1);
@@ -1357,11 +1518,14 @@ mod tests {
     }
 
     fn test_lib() -> libloading::Library {
-        unsafe { libloading::Library::new(crate::test_dll::dll_path()) }.expect("テスト用 DLL を開けない")
+        unsafe { libloading::Library::new(crate::test_dll::dll_path()) }
+            .expect("テスト用 DLL を開けない")
     }
 
     fn test_host() -> TestHost {
-        TestHost { woken: AtomicUsize::new(0) }
+        TestHost {
+            woken: AtomicUsize::new(0),
+        }
     }
 
     #[test]
@@ -1381,7 +1545,9 @@ mod tests {
         #[cfg(all(unix, not(target_os = "macos")))]
         const OS_LIB: &str = "libc.so.6";
         let lib = unsafe { libloading::Library::new(OS_LIB) }.expect("OS のライブラリを開けない");
-        let e = GhostRuntime::from_library(lib, GHOST_DIR, test_host()).err().expect("失敗するはず");
+        let e = GhostRuntime::from_library(lib, GHOST_DIR, test_host())
+            .err()
+            .expect("失敗するはず");
         assert!(matches!(e.error(), LoadError::NotShiori4));
         assert!(e.into_library().is_some());
     }
@@ -1391,7 +1557,9 @@ mod tests {
         let _g = crate::test_dll::lock();
         let lib = test_lib();
         crate::test_dll::set_mode(&lib, crate::test_dll::MODE_V3);
-        let e = GhostRuntime::from_library(lib, GHOST_DIR, test_host()).err().expect("失敗するはず");
+        let e = GhostRuntime::from_library(lib, GHOST_DIR, test_host())
+            .err()
+            .expect("失敗するはず");
         assert!(matches!(e.error(), LoadError::Unsupported(_)));
         // 返ったライブラリでやり直せる
         let lib = e.into_library().expect("ライブラリが返る");
@@ -1402,19 +1570,26 @@ mod tests {
     #[test]
     fn from_library_invalid_path_returns_library() {
         let _g = crate::test_dll::lock();
-        let e = GhostRuntime::from_library(test_lib(), "ghost", test_host()).err().expect("失敗するはず");
+        let e = GhostRuntime::from_library(test_lib(), "ghost", test_host())
+            .err()
+            .expect("失敗するはず");
         assert!(matches!(e.error(), LoadError::InvalidPath));
         let (err, lib) = e.into_parts();
         assert!(matches!(err, LoadError::InvalidPath));
         // dir を直して同じライブラリでやり直せる
-        assert!(GhostRuntime::from_library(lib.expect("ライブラリが返る"), GHOST_DIR, test_host()).is_ok());
+        assert!(
+            GhostRuntime::from_library(lib.expect("ライブラリが返る"), GHOST_DIR, test_host())
+                .is_ok()
+        );
     }
 
     #[test]
     fn from_library_load_failed_drops_library() {
         let _g = crate::test_dll::lock();
         let dir = std::path::Path::new(GHOST_DIR).join("fail");
-        let e = GhostRuntime::from_library(test_lib(), &dir, test_host()).err().expect("失敗するはず");
+        let e = GhostRuntime::from_library(test_lib(), &dir, test_host())
+            .err()
+            .expect("失敗するはず");
         assert!(matches!(e.error(), LoadError::LoadFailed));
         assert_eq!(e.to_string(), LoadError::LoadFailed.to_string());
         assert!(std::error::Error::source(&e).is_some());
@@ -1445,7 +1620,10 @@ mod tests {
     /// code_lines_before_tests のうち `protocol` を語として含む行
     fn protocol_lines(src: &str) -> Vec<&str> {
         code_lines_before_tests(src)
-            .filter(|l| l.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|w| w == "protocol"))
+            .filter(|l| {
+                l.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|w| w == "protocol")
+            })
             .collect()
     }
 
@@ -1453,7 +1631,10 @@ mod tests {
     fn protocol_lines_counts_only_code_before_tests() {
         // 途中の `#[cfg(test)] mod test_dll;` は境目でない。その後の芯の参照も数える
         let src = "//! protocol の doc\n/// protocol::Headers を使ってよい\npub use shiori4::protocol;\n#[cfg(test)]\nmod test_dll;\nlet protocols = my_protocol;\n    use protocol::Headers;\n#[cfg(test)]\nmod tests {\n    use protocol::Headers;\n}\n";
-        assert_eq!(protocol_lines(src), ["pub use shiori4::protocol;", "use protocol::Headers;"]);
+        assert_eq!(
+            protocol_lines(src),
+            ["pub use shiori4::protocol;", "use protocol::Headers;"]
+        );
 
         // 境目が無ければテストの中の参照も数え、検査は黙って通らない
         let no_boundary = "pub use shiori4::protocol;\nmod test {\n    use protocol::Headers;\n}\n";
@@ -1462,6 +1643,9 @@ mod tests {
 
     #[test]
     fn core_refers_to_protocol_only_by_its_reexport() {
-        assert_eq!(protocol_lines(include_str!("lib.rs")), ["pub use shiori4::protocol;"]);
+        assert_eq!(
+            protocol_lines(include_str!("lib.rs")),
+            ["pub use shiori4::protocol;"]
+        );
     }
 }

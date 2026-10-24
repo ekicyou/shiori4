@@ -2,11 +2,11 @@
 
 use std::{ffi::OsStr, mem::ManuallyDrop, path::Path};
 
-use shiori4::shiori4_abi::{ShioriInstance, SHIORI_ABI_VERSION_3};
+use shiori4::shiori4_abi::{SHIORI_ABI_VERSION_3, ShioriInstance};
 
 use crate::{
-    library_entry, normalize_dir, FromLibraryError, LoadError, ShioriApi, ShioriStatus,
-    SHIORI_E_INVALID_UTF8, SHIORI_E_PANIC, SHIORI_E_UNSUPPORTED,
+    FromLibraryError, LoadError, SHIORI_E_INVALID_UTF8, SHIORI_E_PANIC, SHIORI_E_UNSUPPORTED,
+    ShioriApi, ShioriStatus, library_entry, normalize_dir,
 };
 
 /// v3 互換モード（`shiori_get_api(3)`）の SHIORI 1 つを所有し、SHIORI/3.0 の全文を文字列で往復させる
@@ -26,7 +26,10 @@ pub struct V3Runtime {
 
 impl V3Runtime {
     /// SHIORI のライブラリを読み込み、v3 で load する
-    pub fn load(lib_path: impl AsRef<OsStr>, ghost_dir: impl AsRef<Path>) -> Result<Self, LoadError> {
+    pub fn load(
+        lib_path: impl AsRef<OsStr>,
+        ghost_dir: impl AsRef<Path>,
+    ) -> Result<Self, LoadError> {
         // dir の検査をライブラリを開くより先にする（GhostRuntime::load と同じ）
         normalize_dir(ghost_dir.as_ref())?;
         // SAFETY: ライブラリの初期化コードが実行される。信頼できる SHIORI だけを読み込むこと
@@ -40,17 +43,32 @@ impl V3Runtime {
     /// `Unsupported`（`shiori_get_api(3)` が NULL）ではライブラリを返し、`LoadFailed`（v3 の load が
     /// NULL。理由は付かない）では返さない。`GhostRuntime::from_library` が `Unsupported` で返した
     /// ライブラリをそのまま渡せる
-    pub fn from_library(lib: libloading::Library, ghost_dir: impl AsRef<Path>) -> Result<Self, FromLibraryError> {
+    pub fn from_library(
+        lib: libloading::Library,
+        ghost_dir: impl AsRef<Path>,
+    ) -> Result<Self, FromLibraryError> {
         // SAFETY: lib は V3Runtime の最後のフィールドとして保持し、instance より後に解放する
-        let (dir, api) = match unsafe { library_entry(&lib, ghost_dir.as_ref(), SHIORI_ABI_VERSION_3) } {
-            Ok(v) => v,
-            Err(error) => return Err(FromLibraryError { error, library: Some(lib) }),
-        };
-        Self::with_api(api, &dir, Some(lib)).map_err(|error| FromLibraryError { error, library: None })
+        let (dir, api) =
+            match unsafe { library_entry(&lib, ghost_dir.as_ref(), SHIORI_ABI_VERSION_3) } {
+                Ok(v) => v,
+                Err(error) => {
+                    return Err(FromLibraryError {
+                        error,
+                        library: Some(lib),
+                    });
+                }
+            };
+        Self::with_api(api, &dir, Some(lib)).map_err(|error| FromLibraryError {
+            error,
+            library: None,
+        })
     }
 
     /// 同じプロセス内の v3 のテーブル（ShioriApi::new で作った static）を使う。テスト用
-    pub fn from_static(api: &'static ShioriApi, ghost_dir: impl AsRef<Path>) -> Result<Self, LoadError> {
+    pub fn from_static(
+        api: &'static ShioriApi,
+        ghost_dir: impl AsRef<Path>,
+    ) -> Result<Self, LoadError> {
         let dir = normalize_dir(ghost_dir.as_ref())?;
         if api.abi_version() != SHIORI_ABI_VERSION_3 {
             return Err(LoadError::Unsupported(SHIORI_E_UNSUPPORTED));
@@ -58,9 +76,17 @@ impl V3Runtime {
         Self::with_api(api, &dir, None)
     }
 
-    fn with_api(api: &'static ShioriApi, dir: &str, lib: Option<libloading::Library>) -> Result<Self, LoadError> {
+    fn with_api(
+        api: &'static ShioriApi,
+        dir: &str,
+        lib: Option<libloading::Library>,
+    ) -> Result<Self, LoadError> {
         let instance = api.load_v3(dir).ok_or(LoadError::LoadFailed)?;
-        Ok(Self { instance: ManuallyDrop::new(instance), poisoned: false, _lib: lib })
+        Ok(Self {
+            instance: ManuallyDrop::new(instance),
+            poisoned: false,
+            _lib: lib,
+        })
     }
 
     /// SHIORI がパニックした（SHIORI_E_PANIC を返した）か。true なら破棄して読み直すこと
@@ -81,7 +107,10 @@ impl V3Runtime {
             self.poisoned = true;
         }
         // 相手のバッファは r の Drop で release される
-        r?.body.as_str().map(str::to_owned).map_err(|_| SHIORI_E_INVALID_UTF8)
+        r?.body
+            .as_str()
+            .map(str::to_owned)
+            .map_err(|_| SHIORI_E_INVALID_UTF8)
     }
 }
 
@@ -97,11 +126,11 @@ impl Drop for V3Runtime {
 mod tests {
     use super::*;
     use crate::{
-        test_dll, GhostRuntime, Host, Post, ShioriResponse, SHIORI_200_OK, SHIORI_204_NO_CONTENT,
-        SHIORI_500_INTERNAL_SERVER_ERROR,
+        GhostRuntime, Host, Post, SHIORI_200_OK, SHIORI_204_NO_CONTENT,
+        SHIORI_500_INTERNAL_SERVER_ERROR, ShioriResponse, test_dll,
     };
-    use shiori4::shiori4_abi::{Shiori, ShioriLoadMode};
     use shiori4::protocol::{HeaderWriter, Headers};
+    use shiori4::shiori4_abi::{Shiori, ShioriLoadMode};
     use shiori4::{Adapter, Ghost, ShioriHostHandle};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -121,11 +150,16 @@ mod tests {
     impl Ghost for EchoGhost {
         fn load(host: Option<ShioriHostHandle>, dir: &str) -> Result<Self, ShioriStatus> {
             assert!(host.is_none(), "v3 では host を渡さない");
-            assert!(dir.ends_with(std::path::MAIN_SEPARATOR), "dir は正規化されて届く");
+            assert!(
+                dir.ends_with(std::path::MAIN_SEPARATOR),
+                "dir は正規化されて届く"
+            );
             Ok(Self)
         }
         fn request(&mut self, req: &str) -> ShioriResponse {
-            HeaderWriter::new().push("Value", Headers::parse(req).id().unwrap_or("")).into_response()
+            HeaderWriter::new()
+                .push("Value", Headers::parse(req).id().unwrap_or(""))
+                .into_response()
         }
         fn notify(&mut self, req: &str) -> ShioriStatus {
             *NOTIFIED.lock().unwrap() = Headers::parse(req).id().unwrap_or("").to_owned();
@@ -189,7 +223,9 @@ mod tests {
     #[test]
     fn get_roundtrip() {
         let mut rt = V3Runtime::from_static(&ECHO_V3, GHOST_DIR).expect("load");
-        let text = rt.request("GET SHIORI/3.0\r\nCharset: UTF-8\r\nID: OnBoot\r\n\r\n").expect("abi");
+        let text = rt
+            .request("GET SHIORI/3.0\r\nCharset: UTF-8\r\nID: OnBoot\r\n\r\n")
+            .expect("abi");
         assert!(text.starts_with("SHIORI/3.0 200 OK\r\n"), "{text}");
         assert!(text.contains("Value: OnBoot\r\n"), "{text}");
         assert!(text.ends_with("\r\n\r\n"), "{text}");
@@ -198,21 +234,33 @@ mod tests {
     #[test]
     fn notify_full_text_through_request() {
         let mut rt = V3Runtime::from_static(&ECHO_V3, GHOST_DIR).expect("load");
-        let text = rt.request("NOTIFY SHIORI/3.0\r\nCharset: UTF-8\r\nID: OnNotifyX\r\n\r\n").expect("abi");
+        let text = rt
+            .request("NOTIFY SHIORI/3.0\r\nCharset: UTF-8\r\nID: OnNotifyX\r\n\r\n")
+            .expect("abi");
         assert!(text.starts_with("SHIORI/3.0 204 "), "{text}");
         assert_eq!(*NOTIFIED.lock().unwrap(), "OnNotifyX");
     }
 
     #[test]
     fn load_null_is_load_failed() {
-        assert!(matches!(V3Runtime::from_static(&FAIL_V3, GHOST_DIR), Err(LoadError::LoadFailed)));
+        assert!(matches!(
+            V3Runtime::from_static(&FAIL_V3, GHOST_DIR),
+            Err(LoadError::LoadFailed)
+        ));
     }
 
     #[test]
     fn invalid_dir_and_wrong_table() {
-        assert!(matches!(V3Runtime::from_static(&ECHO_V3, "ghost"), Err(LoadError::InvalidPath)));
-        static ECHO_V4: ShioriApi = ShioriApi::new::<Adapter<EchoGhost>, { crate::SHIORI_ABI_VERSION }>();
-        assert!(matches!(V3Runtime::from_static(&ECHO_V4, GHOST_DIR), Err(LoadError::Unsupported(_))));
+        assert!(matches!(
+            V3Runtime::from_static(&ECHO_V3, "ghost"),
+            Err(LoadError::InvalidPath)
+        ));
+        static ECHO_V4: ShioriApi =
+            ShioriApi::new::<Adapter<EchoGhost>, { crate::SHIORI_ABI_VERSION }>();
+        assert!(matches!(
+            V3Runtime::from_static(&ECHO_V4, GHOST_DIR),
+            Err(LoadError::Unsupported(_))
+        ));
     }
 
     #[test]
@@ -259,10 +307,16 @@ mod tests {
         // モードを戻すための別のハンドル（V3Runtime がライブラリを持って行くため）
         let mode_lib = test_lib();
         test_dll::set_mode(&mode_lib, test_dll::MODE_V3);
-        let e = GhostRuntime::from_library(test_lib(), GHOST_DIR, NoHost).err().expect("v4 は無い");
+        let e = GhostRuntime::from_library(test_lib(), GHOST_DIR, NoHost)
+            .err()
+            .expect("v4 は無い");
         assert!(matches!(e.error(), LoadError::Unsupported(_)));
-        let mut rt = V3Runtime::from_library(e.into_library().expect("ライブラリが返る"), GHOST_DIR).expect("v3 で読める");
-        let text = rt.request("GET SHIORI/3.0\r\nID: OnBoot\r\n\r\n").expect("abi");
+        let mut rt =
+            V3Runtime::from_library(e.into_library().expect("ライブラリが返る"), GHOST_DIR)
+                .expect("v3 で読める");
+        let text = rt
+            .request("GET SHIORI/3.0\r\nID: OnBoot\r\n\r\n")
+            .expect("abi");
         assert!(text.starts_with("SHIORI/3.0 200 OK\r\n"), "{text}");
         assert!(text.contains("Value: testghost\r\n"), "{text}");
         drop(rt);
@@ -275,17 +329,23 @@ mod tests {
         let mode_lib = test_lib();
         // v3 が無い → Unsupported とライブラリ
         test_dll::set_mode(&mode_lib, test_dll::MODE_V4);
-        let e = V3Runtime::from_library(test_lib(), GHOST_DIR).err().expect("v3 は無い");
+        let e = V3Runtime::from_library(test_lib(), GHOST_DIR)
+            .err()
+            .expect("v3 は無い");
         assert!(matches!(e.error(), LoadError::Unsupported(_)));
         assert!(e.into_library().is_some());
         test_dll::set_mode(&mode_lib, test_dll::MODE_DEFAULT);
         // 相対の dir → InvalidPath とライブラリ
-        let e = V3Runtime::from_library(test_lib(), "ghost").err().expect("相対");
+        let e = V3Runtime::from_library(test_lib(), "ghost")
+            .err()
+            .expect("相対");
         assert!(matches!(e.error(), LoadError::InvalidPath));
         assert!(e.into_library().is_some());
         // load が NULL → LoadFailed、ライブラリは返さない
         let dir = std::path::Path::new(GHOST_DIR).join("fail");
-        let e = V3Runtime::from_library(test_lib(), &dir).err().expect("load の失敗");
+        let e = V3Runtime::from_library(test_lib(), &dir)
+            .err()
+            .expect("load の失敗");
         assert!(matches!(e.error(), LoadError::LoadFailed));
         assert!(e.into_library().is_none());
         // パスの入口
