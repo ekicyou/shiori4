@@ -537,7 +537,7 @@ pub struct ShioriHostApi {
     /// 任意のスレッドから呼べる（スレッド規約 4）。msg は呼び出し中だけ有効。v3 のテーブルでは None
     log: Option<unsafe extern "C" fn(ctx: *mut c_void, level: i32, msg: *const u8, len: usize)>,
     /// SHIORI の応答を作る。ptr から len バイトをホストのメモリへ写し、ホストが作った ShioriBytes を
-    /// out に入れる（ABI 規約）。任意のスレッドから呼べる（スレッド規約 6）。v3 のテーブルにもある。
+    /// out に入れる（ABI 規約 5）。任意のスレッドから呼べる（スレッド規約 6）。v3 のテーブルにもある。
     /// 戻り値は無い。写せなかったときは、ホストが自分で決めた印を out に残す（SHIORI には知らせない）
     copy_from_slice: Option<
         unsafe extern "C" fn(ctx: *mut c_void, ptr: *const u8, len: usize, out: *mut ShioriBytes),
@@ -992,6 +992,8 @@ unsafe extern "C" fn shiori_notify<S: Shiori>(
 pub type ShioriGetApiFn = unsafe extern "C" fn(requested_abi_version: u32) -> *const ShioriApi;
 
 /// エクスポート関数 `shiori_get_api` を生成する
+///
+/// この例は `MyShiori` の定義を省いた形なので、検査しない（`Shiori` を実装した型を渡す）。
 ///
 /// ```ignore
 /// shiori4_abi::export_shiori!(MyShiori);

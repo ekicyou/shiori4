@@ -210,5 +210,5 @@
 - 2.2: `shiori4_abi/tests/textbook.rs` の `split_sections` は規約の 9 節の見出し（SECTIONS）に固く結びついている。9.2 で章の検査に使うときは章ごとの区切りを別に持つ。
 - 3.1: 手元に gcc・clang が無いので、Linux・macOS の `-Wall -Wextra -Werror` は 4 の CI で初めて確かめる。MSVC は vswhere → vcvars64.bat で使える。
 - 3.3: 教科書の例のホストは v4 の要求に `doc/host-protocol.md` 第 2.2 節の 5 つの必須ヘッダ（`SecurityLevel` は `ID` より前）を付ける。testghost は要求のヘッダを見ないので、往復が通っても適合の証拠にならない。
-- 8.2: 既存の docs.rs の例のうち `shiori4/src/lib.rs:16`・`shiori4_host/src/lib.rs:25/117`（`no_run`）・`shiori4_host/src/dist.rs:58`・`shiori4_abi/src/lib.rs:996`（`ignore`）は、要件 14.3 の理由の文を持たない（この spec より前からある）。
+- 8.2: 既存の docs.rs の例のうち `shiori4/src/lib.rs:16`・`shiori4_host/src/lib.rs:25/117`（`no_run`）・`shiori4_abi/src/lib.rs:996`（`ignore`）は、要件 14.3 の理由の文を持たない（この spec より前からある）。検証の段で理由の文を足した。
 - 9.2: `include_str!` の再ビルドは mtime で決まる。写しを壊して戻す確かめでは、戻した後に `touch` しないと古いテストのバイナリが残る。

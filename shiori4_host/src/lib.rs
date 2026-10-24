@@ -22,6 +22,8 @@
 //! SHIORI が別スレッドから post すると `Host::wake` が呼ばれるので、そこでイベントループに
 //! 「pump を呼んで」と依頼する（Windows なら DispatcherQueue.TryEnqueue、など）。
 //!
+//! この例はゴーストの DLL を要するので、ビルドだけを検査する（実行しない）。
+//!
 //! ```no_run
 //! use shiori4_host::*;
 //!
@@ -113,6 +115,8 @@
 //!     ["pasta.arm64.dll", "pasta.x64.dll", "pasta.dll"],
 //! );
 //! ```
+//!
+//! この例はゴーストの DLL を要するので、ビルドだけを検査する（実行しない）。
 //!
 //! ```no_run
 //! use shiori4_host::*;

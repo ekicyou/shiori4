@@ -13,6 +13,8 @@
 //!
 //! ホストを呼べるかどうか（プロパティを同期で取れるか）は `Ghost` の実装に見せる（v4 なら `load` の host が `Some`）。
 //!
+//! この例は DLL として書き出す形なので、ビルドだけを検査する（実行しない）。
+//!
 //! ```no_run
 //! use shiori4::protocol::{HeaderWriter, Headers, Lookup, Properties, HEADER_VALUE};
 //!

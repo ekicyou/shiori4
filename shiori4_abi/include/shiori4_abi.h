@@ -193,7 +193,7 @@ typedef struct ShioriHostApi {
     void         (*log)(void* ctx, int32_t level, const uint8_t* msg, size_t len);
 
     /* SHIORI の応答を作る。ptr から len バイトをホストのメモリへ写し、ホストが作った ShioriBytes を
-     * out に入れる（ABI 規約）。任意のスレッドから呼べる（スレッド規約 6）。v3 のテーブルにもある
+     * out に入れる（ABI 規約 5）。任意のスレッドから呼べる（スレッド規約 6）。v3 のテーブルにもある
      * 戻り値は無い。写せなかったときは、ホストが自分で決めた印を out に残す（SHIORI には知らせない）
      * SHIORI は SHIORI_HAS_FIELD(host, ShioriHostApi, copy_from_slice) で有無を確かめる */
     void         (*copy_from_slice)(void* ctx, const uint8_t* ptr, size_t len, ShioriBytes* out);
