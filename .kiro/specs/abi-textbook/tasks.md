@@ -1,0 +1,207 @@
+# Implementation Plan
+
+- [ ] 1. 全体図の穴を埋める ABI の変更（OwnershipChange。教科書の執筆より先に行う）
+- [ ] 1.1 規約の文言と、ホストのテーブルの新しい欄を、C ヘッダと `shiori4_abi` の `//!` の両方に入れる
+  - 版（v3 の host は `copy_from_slice` だけを持つ。v3 の下位の項目「load の host は NULL（渡されても SHIORI は無視する）」を直す）・ABI 規約（`out` は常にホストが作り、写せなかったときはホストが自分の印を `out` に残す）・スレッド規約 1（`load`・`unload` を足す）・5（例外は `release` だけ）・6（`release` は常にホストの関数で、いつでも・どのスレッドからでも呼べる）・load の規約 3（「v3 は host が NULL なので」を、v3 の host に `log` が無いことに直す）の文を、両方で同じ文にする。項目は足さず、各節の項目数を変えない
+  - 規約の節の外の注釈で v3 の host を NULL・None と書いた 3 か所（C ヘッダの `SHIORI_ABI_VERSION_3` の注釈・`load` の欄の注釈・`ShioriApi::load` の `///`）も、`copy_from_slice` だけのテーブルを渡す形に直す
+  - ホストの関数テーブルの末尾に、戻り値を持たない `copy_from_slice` の欄を C と Rust の両方で足し、`struct_size` の版の決まりに沿わせる（この段ではテーブルを組む側は欄を空にしてビルドを通す）。v3 のテーブルが `request`・`post`・`log` を NULL にできるよう、Rust の 3 つの欄を `Option<unsafe extern "C" fn>` に変え（C の関数ポインタと同じ配置で、二進の形は変わらない）、それを呼ぶ所を直す。v3 のテーブルは `abi_version` が 3、`struct_size` は欄を含む大きさとし、SHIORI は v3 では `SHIORI_HAS_FIELD(host, ShioriHostApi, copy_from_slice)` だけで確かめる（`is_valid` と `SHIORI_HOST_API_IS_VALID` は v4 の検査のまま）。C ヘッダと `shiori4_abi` の大きさの assert を新しい大きさに直す
+  - 完了の状態: C ヘッダと `//!` の 9 つの節が `host->` と `host.` の差だけで一致し、`cargo test --all` が通り、C ヘッダだけを読む 1 行の C のファイルが手元の MSVC（`cl /std:c11 /utf-8 /W4 /WX /c`）で警告なしにコンパイルされる
+  - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.6_
+- [ ] 1.2 SHIORI 側の層（`shiori4_abi` の書き出しと `shiori4` の Adapter）が、応答をホストの `copy_from_slice` で作るようにする
+  - `ShioriHostBox` が v4 のテーブルに `copy_from_slice` を入れる（ホスト側の `Bridge` もこのテーブルを使う）。v3 の読み込みは、関数の形を変えずに中で `copy_from_slice` だけのテーブルを組んで渡す（`shiori4`・`shiori4_host` の呼び出し側は直さずに済む）
+  - 書き出しの `request` が、応答をホストのメモリへ写してから `out` に入れ、テーブルに `copy_from_slice` が無い（`struct_size` が足りない・NULL・v3 で host が NULL）ときは load を失敗させる。`Ghost::load` に渡す host は v3 ではこれまでどおり `None`
+  - 低い層の `ShioriLoadMode` は変えない（v3 は今の `V3` のまま）。応答を写すのは書き出しの層のインスタンスが持つホストのテーブルで行い、`Shiori` の実装はテーブルを見ない
+  - `shiori4_host` の `Bridge`・`V3Runtime`・`from_static` と testghost はこの層を通るので、DLL を通す既存のテストを含む `cargo test --all` を緑に保つことはこのタスクの持ち物とする
+  - 完了の状態: 「`copy_from_slice` の無いホストでは load が NULL」「応答の確保と解放がホストの関数だけで起きる」「v3 で `Ghost::load` が `None` を受け、応答は `copy_from_slice` で作られる」のテストが足され、`cargo test --all` が通る
+  - _Requirements: 15.2, 15.4, 15.5, 15.6_
+- [ ] 1.3 ホスト側に、新しい規約を確かめるテストを足す（コードの直しは 1.2 で済んでいる）
+  - `release` が `owner` だけで解放しインスタンスの状態に頼らないこと、`V3Runtime` と `from_static` が `copy_from_slice` だけのテーブルで動くことをテストで確かめる
+  - 完了の状態: 「ランタイムを Drop した後に応答を捨てても安全」「`copy_from_slice` の無いテーブルでは新しい SHIORI の load が失敗する」のテストが `shiori4_host` に足され、`cargo test -p shiori4_host` が通る
+  - _Requirements: 15.3, 15.5, 15.6_
+- [ ] 1.4 テスト用の SHIORI（testghost）の確かめと、二進互換の申し送り
+  - testghost が高水準層の直しだけで応答を `copy_from_slice` で作ることを確かめ、要るなら中身を直す（DLL を通すテストは 1.2 で緑になっている）
+  - 0.0.2 以前と二進互換でないこと（関数の形は同じで、`out` を作る側が変わる）を、PR の本文の「動きが変わる変更」に載せる文と、pasta・areka への知らせの文として research.md の申し送りに書く
+  - 完了の状態: `cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings` が通り、research.md に二進互換の申し送りがある
+  - _Requirements: 15.6, 15.7_
+
+- [ ] 2. 規約の番号と、正本どうしの一致の検査
+- [ ] 2.1 C ヘッダと `//!` の規約の節に番号を書き入れ、教科書への道案内を 1 行足す
+  - スレッド規約以外の 8 つの節の最上位の項目の `- ` を `N. ` に替え、続きの行と下位の項目の字下げを空白 3 つに揃える（文字の追加・削除・語順の変更はしない）
+  - 規約の節の外（C ヘッダの冒頭の 1 行目の後・`//!` の `# 版` より前）に教科書の目次の GitHub の絶対 URL を 1 行足す
+  - 完了の状態: 9 つの節の項目数が 版 4・ABI 規約 8・戻り値 2・スレッド規約 7・load の規約 5・ホストのプロセス 2・DLL の口と発見の順 2・post の完了通知 5・配布の決まり 5 で、`cargo doc -p shiori4_abi` の描画で番号付きの箇条になる
+  - _Requirements: 4.2, 4.3, 4.4, 1.5_
+- [ ] 2.2 正本の一致を確かめる検査（教科書の検査のテスト）を作る
+  - std だけの integration test を `shiori4_abi` に置き、パッケージから外し、外す理由を `Cargo.toml` に 1 行の注釈で残す
+  - 抽出と正規化（CRLF → LF・前後の空白と空の行を除く・`host->` を `host.` に）を、手書きの入力で確かめる自己テストを持つ
+  - C ヘッダと `//!` の 9 つの節の一致と、各節の最上位の項目の連番を確かめる
+  - 完了の状態: `cargo test -p shiori4_abi --test textbook` が通り、片方の節だけを書き換えると落ちる。`cargo package --workspace` が「含まれないテストを無視する」の警告だけで通る
+  - _Requirements: 4.3, 14.5, 14.6_
+
+- [ ] 3. C の例と試験用のホスト
+- [ ] 3.1 (P) 最小の C の SHIORI を作る
+  - v4 のテーブルだけを返し、load で `SHIORI_HAS_FIELD` で `copy_from_slice` を確かめて無ければ NULL を返し、インスタンスごとの状態を持つ
+  - `ID: OnBoot` に 200 ＋ `Value` を、ほかに 204 を返し、応答はホストの `copy_from_slice` で `out` に写す
+  - 完了の状態: 30 行ほどのファイルが、手元の Windows の MSVC（`/std:c11 /utf-8 /W4 /WX /MT /LD`）で警告なしに DLL になる（読ませて往復させる確かめは 3.4 の後の 4 で行う）
+  - _Boundary: CExamples_
+  - _Depends: 1.1_
+  - _Requirements: 3.1, 3.2, 3.4_
+- [ ] 3.2 (P) 版ごとに別の静的なテーブルを返す C の SHIORI を作る
+  - v4 と v3 のテーブルを分けて持ち、v3 の `request` は SHIORI/3.0 の全文を返す
+  - 完了の状態: 手元の MSVC で警告なしに DLL になる（v4・v3 の往復の確かめは 4 で試験用のホストから行う）
+  - _Boundary: CExamples_
+  - _Depends: 1.1_
+  - _Requirements: 9.4_
+- [ ] 3.3 (P) 最小の C のホストを作る
+  - Windows は `LoadLibraryW`（UTF-8 から変える）、ほかは `dlopen` で開き、`shiori_get_api(4)` が NULL なら 3 を試す。`SHIORI_API_IS_VALID` と `SHIORI_HAS_FIELD` を確かめる
+  - ホストのテーブル（`request` は 400・`post` は 204・`log` は stderr・`copy_from_slice` は `malloc` と `memcpy` で、失敗したら `owner` に印・`release` は `free`）を組み、load → `OnBoot` の request → 表示 → 戻り値に関わらず `release` → unload → 閉じる
+  - 表示は `abi <版>`・`status <戻り値>`・応答の全文、終了の状態は 2xx で 0・ほかで 1。v3 の枝はビルドだけの検査であることをファイルの注釈に書く
+  - 完了の状態: 手元の MSVC で警告なしに実行ファイルになり、testghost の DLL を読ませると 200 と `Value` を表示して 0 で終わる
+  - _Boundary: CExamples_
+  - _Depends: 1.4_
+  - _Requirements: 3.1, 3.3, 3.4, 9.2, 9.4, 9.5, 9.6, 14.3_
+- [ ] 3.4 (P) 試験用のホスト `shiori4-testhost` を `shiori4_host` の example として作る
+  - 引数 `[--entry v3] [-H "名前: 値"]... <lib> <dir> [ID]` を std だけで解析し、誤りは使い方を出して 64
+  - 発見の順で読み（`--entry v3` は v3 だけ）、どの口で読んだかを表示。v4 は 5 つの必須ヘッダ＋`-H`、v3 は SHIORI/3.0 の全文で要求し、要求・戻り値（または ABI エラーの値と定数名）・応答を表示する
+  - 最小の `Host`（`name` を返し、`log`・`on_post` は表示だけ、post は実行せず完了通知を返さない）で、v4 は要求の後に 1 回 pump し、Drop で unload して `unloaded` を表示する
+  - 従来の口だけなら表示して 4、読み込みの失敗は `LoadError` の値の名前と文を stderr に出して 3。口ごとの処理を関数に分け、従来の口の枝だけを差し替えられる形にする
+  - 完了の状態: `cargo run -p shiori4_host --example shiori4-testhost` が testghost で 0、`fail` を含むディレクトリで 3、`--entry v3` で 0 を返し、`cargo clippy --all-targets` が通る
+  - _Boundary: TestHost_
+  - _Depends: 1.4_
+  - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.9_
+
+- [ ] 4. CI の job `textbook` を足す
+  - 3 OS の matrix（`fail-fast: false`）で testghost と試験用のホストをビルドし、C の例を runner のコンパイラ（Windows は `vswhere` → `vcvars64.bat` → `cl /std:c11 /utf-8 /W4 /WX`、SHIORI は `/MT /LD`。Linux・macOS は `cc -std=c11 -Wall -Wextra -Werror`）でビルドする
+  - 往復: C のホスト × testghost で 0 と `Value`、試験用のホスト × C の SHIORI 2 本で 0、試験用のホスト × testghost で 0、`fail` のディレクトリで 3、`--entry v3` × `versioned_shiori`・testghost で 0
+  - 新しい Action や crate を足さない
+  - 完了の状態: `build.yml` に job `textbook` があり、どの段の失敗も job を落とす。手元の Windows で同じコマンドが通る（Linux・macOS は PR の CI で初めて確かめる）
+  - _Depends: 3.1, 3.2, 3.3, 3.4_
+  - _Requirements: 9.3, 13.4, 13.7, 13.8, 14.2, 14.4_
+
+- [ ] 5. docs.rs の例（SHIORI 側 `shiori4`）
+- [ ] 5.1 (P) `Ghost` の doc に、アクターの中継と join しない unload の例を足す
+  - アクターは `host.request` を呼ばず、応答を待つ SHIORI のスレッドが呼ぶ形（偽のホストが呼ばれたスレッドを `assert_eq!` で確かめる。スレッド規約 2）
+  - Poster を持つワーカーを join せずに unload し、unload の後の post が `SHIORI_E_SHUTDOWN`・log は何もしないことを示す（スレッド規約 5）
+  - 偽のホストは隠し行に置き、芯のコード行に `protocol` の語を足さない。`//!` の冒頭に教科書の目次への 1 文を足す
+  - 完了の状態: `cargo test --doc -p shiori4` で 2 本が実行されて通り、`core_refers_to_protocol_only_by_its_declaration` が通る
+  - _Boundary: ShioriExamples_
+  - _Depends: 1.2, 2.1_
+  - _Requirements: 1.5, 4.7, 7.1, 7.3, 7.6, 14.1_
+- [ ] 5.2 インスタンスごとの状態と、v3・v4 の両対応の例を足す
+  - `Ghost::load` の doc に、`static` を使わず状態を `Self` に持ち、2 つのインスタンスで混ざらない例（load の規約 5）
+  - `Ghost` の doc に、host が `None` のときは `Properties` の受動キャッシュに代える例を v4 と v3 の両方で 1 往復させる
+  - 5.1 と同じファイルなので 5.1 の後に行う
+  - 完了の状態: `cargo test --doc -p shiori4` で 2 本が実行されて通る
+  - _Requirements: 4.7, 7.4, 7.5, 7.6, 14.1_
+- [ ] 5.3 (P) `PendingTags` の doc に post → `Tag` → `OnHostComplete` の例を足す
+  - 登録して受付 ID を得てから post する理由（post の完了通知 1）を述べ、偽のホストに `OnHostComplete` を届けて文脈を取り戻す
+  - 完了の状態: `cargo test --doc -p shiori4` でこの例が実行されて通る
+  - _Boundary: ShioriExamples_
+  - _Depends: 1.2, 2.1_
+  - _Requirements: 4.7, 7.2, 7.6, 14.1_
+
+- [ ] 6. docs.rs の例（ホスト側 `shiori4_host`。5 と並べて進められるが、6 の中は同じファイルなので順に行う）
+- [ ] 6.1 (P) 読み込みの失敗と、ライブラリの取り戻しの例を足す
+  - `LoadError` の 5 つの値ごとにホストがすべきこと（`NotShiori4` は SHIORI/3.0 の候補へ・`LoadFailed` は読み直さない・`Unsupported` は別の版で読み直せる）を示し、`InvalidPath` の枝は実行できる例にする
+  - `GhostRuntime::load` が `NotShiori4` でライブラリを手放すことと、`from_library` と `FromLibraryError` から取り戻す道を示す（DLL を要する例は `no_run` と直前の注記）
+  - `//!` の冒頭に教科書の目次への 1 文を足す
+  - 完了の状態: `cargo test --doc -p shiori4_host` が通り、`InvalidPath` の例が実行される
+  - _Boundary: HostExamples_
+  - _Depends: 1.2, 2.1_
+  - _Requirements: 1.5, 4.7, 8.1, 8.2, 8.9, 14.1, 14.3_
+- [ ] 6.2 `wake` → `pump`・完了通知・プロパティの例を足す
+  - std の channel のスレッドは `from_static` で実行し、Win32 のメッセージの輪は使う関数を例の中で宣言して Windows でだけビルドする（`no_run`）
+  - `Completer` で SEND の completed・interrupted、NOTIFY、nobreak で待たせた SEND を終了で捨てる 204 を返す例
+  - getproperty・setproperty に答え、拒否を 400 ＋ `Reason: forbidden` で返す `Host` の例
+  - 完了の状態: `cargo test --doc -p shiori4_host` でこれらが実行されて通る（Win32 の例は Windows でビルドされる）
+  - _Boundary: HostExamples_
+  - _Requirements: 4.7, 8.3, 8.4, 8.5, 8.6, 8.9, 14.1_
+- [ ] 6.3 unload の順序と Drop、`from_static` の決定論のテストの例を足す
+  - shutdown → 未配送を捨てる → unload → ライブラリを放す の順と、Drop の後に `EventSender::send` が false を返すこと、応答をランタイムより長く持っても安全なことを示す
+  - `#[test]` の形の関数を例の中に書いて `fn main` から呼ぶ、`from_static` のテストの例
+  - 完了の状態: `cargo test --doc -p shiori4_host` でこれらが実行されて通り、`core_refers_to_protocol_only_by_its_reexport` が通る
+  - _Boundary: HostExamples_
+  - _Requirements: 4.7, 8.7, 8.8, 8.9, 14.1_
+
+- [ ] 7. 教科書の章
+- [ ] 7.1 規約の一覧（`rules.md`）を書く
+  - 番号の付け方と引用の仕方・番号を使い回さない方針・写しは CI が確かめることを冒頭に置く
+  - 9 つの節を正本の順で `## <見出し>` にし、全 40 項目を `//!` の綴りで引用（`>`）として写し、各規約の直後に 1〜2 文の理由と出典を添える
+  - 必ず述べる 5 つの理由を所定の規約に添え、SEND の既定の割り込みの理由は規約の節の後の番号の無い節に置く
+  - 記録から引けない理由は草案の印を付け、その一覧を research.md に残す
+  - 完了の状態: `rules.md` に 9 つの節と 40 項目の引用と理由があり、草案の理由の一覧が research.md にある
+  - _Depends: 2.1_
+  - _Requirements: 1.2, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.8_
+- [ ] 7.2 (P) 語の表と確定の範囲（`vocabulary.md`）を書く
+  - `doc/host-protocol.md` 第 8 章の行を綴りのまま写して正本の節の列を足し、第 8 章に無いステータスを `shiori4_abi` の定数から足す（意味は書かず正本と ukadoc へ導く）
+  - 冒頭に 0.0.x の間は互換を壊しうることを 1 行置き、版ごとの確定の範囲の表と、0.0.1 → 0.0.2 の要約と付録 A への導きを置く
+  - 完了の状態: `vocabulary.md` に語の表と版ごとの表があり、第 8 章のすべての行が同じ綴りで載っている
+  - _Boundary: VocabularyGuide_
+  - _Requirements: 1.2, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
+- [ ] 7.3 (P) C の書き手向けの説明（`c.md`）を書く
+  - 所有権の表と Mermaid の図、`release` はどのスレッドからも unload の後にも呼ばれうることと負の戻り値でも解放すること、静的 CRT が関係ないこと
+  - 版の判定・最小のホストの流れ・`SHIORI_HAS_FIELD` を C の例のファイルからそのまま抜き出して示す
+  - スレッド規約 1〜7 を C の言葉で言い直して 1 文ごとに番号を添え、言語ごとの例外の扱いを文で書く（ほかの言語のフェンスは置かない）
+  - 完了の状態: `c.md` の C の塊がすべて C の例のファイルか C ヘッダの行のそのままの並びになっている
+  - _Boundary: CAuthorGuide_
+  - _Depends: 2.1, 3.1, 3.2, 3.3_
+  - _Requirements: 4.7, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8_
+- [ ] 7.4 (P) 別のプロセスの注意（`process.md`）を書く
+  - 同期の往復で互いに待って止まること、post の受付と完了が別の時点になること、PANIC と子の異常終了をインスタンスの終わりとすることを、規約の番号を引いて 1 頁に収める
+  - 完了の状態: `process.md` に 3 つの注意があり、各注意が規約の番号を引いている
+  - _Boundary: ProcessNotes_
+  - _Depends: 2.1_
+  - _Requirements: 4.7, 10.1, 10.2, 10.3, 10.4_
+- [ ] 7.5 (P) 移行の手引き（`migration.md`）を書く
+  - SHIORI 側の 3 段（SHIORI/3.0 の DLL → v3 互換モード → v4）の差分の表、ホスト側の差分の表、v3 互換モードは Windows 以外向けで旧来の DLL を読む口はまだ無いこと、0.0.1 → 0.0.2 は付録 A へ導く
+  - 完了の状態: `migration.md` に 2 つの差分の表があり、Charset・`copy_from_slice` で作る応答・load の dir の形・`shiori_get_api` での見分け方が載っている
+  - _Boundary: MigrationGuide_
+  - _Requirements: 11.1, 11.2, 11.3, 11.4_
+- [ ] 7.6 (P) 配布の決まりの章（`distribution.md`）を書く
+  - 「配布の決まり 1〜5」を引用で写して手順を番号で辿り、`shiori_file_candidates`・`machine_matches`・`TargetOs`・`TargetArch` の Rust の例を置く（ファイルを要する部分は `no_run` と注記）
+  - SHIORI の作者向けに、cdylib の既定の名前と置く名前の対応の表、SHIORI/3.0 と v4 の両方に使えること
+  - 完了の状態: `distribution.md` のフェンスにすべて言語が書かれ、字下げの塊が無い。例の実行は 9.1 で doctest に載せて確かめる
+  - _Boundary: DistributionGuide_
+  - _Depends: 2.1_
+  - _Requirements: 12.1, 12.2, 12.3, 12.4, 14.3_
+- [ ] 7.7 (P) 試験用のホストの使い方（`testhost.md`）を書く
+  - 引数・表示・終了の状態の表、`cargo install --git … --tag vX.Y.Z shiori4_host --example shiori4-testhost` と公開後の取り込み方、GitHub Actions の 1 段の例（検査しない例の注記つき）、信頼できる SHIORI だけを渡す注意
+  - 完了の状態: `testhost.md` の表が試験用のホストの使い方の出力と一致している
+  - _Boundary: TestHostGuide_
+  - _Depends: 3.4_
+  - _Requirements: 13.9, 14.3_
+
+- [ ] 8. 入口の文書
+- [ ] 8.1 ルートの README に全体図・最小の例 4 本・道案内を書く
+  - 9 行 6 列の全体図（`copy_from_slice` を含む）と、v3 互換モードの注・unload の開始後と返った後の違いの注。根拠の列は番号を付けた後の C ヘッダから引く
+  - Rust の SHIORI（隠し行の偽のホストで `OnBoot` に答えて `assert_eq!`）とホスト（`no_run` と注記）、C の 2 本はファイルの全文を `<details>` で畳み、それぞれ得られる応答を示す
+  - 規約の本文は写さず、GitHub の絶対 URL で教科書と docs.rs へ導く
+  - 完了の状態: README の C の塊がファイルの全文と一致し、Rust の例のフェンスに言語が書かれている
+  - _Depends: 2.1, 3.1, 3.3, 7.1_
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 3.4, 4.7, 6.1, 6.3, 6.5_
+- [ ] 8.2 教科書の目次（`doc/textbook/README.md`）を書く
+  - 読む順・当てはまる版（タグで読むこと）・正本の位置と「食い違ったら正本が正しい」・例の注記の規則・正本の欠けは決めずに research.md の「正本の未決」に記録すること
+  - 完了の状態: 目次からすべての章とルートの README と docs.rs の 3 クレートへのリンクがある
+  - _Requirements: 1.1, 1.3, 1.4, 1.5, 14.3_
+- [ ] 8.3 各クレートの README の「詳しいドキュメント」に教科書への道案内を足す
+  - 既存の 6 項目を保ち、目次とそのクレートの利用者が読む章への GitHub の絶対 URL を足す。コードの例と規約の文は置かない
+  - 完了の状態: 3 つの README に教科書へのリンクがあり、コードのフェンスが無い
+  - _Requirements: 1.5, 6.2, 6.3, 6.5_
+
+- [ ] 9. 教科書の例と写しの検査をつなぐ
+- [ ] 9.1 README と教科書の章を doctest に載せる
+  - `shiori4_host` の `mod tests` より前に、ルートの README と `doc/textbook/` の 8 つの章を 1 つずつ取り込む doctest だけの項目を置き、crates.io からの `cargo test --doc` が落ちる理由を 1 行の注釈で残す。項目の行に `protocol` の語を書かない
+  - 完了の状態: `cargo test --doc -p shiori4_host` が README の Rust の例と配布の決まりの章の例を実行して通り、`cargo package --workspace` が通る
+  - 6 と同じ `shiori4_host` のファイルを直すので、6 の後に行う
+  - _Depends: 6.3, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 8.1, 8.2_
+  - _Requirements: 6.4, 12.2, 14.1, 14.5_
+- [ ] 9.2 写しの一致の検査を教科書の章に広げる
+  - 規約の一覧の引用が 9 つの節と一致すること、配布の決まりの章の引用が正本と一致すること、README と `c.md` の C の塊が C の例のファイルか C ヘッダのそのままの抜き出しであること（README の 2 つは全文）、語の表が第 8 章の行を綴りのまま持つことを確かめる
+  - 完了の状態: `cargo test -p shiori4_abi --test textbook` が通り、写しの 1 字を変えると落ちる
+  - _Depends: 7.1, 7.2, 7.3, 7.6, 8.1_
+  - _Requirements: 1.2, 4.1, 5.2, 6.4, 12.1, 14.3, 14.6_
+- [ ] 9.3 DoD を確かめ、steering と申し送りを更新する
+  - `cargo fmt --check`・`cargo test --all`・`cargo clippy --all-targets --workspace -- -D warnings`・`cargo package --workspace` を通す
+  - tech.md と structure.md に job `textbook`・`doc/textbook/`・検査の置き場所・規約の番号の方針を書き足す
+  - shiori3-legacy-host の brief に、試験用のホストの従来の口の枝と `migration.md` の書き換えを申し送る。research.md の「正本の未決」と草案の理由の一覧を開発者に回す形に整える
+  - 完了の状態: 4 つのコマンドが通り、steering と shiori3-legacy-host の brief に追記がある
+  - _Requirements: 1.3, 4.8, 11.3, 14.4, 14.5_

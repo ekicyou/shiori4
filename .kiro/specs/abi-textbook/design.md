@@ -165,8 +165,9 @@ shiori4_host/
 
 ### Modified Files
 - **OwnershipChange（最初に行う。要件 15）**:
-  - `shiori4_abi/include/shiori4_abi.h`・`shiori4_abi/src/lib.rs` — 版（v3 の host は `copy_from_slice` だけ）・ABI 規約（`out` は常にホストが作る）・スレッド規約 1（`load`・`unload` を足す）・5（例外は `release` だけ）・6（`release` は常にホストの関数・いつでも・どのスレッドからでも）の文言を両方で同じに直す。`ShioriHostApi` の末尾に `copy_from_slice: Option<unsafe extern "C" fn(ctx, ptr, len, out)>` を足す（戻り値は無い。写せなかったときはホストが自分で決めた印を `*out` に残し、SHIORI には知らせない。SHIORI は `out` をそのまま返し、印を見て扱うのはホスト。設計の議論 #3）。`load` の注釈の「v3 では NULL」を直す。`ShioriHostBox` が `copy_from_slice` を持つテーブルを組み、v3 の `load_v3` にも `copy_from_slice` だけのテーブルを渡す。`export_shiori!` の `request` は、応答を `host.copy_from_slice` で写してから `out` に入れ、テーブルに `copy_from_slice` が無ければ load を NULL にする。
-  - `shiori4/src/lib.rs` — `Adapter` が v3 でも host のテーブル（`copy_from_slice` だけ）を持つ。`Ghost::load` に渡す host は v3 では `None` のまま。
+  - `shiori4_abi/include/shiori4_abi.h`・`shiori4_abi/src/lib.rs` — 版（v3 の host は `copy_from_slice` だけ）・ABI 規約（`out` は常にホストが作る）・スレッド規約 1（`load`・`unload` を足す）・5（例外は `release` だけ）・6（`release` は常にホストの関数・いつでも・どのスレッドからでも）の文言を両方で同じに直す。`ShioriHostApi` の末尾に `copy_from_slice: Option<unsafe extern "C" fn(ctx, ptr, len, out)>` を足す（戻り値は無い。写せなかったときはホストが自分で決めた印を `*out` に残し、SHIORI には知らせない。SHIORI は `out` をそのまま返し、印を見て扱うのはホスト。設計の議論 #3）。`load` の注釈の「v3 では NULL」と、それに当たる規約の 2 か所（版の v3 の下位の項目「load の host は NULL（渡されても SHIORI は無視する）」・load の規約 3 の「v3 は host が NULL なので」）を直す（項目は足さない）。規約の節の外の注釈で v3 の host を NULL・None と書いた所（C ヘッダの `SHIORI_ABI_VERSION_3` の注釈・`ShioriApi::load` の `///`）も同じく直す。`ShioriHostBox` が `copy_from_slice` を持つテーブルを組み、v3 の `load_v3` にも `copy_from_slice` だけのテーブルを渡す。`export_shiori!` の `request` は、応答を `host.copy_from_slice` で写してから `out` に入れ、テーブルに `copy_from_slice` が無ければ load を NULL にする。
+  - `shiori4/src/lib.rs` — `Ghost::load` に渡す host は v3 では `None` のまま。低い層の `ShioriLoadMode` は変えない（v3 は今の `V3` のまま）。応答を写すのは `export_shiori!` の層のインスタンスが持つホストのテーブルで行い、`Shiori` の実装はテーブルを見ない（無ければその層が load を失敗させる。要件 15.5）。
+  - v3 のテーブルの形: Rust の `ShioriHostApi` の `request`・`post`・`log` を `Option<unsafe extern "C" fn>` に変える（C の関数ポインタと同じ配置で、二進の形は変わらない）。v3 のテーブルは `abi_version` が 3、`struct_size` は `copy_from_slice` を含む大きさで、`request`・`post`・`log` は NULL。SHIORI は v3 では `SHIORI_HAS_FIELD(host, ShioriHostApi, copy_from_slice)` だけで確かめ、`is_valid`・`SHIORI_HOST_API_IS_VALID` は v4 の検査のまま。C ヘッダと `shiori4_abi` の大きさの assert を新しい大きさに直す。
   - `shiori4_host/src/lib.rs`・`shiori4_host/src/v3.rs` — `Bridge` が `copy_from_slice` と、インスタンスに頼らない `release` を持つ。`V3Runtime` が `copy_from_slice` だけのテーブルを渡す。`from_static` も同じ。
   - `testdata/testghost/` — 応答を `copy_from_slice` で作る（Rust の高水準層を使っていれば中身の直しだけ）。
   - 既存のテスト（DLL を通すものを含む）を新しい規約に合わせ、「ランタイムを Drop した後に応答を捨てても安全」「`copy_from_slice` の無いホストでは load が失敗する」のテストを足す。
@@ -246,7 +247,7 @@ graph LR
 | 2.1 | 8 関数の表 | RootReadme（全体図） | 全体図の列 | — |
 | 2.2 | 各行に規約の番号 | RootReadme | 根拠の列 | — |
 | 2.3 | 外れたときの結果・unload の前後 | RootReadme | 結果の列・脚注 | — |
-| 2.4 | v3 では host が NULL | RootReadme | v3 の行の注 | — |
+| 2.4 | v3 の host は `copy_from_slice` だけ | RootReadme | v3 の行の注 | — |
 | 3.1 | 4 つの最小の例 | RootReadme, CExamples | — | — |
 | 3.2 | SHIORI の例は 30 行ほど・Rust は v3/v4・C は v4 だけ | RootReadme, CExamples（minimal_shiori.c） | — | — |
 | 3.3 | ホストは読む → OnBoot → 受け取る → unload | RootReadme, CExamples（minimal_host.c） | — | — |
