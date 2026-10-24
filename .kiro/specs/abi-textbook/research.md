@@ -184,6 +184,7 @@
 ## 正本の未決（要件 1.3。開発者の裁定へ回す）
 1. **`load`・`unload` を呼べるスレッド**: スレッド規約 1 は `request`・`notify` の単一のスレッドだけを定め、`load`・`unload` のスレッドを定めない（スレッド規約 2 は load の中から `host.request` を呼べることだけを言う）。`shiori4_host` は作ったスレッドで load し、同じスレッドで Drop する（`GhostRuntime` は `!Send`）。
 2. **`release` を呼べる期間**: スレッド規約 6 は「どのスレッドから呼んでもよい」とだけ言い、unload の後・ライブラリを放した後に呼んでよいかを定めない。`shiori4_host` の `GhostRuntime::request` が返す `ShioriOwnedResponse` はライブラリの寿命に縛られず、ランタイムを Drop した後に捨てると、外れたライブラリの `release` を呼びうる（潜在の不具合。API の変更が要るのでこの spec の外）。
+3. **v4 で `copy_from_slice` が無いときの load**（実装 8.1 で見つけた、2026-10-24）: 要件 15.5 と `shiori4_abi` の実装は、v4 のテーブルに `copy_from_slice` が無ければ load を失敗させる。正本の文は版 2 で v3 について「SHIORI は copy_from_slice があるかだけを確かめる」と言うだけで、v4 の失敗を定めない（ABI 規約 5・7 も言わない）。そのため README の全体図の load の行には書いていない。正本に足すかを開発者が裁定する。
 
 ## Architecture Pattern Evaluation（設計）
 
