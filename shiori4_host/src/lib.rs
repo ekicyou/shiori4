@@ -32,9 +32,12 @@
 //!     }
 //!     fn on_post(&self, post: Post) {
 //!         // 重い処理は別スレッドへ。Completer は Send なので持ち出せる
-//!         let done = post.into_completer();
+//!         let (text, done) = post.into_parts();
 //!         std::thread::spawn(move || {
-//!             done.complete(Delivery::Request, SHIORI_200_OK, &["result"]);
+//!             // Tag の無い post は結果不要（None）
+//!             if let Some(h) = protocol::host_complete(&text, "MyBase", SHIORI_200_OK, &["result"], None) {
+//!                 done.complete_with(Delivery::Request, &h);
+//!             }
 //!         });
 //!     }
 //!     fn wake(&self) { /* UI スレッドに pump を依頼する */ }
@@ -150,9 +153,6 @@ pub use shiori4;
 // from_library が受ける Library の型を、利用者が版を合わせずに使えるようにする
 pub use libloading;
 pub use shiori4::protocol;
-// 一時的な別名（0.0.1 の置き場所）。protocol を指す
-pub use shiori4::protocol as host_protocol;
-pub use shiori4::protocol::{HeaderWriter, Headers};
 pub use shiori4::shiori4_abi::{
     shiori_is_abi_error, shiori_is_success, ShioriApi, ShioriOwnedBytes, ShioriOwnedResponse,
     ShioriResponse, ShioriStatus, SHIORI_200_OK, SHIORI_204_NO_CONTENT, SHIORI_400_BAD_REQUEST,
@@ -205,7 +205,7 @@ pub trait Host: Send + Sync + 'static {
     }
 
     /// 受け付けた post を処理する（pump の中で呼ばれる）
-    /// 結果を返すときは `post.into_completer()` を使う。Tag のない post では完了通知は捨てられる
+    /// 結果を返すときは `post.into_completer()` の `complete_with` を使う（全文はホストが組み立てる）
     fn on_post(&self, post: Post);
 
     /// SHIORI からのログ（任意のスレッドから呼ばれる。規約 4）
@@ -245,14 +245,6 @@ impl Event {
 
     pub fn notify(headers: impl Into<String>) -> Self {
         Self { delivery: Delivery::Notify, headers: headers.into() }
-    }
-
-    pub fn parsed(&self) -> Headers<'_> {
-        Headers::parse(&self.headers)
-    }
-
-    pub fn id(&self) -> Option<&str> {
-        Headers::parse(&self.headers).id()
     }
 }
 
@@ -326,36 +318,12 @@ pub struct Post {
 
 impl Post {
     fn new(text: String, sender: EventSender) -> Self {
-        let (tag, command) = {
-            let h = Headers::parse(&text);
-            (
-                h.get(protocol::HEADER_TAG).map(|s| s.trim().to_owned()),
-                h.get(protocol::HEADER_COMMAND).map(str::to_owned),
-            )
-        };
-        Self { text, completer: Completer { tag, command, sender } }
+        Self { text, completer: Completer { sender } }
     }
 
     /// ヘッダ部分の原文
     pub fn text(&self) -> &str {
         &self.text
-    }
-
-    pub fn headers(&self) -> Headers<'_> {
-        Headers::parse(&self.text)
-    }
-
-    pub fn command(&self) -> Option<&str> {
-        self.completer.command.as_deref()
-    }
-
-    pub fn tag(&self) -> Option<&str> {
-        self.completer.tag.as_deref()
-    }
-
-    /// 結果を返す必要があるか（Tag 付きか）
-    pub fn wants_result(&self) -> bool {
-        self.completer.tag.is_some()
     }
 
     pub fn into_completer(self) -> Completer {
@@ -368,47 +336,17 @@ impl Post {
     }
 }
 
-/// post の完了を SHIORI に通知する（Send。別スレッドへ持ち出せる）
+/// post したインスタンスへ完了通知を届ける口（Send。別スレッドへ持ち出せる。1 回だけ使える）
 /// 使わずに捨てた場合、完了通知は届かない
 #[derive(Debug)]
 pub struct Completer {
-    tag: Option<String>,
-    command: Option<String>,
     sender: EventSender,
 }
 
 impl Completer {
-    pub fn tag(&self) -> Option<&str> {
-        self.tag.as_deref()
-    }
-
-    pub fn is_wanted(&self) -> bool {
-        self.tag.is_some()
-    }
-
-    /// 標準形式（`ID: OnHostComplete`）で完了を通知する
-    /// `Reference0` はコマンド名、`Reference1..` は refs。Tag のない post なら何もせず false
-    pub fn complete(self, delivery: Delivery, status: ShioriStatus, refs: &[&str]) -> bool {
-        let Some(tag) = self.tag else { return false };
-        let mut w = HeaderWriter::new()
-            .push("ID", protocol::ID_HOST_COMPLETE)
-            .push(protocol::HEADER_TAG, &tag)
-            .push(protocol::HEADER_STATUS, &status.to_string())
-            .push("Reference0", self.command.as_deref().unwrap_or(""));
-        for (i, r) in refs.iter().enumerate() {
-            w = w.push(&format!("Reference{}", i + 1), r);
-        }
-        self.sender.send(Event { delivery, headers: w.finish() })
-    }
-
-    /// 任意のヘッダで完了を通知する（Tag は自動で先頭に付く）
+    /// headers を何も足さず、何も検査せず、delivery で届ける。ランタイムが破棄された後は false
     pub fn complete_with(self, delivery: Delivery, headers: &str) -> bool {
-        let Some(tag) = self.tag else { return false };
-        let h = HeaderWriter::new()
-            .push(protocol::HEADER_TAG, &tag)
-            .push_raw(headers)
-            .finish();
-        self.sender.send(Event { delivery, headers: h })
+        self.sender.send(Event { delivery, headers: headers.to_owned() })
     }
 }
 
@@ -837,7 +775,7 @@ impl<H: Host> Drop for GhostRuntime<H> {
 mod tests {
     use super::*;
     use shiori4::shiori4_abi::{ShioriHostHandle, ShioriHostPoster};
-    use shiori4::protocol::{Lookup, PendingTags, Properties};
+    use shiori4::protocol::{HeaderWriter, Headers, Lookup, PendingTags, Properties};
     use shiori4::{Adapter, Ghost};
     use std::sync::atomic::AtomicUsize;
 
@@ -877,7 +815,7 @@ mod tests {
                         _ => "?".to_owned(),
                     };
                     if let Some(p) = &self.poster {
-                        let _ = self.pending.post(p, "dl", "Command: test.echo\r\n");
+                        let _ = self.pending.post(p, "dl", &protocol::send_post(r"\0\s[0]hi\e", &[], None));
                     }
                     HeaderWriter::new().push("Value", &name).into_response()
                 }
@@ -924,9 +862,10 @@ mod tests {
         }
 
         fn on_post(&self, post: Post) {
-            assert_eq!(post.command(), Some("test.echo"));
-            assert!(post.wants_result());
-            post.into_completer().complete(Delivery::Request, SHIORI_200_OK, &["ok"]);
+            let (text, done) = post.into_parts();
+            assert_eq!(Headers::parse(&text).get(protocol::HEADER_COMMAND), Some(protocol::COMMAND_SEND));
+            let headers = protocol::host_complete(&text, self.name(), SHIORI_200_OK, &["ok"], None).expect("Tag 付き");
+            assert!(done.complete_with(Delivery::Request, &headers));
         }
 
         fn wake(&self) {
@@ -1074,6 +1013,31 @@ mod tests {
         assert!(rx.try_recv().is_err());
     }
 
+    /// 送り口と、その送り口が積むキュー
+    fn test_sender() -> (EventSender, mpsc::Receiver<Msg>) {
+        let (tx, rx) = mpsc::channel();
+        (EventSender { tx, wake: Arc::new(|| {}), shutdown: Arc::new(AtomicBool::new(false)) }, rx)
+    }
+
+    #[test]
+    fn completer_delivers_headers_verbatim() {
+        let (sender, rx) = test_sender();
+        // Tag 付きの post でも Tag の無い post（空文字列を含む）でも、引数をそのまま積む
+        let cases = [
+            ("Command: SEND\r\nTag: 1\r\n", Delivery::Request, "ID: x-any\r\nfoo:  bar \r\n"),
+            ("Command: SEND\r\n", Delivery::Notify, "ID: OnHostComplete\r\nStatus: 200\r\n"),
+            ("", Delivery::Request, ""),
+        ];
+        for (post, delivery, headers) in cases {
+            let post = Post::new(post.to_owned(), sender.clone());
+            assert!(post.into_completer().complete_with(delivery, headers));
+            let Ok(Msg::Event(ev)) = rx.try_recv() else { panic!("event が積まれない") };
+            assert_eq!(ev.delivery, delivery);
+            assert_eq!(ev.headers, headers);
+        }
+        assert!(rx.try_recv().is_err());
+    }
+
     // ---- Charset を付けない（9.2） ----
 
     #[test]
@@ -1088,15 +1052,16 @@ mod tests {
 
     #[test]
     fn completion_headers_have_no_charset() {
-        let (tx, rx) = mpsc::channel();
-        let sender = EventSender { tx, wake: Arc::new(|| {}), shutdown: Arc::new(AtomicBool::new(false)) };
-        let post = Post::new("Command: test.echo\r\nTag: 1\r\n".to_owned(), sender.clone());
-        assert!(post.into_completer().complete(Delivery::Request, SHIORI_200_OK, &["ok"]));
-        let post = Post::new("Command: test.echo\r\nTag: 2\r\n".to_owned(), sender);
-        assert!(post.into_completer().complete_with(Delivery::Notify, "X: y\r\n"));
+        let (sender, rx) = test_sender();
+        for tag in ["1", "2"] {
+            let text = format!("Command: test.echo\r\nTag: {tag}\r\n");
+            let headers = protocol::host_complete(&text, "test", SHIORI_200_OK, &["ok"], None).expect("Tag 付き");
+            let post = Post::new(text, sender.clone());
+            assert!(post.into_completer().complete_with(Delivery::Request, &headers));
+        }
         for _ in 0..2 {
             let Ok(Msg::Event(ev)) = rx.try_recv() else { panic!("event") };
-            assert!(ev.parsed().get(protocol::HEADER_TAG).is_some());
+            assert!(Headers::parse(&ev.headers).get(protocol::HEADER_TAG).is_some());
             assert!(!ev.headers.to_ascii_lowercase().contains("charset"), "{}", ev.headers);
         }
     }
