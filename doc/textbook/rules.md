@@ -29,7 +29,7 @@ shiori4 の ABI の規約を、正本の節の順に 1 つ残らず写し、各�
 - 出典の略し方は次のとおり。
   - 「abi-conventions 論点 N」: [`.kiro/specs/completed/abi-conventions/brief.md`](https://github.com/ekicyou/shiori4/blob/main/.kiro/specs/completed/abi-conventions/brief.md) の論点 N。「abi-conventions 要件 N」は同じ spec の [`requirements.md`](https://github.com/ekicyou/shiori4/blob/main/.kiro/specs/completed/abi-conventions/requirements.md) の要件 N、「abi-conventions の設計」は [`design.md`](https://github.com/ekicyou/shiori4/blob/main/.kiro/specs/completed/abi-conventions/design.md)。
   - 「host-protocol 論点 N」: [`.kiro/specs/completed/host-protocol/brief.md`](https://github.com/ekicyou/shiori4/blob/main/.kiro/specs/completed/host-protocol/brief.md) の論点 N。
-  - 「abi-textbook 設計の議論 #N」: この教科書の spec（`.kiro/specs/abi-textbook/design.md`）の「設計の議論の決定」の N（理由の詳しい文は同じ spec の `research.md` の「設計の議論 #1 の決定」「#2〜#11 の決定」にある）。「hearing N」は同じ spec の `hearing.md` の節 N。
+  - 「abi-textbook 設計の議論 #N」: この教科書の spec（`.kiro/specs/completed/abi-textbook/design.md`）の「設計の議論の決定」の N（理由の詳しい文は同じ spec の `research.md` の「設計の議論 #1 の決定」「#2〜#11 の決定」にある）。「hearing N」は同じ spec の `hearing.md` の節 N。
   - 「tech.md」「product.md」「roadmap.md」: [`.kiro/steering/`](https://github.com/ekicyou/shiori4/tree/main/.kiro/steering) の各文書。
   - 「host-protocol.md 第 N 節」: [`doc/host-protocol.md`](https://github.com/ekicyou/shiori4/blob/main/doc/host-protocol.md)（ホスト側プロトコル仕様）の節。
 - 記録から引けなかった理由は **理由（草案・記録に無い）** と書く。開発者が確かめたら印を外す。

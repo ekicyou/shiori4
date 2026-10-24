@@ -365,7 +365,7 @@ graph LR
 - 例の注記の規則（14.3）を 1 段落で述べる: 「ビルドだけを検査する例」「検査しない例」には、例の直前の 1 文で理由を書く。
 
 **Implementation Notes**
-- 1.3 の運用: 執筆の中で見つかった正本の欠け・食い違い・二通りに読める所は、教科書の本文に決めた形で書かず、`.kiro/specs/abi-textbook/research.md` の「正本の未決」に記録し、実装の報告で開発者に回す。教科書の該当箇所には「規約に定めが無い」とだけ書く。
+- 1.3 の運用: 執筆の中で見つかった正本の欠け・食い違い・二通りに読める所は、教科書の本文に決めた形で書かず、`.kiro/specs/completed/abi-textbook/research.md` の「正本の未決」に記録し、実装の報告で開発者に回す。教科書の該当箇所には「規約に定めが無い」とだけ書く。
 - 設計の段階で見つかった未決（`load`・`unload` のスレッド、`release` の期間）は、設計の議論 #1 で OwnershipChange として埋めた。
 
 #### RootReadme（`README.md`）
@@ -789,4 +789,4 @@ CI の job ごとの結果（既存の GitHub の PR の検査）だけを使う
 
 ## Supporting References
 - 正本: `shiori4_abi/include/shiori4_abi.h` 冒頭、`shiori4_abi/src/lib.rs` の `//!`、`doc/host-protocol.md`。
-- 調べた事実と出典: `.kiro/specs/abi-textbook/research.md` の「設計フェーズの調査」。
+- 調べた事実と出典: `.kiro/specs/completed/abi-textbook/research.md` の「設計フェーズの調査」。
