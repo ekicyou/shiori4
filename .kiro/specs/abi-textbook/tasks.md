@@ -78,7 +78,7 @@
   - _Requirements: 9.3, 13.4, 13.7, 13.8, 14.2, 14.4_
 
 - [ ] 5. docs.rs の例（SHIORI 側 `shiori4`）
-- [ ] 5.1 (P) `Ghost` の doc に、アクターの中継と join しない unload の例を足す
+- [x] 5.1 (P) `Ghost` の doc に、アクターの中継と join しない unload の例を足す
   - アクターは `host.request` を呼ばず、応答を待つ SHIORI のスレッドが呼ぶ形（偽のホストが呼ばれたスレッドを `assert_eq!` で確かめる。スレッド規約 2）
   - Poster を持つワーカーを join せずに unload し、unload の後の post が `SHIORI_E_SHUTDOWN`・log は何もしないことを示す（スレッド規約 5）
   - 偽のホストは隠し行に置き、芯のコード行に `protocol` の語を足さない。`//!` の冒頭に教科書の目次への 1 文を足す

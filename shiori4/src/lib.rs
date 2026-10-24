@@ -1,5 +1,7 @@
 //! shiori4 — shiori4_abi の上に載る高水準層（SHIORI 側）
 //!
+//! 教科書: <https://github.com/ekicyou/shiori4/blob/main/doc/textbook/README.md>
+//!
 //! - 芯: [`Ghost`] と、それを ABI につなぐ [`Adapter`]。v4 ではホストからの要求の原文（ヘッダ部分）を
 //!   解析せずにそのまま `Ghost` に渡し、v3 では SHIORI/3.0 の全文とヘッダ部分の文字列形式だけを変換する
 //! - 便利関数: [`protocol`]。ホスト側プロトコルの語に合わせたヘッダの解析と組み立て、プロパティの取得など。
@@ -71,6 +73,191 @@ pub const fn shiori_reason_phrase(s: ShioriStatus) -> &'static str {
 /// unload は Drop で表す。unload を始めた時点で、このインスタンスから取り出した ShioriHostPoster は
 /// すべて無効になり、post は SHIORI_E_SHUTDOWN を返し、log は何もせず、どちらもホストに触れない（スレッド規約 5）。
 /// そのため Poster を渡したスレッドを Drop の中で止めて join する必要はない
+///
+/// # 例: アクターの中継（スレッド規約 2）
+///
+/// host.request を呼べるのは、load / request / notify を呼ばれているスレッドから、その呼び出しが
+/// 返るまでの間だけ。処理を別のスレッド（アクター）に任せるときも、アクターは host.request を呼ばず、
+/// 問い合わせを channel で「応答を待っている SHIORI のスレッド」へ送り、SHIORI のスレッドが中継する。
+/// この例の偽のホストは、呼ばれたスレッドが load・request のスレッドと同じことを `assert_eq!` で確かめる。
+///
+/// ```
+/// use shiori4::protocol::{getproperty_request, HeaderWriter, Headers, HEADER_VALUE};
+/// use std::sync::mpsc::{channel, Receiver, Sender};
+/// use std::thread;
+/// # struct FakeHost {
+/// #     thread: thread::ThreadId,
+/// # }
+/// # impl shiori4::ShioriHost for FakeHost {
+/// #     fn request(&self, req: &[u8]) -> shiori4::ShioriResponse {
+/// #         // スレッド規約 2: load・request を呼んだスレッドからだけ呼ばれる
+/// #         assert_eq!(thread::current().id(), self.thread);
+/// #         assert!(req.starts_with(b"ID: getproperty\r\n"));
+/// #         shiori4::protocol::getproperty_response(Some("さくら"))
+/// #     }
+/// #     fn post(&self, _msg: &[u8]) -> shiori4::ShioriStatus {
+/// #         shiori4::SHIORI_204_NO_CONTENT
+/// #     }
+/// # }
+///
+/// /// アクターから SHIORI のスレッドへの知らせ
+/// enum FromActor {
+///     /// このプロパティをホストに問い合わせてほしい
+///     Ask(String),
+///     /// 応答のスクリプト
+///     Done(String),
+/// }
+///
+/// /// イベントの ID を受け、名前を問い合わせてからスクリプトを組む。host には触れない
+/// fn actor(rx: Receiver<String>, tx: Sender<FromActor>) {
+///     while let Ok(id) = rx.recv() {
+///         let _ = tx.send(FromActor::Ask("currentghost.name".to_owned()));
+///         let Ok(name) = rx.recv() else { return };
+///         let _ = tx.send(FromActor::Done(format!("\\0{name}の{id}だよ\\e")));
+///     }
+/// }
+///
+/// struct ActorGhost {
+///     host: shiori4::ShioriHostHandle,
+///     to_actor: Sender<String>,
+///     from_actor: Receiver<FromActor>,
+/// }
+///
+/// impl shiori4::Ghost for ActorGhost {
+///     const SUPPORTS_V3: bool = false;
+///
+///     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, shiori4::ShioriStatus> {
+///         let host = host.ok_or(shiori4::SHIORI_E_UNSUPPORTED)?;
+///         let (to_actor, rx) = channel();
+///         let (tx, from_actor) = channel();
+///         // アクターは to_actor が落ちると（unload で）抜ける。join は要らない
+///         thread::spawn(move || actor(rx, tx));
+///         Ok(Self { host, to_actor, from_actor })
+///     }
+///
+///     fn request(&mut self, req: &str) -> shiori4::ShioriResponse {
+///         let Some(id) = Headers::parse(req).id() else {
+///             return shiori4::ShioriResponse::bad_request();
+///         };
+///         if self.to_actor.send(id.to_owned()).is_err() {
+///             return shiori4::ShioriResponse::error();
+///         }
+///         // アクターの答えが出るまで、このスレッドで問い合わせを中継する
+///         loop {
+///             match self.from_actor.recv() {
+///                 Ok(FromActor::Ask(name)) => {
+///                     // request を呼ばれているこのスレッドから host.request を呼ぶ（スレッド規約 2）
+///                     let value = self
+///                         .host
+///                         .request_str(&getproperty_request(&name))
+///                         .ok()
+///                         .and_then(|r| {
+///                             let text = r.body.as_str().ok()?;
+///                             Headers::parse(text).get(HEADER_VALUE).map(str::to_owned)
+///                         })
+///                         .unwrap_or_default();
+///                     let _ = self.to_actor.send(value);
+///                 }
+///                 Ok(FromActor::Done(script)) => {
+///                     return HeaderWriter::new().push(HEADER_VALUE, &script).into_response();
+///                 }
+///                 Err(_) => return shiori4::ShioriResponse::error(),
+///             }
+///         }
+///     }
+/// }
+///
+/// static API: shiori4::ShioriApi =
+///     shiori4::ShioriApi::new::<shiori4::Adapter<ActorGhost>, { shiori4::SHIORI_ABI_VERSION }>();
+///
+/// let host = shiori4::ShioriHostBox::new(FakeHost { thread: thread::current().id() });
+/// let mut inst = API.load(&host, "/ghost").expect("load");
+/// let r = inst.request("ID: OnBoot\r\n").expect("abi");
+/// assert_eq!(r.body.as_str().unwrap(), "Value: \\0さくらのOnBootだよ\\e\r\n");
+/// ```
+///
+/// # 例: join しない unload（スレッド規約 5）
+///
+/// Poster（`.clone()` したもの）を持つワーカーを起こし、Drop（unload）で止めも join もしない。
+/// unload を始めた後のワーカーの post は SHIORI_E_SHUTDOWN を返し、log は何もせず、どちらも
+/// ホストに触れないので、ワーカーはその戻り値を見て自分で抜ければよい。
+///
+/// ```
+/// use std::sync::mpsc::{channel, Sender};
+/// use std::sync::Mutex;
+/// use std::thread;
+/// use std::time::Duration;
+/// # use std::sync::atomic::{AtomicUsize, Ordering};
+/// # #[derive(Default)]
+/// # struct FakeHost {
+/// #     posts: AtomicUsize,
+/// #     logs: AtomicUsize,
+/// # }
+/// # impl shiori4::ShioriHost for FakeHost {
+/// #     fn request(&self, _req: &[u8]) -> shiori4::ShioriResponse {
+/// #         shiori4::ShioriResponse::no_content()
+/// #     }
+/// #     fn post(&self, _msg: &[u8]) -> shiori4::ShioriStatus {
+/// #         self.posts.fetch_add(1, Ordering::SeqCst);
+/// #         shiori4::SHIORI_204_NO_CONTENT
+/// #     }
+/// #     fn log(&self, _level: i32, _msg: &str) {
+/// #         self.logs.fetch_add(1, Ordering::SeqCst);
+/// #     }
+/// # }
+///
+/// /// 例のための仕掛け: ワーカーが最後に見た post の戻り値を、この例の検査へ返す
+/// static DONE: Mutex<Option<Sender<shiori4::ShioriStatus>>> = Mutex::new(None);
+///
+/// /// 1 ミリ秒ごとに post し、SHIORI_E_SHUTDOWN を受けたら抜ける
+/// fn worker(poster: shiori4::ShioriHostPoster, done: Sender<shiori4::ShioriStatus>) {
+///     loop {
+///         let st = poster.post_str("Command: NOTIFY\r\nEvent: OnTick\r\n");
+///         if st == shiori4::SHIORI_E_SHUTDOWN {
+///             poster.log(shiori4::SHIORI_LOG_INFO, "ワーカーを止める"); // unload の後なので何もしない
+///             let _ = done.send(st);
+///             return;
+///         }
+///         thread::sleep(Duration::from_millis(1));
+///     }
+/// }
+///
+/// /// ワーカーの JoinHandle を持たない。Drop で何もしなくてよい
+/// struct TickGhost {
+///     _poster: shiori4::ShioriHostPoster,
+/// }
+///
+/// impl shiori4::Ghost for TickGhost {
+///     const SUPPORTS_V3: bool = false;
+///
+///     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, shiori4::ShioriStatus> {
+///         let host = host.ok_or(shiori4::SHIORI_E_UNSUPPORTED)?;
+///         let poster = host.poster();
+///         let done = DONE.lock().unwrap().take().ok_or(shiori4::SHIORI_E_UNSUPPORTED)?;
+///         let p = poster.clone();
+///         thread::spawn(move || worker(p, done));
+///         Ok(TickGhost { _poster: poster })
+///     }
+///
+///     fn request(&mut self, _req: &str) -> shiori4::ShioriResponse {
+///         shiori4::ShioriResponse::no_content()
+///     }
+/// }
+///
+/// static API: shiori4::ShioriApi =
+///     shiori4::ShioriApi::new::<shiori4::Adapter<TickGhost>, { shiori4::SHIORI_ABI_VERSION }>();
+///
+/// let (tx, rx) = channel();
+/// *DONE.lock().unwrap() = Some(tx);
+/// let host = shiori4::ShioriHostBox::new(FakeHost::default());
+/// let inst = API.load(&host, "/ghost").expect("load");
+/// while host.host().posts.load(Ordering::SeqCst) == 0 {
+///     thread::sleep(Duration::from_millis(1)); // unload の前の post はホストに届く
+/// }
+/// drop(inst); // unload。ワーカーは動いたまま
+/// assert_eq!(rx.recv().unwrap(), shiori4::SHIORI_E_SHUTDOWN);
+/// assert_eq!(host.host().logs.load(Ordering::SeqCst), 0);
+/// ```
 pub trait Ghost: Sized + 'static {
     /// v3（SHIORI3 互換モード）にも対応するか
     const SUPPORTS_V3: bool = true;
