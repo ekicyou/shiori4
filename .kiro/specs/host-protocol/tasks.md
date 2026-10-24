@@ -45,7 +45,7 @@
   - 完了の状態: 組み立ての出力が Data Contracts の並びと一字一句一致すること（Option 0・1・2 個、Tag の有無、Script の改行の除去）をテストが確かめ、どの出力にも Charset が無い
   - _Boundary: HelperCrate_
   - _Requirements: 2.1, 2.2, 3.2, 3.3, 3.5, 5.2, 10.3, 10.4, 10.9, 10.10_
-- [ ] 3.2 応答と完了通知の読み分けを足す
+- [x] 3.2 応答と完了通知の読み分けを足す
   - 400 の `Reason` を「不正（未対応を含む）・拒否・理由不明の拒否」に読み分け、400 以外では読み分けを返さない
   - 完了通知のヘッダから Tag（値を変えない）・Status・コマンド名・結果の語・読み分けを取り出す。ID が OnHostComplete でないか、Tag か数として読める Status が無ければ取り出さない
   - 知らない Command・結果の語はそのまま返し、拒否しない
@@ -139,3 +139,4 @@
 ## Implementation Notes
 - `cargo fmt --all --check` は main の時点でリポジトリ全体が通らない（rustfmt 未適用・rustfmt.toml 無し）。CI は fmt を見ない。7.1 で扱いを決める
 - `cargo test --all` が testdata/testghost を test_dll.rs 経由でビルドして DLL のテストを回す
+- テストの文字列は `\r\n` のエスケープで 1 行に書く（シェルで書き込むとエスケープが生の改行に化けた。Edit で直す）

@@ -28,7 +28,7 @@ use std::{
 
 use shiori4_abi::{
     shiori_is_success, ShioriHostHandle, ShioriHostPoster, ShioriResponse, ShioriStatus, SHIORI_200_OK,
-    SHIORI_204_NO_CONTENT,
+    SHIORI_204_NO_CONTENT, SHIORI_400_BAD_REQUEST,
 };
 
 // ============================================================
@@ -198,6 +198,71 @@ fn post_options(w: HeaderWriter, options: &[&str]) -> HeaderWriter {
         w
     } else {
         w.push(HEADER_OPTION, &options.join(","))
+    }
+}
+
+// ============================================================
+// SHIORI 側: 応答と完了通知の読み分け
+// ============================================================
+
+/// 400 の `Reason` の読み分け（拒否の判定ではない。知らない語も読み分けて返す）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rejection {
+    /// Reason が無い 400: 不正（未対応を含む）
+    Invalid,
+    /// Reason: forbidden
+    Forbidden,
+    /// 未知の Reason: 理由不明の拒否
+    Unknown,
+}
+
+impl Rejection {
+    /// 前後の空白を除いて `forbidden` と完全に一致したときだけ Forbidden
+    pub fn from_reason(reason: Option<&str>) -> Self {
+        match reason.map(str::trim) {
+            None => Self::Invalid,
+            Some(REASON_FORBIDDEN) => Self::Forbidden,
+            Some(_) => Self::Unknown,
+        }
+    }
+
+    /// status が 400 のときだけ Some。headers は応答または完了通知のヘッダ部分
+    pub fn of(status: ShioriStatus, headers: &Headers<'_>) -> Option<Self> {
+        (status == SHIORI_400_BAD_REQUEST).then(|| Self::from_reason(headers.get(HEADER_REASON)))
+    }
+}
+
+/// `OnHostComplete` の中身
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostComplete<'a> {
+    /// Tag の値（変えない）
+    pub tag: &'a str,
+    /// Status（結果のステータスコード）
+    pub status: ShioriStatus,
+    /// Reference0（無ければ ""）
+    pub command: &'a str,
+    /// Reference1（completed / interrupted / 知らない語もそのまま）
+    pub outcome: Option<&'a str>,
+    /// status が 400 のときだけ
+    pub rejection: Option<Rejection>,
+}
+
+impl<'a> HostComplete<'a> {
+    /// ID が OnHostComplete で、Tag と数として読める Status があるときだけ Some。
+    /// ID の値はヘッダ名ではないので大文字小文字を区別して比べる
+    pub fn parse(h: &Headers<'a>) -> Option<Self> {
+        if h.id()? != ID_HOST_COMPLETE {
+            return None;
+        }
+        let tag = h.get(HEADER_TAG)?;
+        let status = h.get(HEADER_STATUS)?.trim().parse::<ShioriStatus>().ok()?;
+        Some(Self {
+            tag,
+            status,
+            command: h.reference(0).unwrap_or(""),
+            outcome: h.reference(1),
+            rejection: Rejection::of(status, h),
+        })
     }
 }
 
@@ -421,6 +486,99 @@ mod tests {
         for s in all {
             assert!(!s.is_empty());
             assert!(!s.to_ascii_lowercase().contains("charset"), "{s}");
+        }
+    }
+
+    #[test]
+    fn rejection_reads_reason() {
+        assert_eq!(Rejection::from_reason(None), Rejection::Invalid);
+        assert_eq!(Rejection::from_reason(Some(REASON_FORBIDDEN)), Rejection::Forbidden);
+        assert_eq!(Rejection::from_reason(Some(" forbidden ")), Rejection::Forbidden);
+        assert_eq!(Rejection::from_reason(Some("Forbidden")), Rejection::Unknown);
+        assert_eq!(Rejection::from_reason(Some("busy")), Rejection::Unknown);
+
+        let none = Headers::parse("");
+        let forbidden = Headers::parse("Reason: forbidden\r\n");
+        assert_eq!(Rejection::of(SHIORI_400_BAD_REQUEST, &none), Some(Rejection::Invalid));
+        assert_eq!(Rejection::of(SHIORI_400_BAD_REQUEST, &forbidden), Some(Rejection::Forbidden));
+        assert_eq!(Rejection::of(SHIORI_200_OK, &forbidden), None);
+        assert_eq!(Rejection::of(SHIORI_204_NO_CONTENT, &none), None);
+        assert_eq!(Rejection::of(500, &forbidden), None);
+    }
+
+    const COMPLETE_HEAD: &str =
+        "Sender: areka\r\nSenderType: internal\r\nSecurityLevel: local\r\nSecurityOrigin: null\r\nID: OnHostComplete\r\n";
+
+    fn complete(rest: &str) -> String {
+        format!("{COMPLETE_HEAD}{rest}")
+    }
+
+    #[test]
+    fn host_complete_send_results() {
+        let t = complete("Tag: 42\r\nStatus: 200\r\nReference0: SEND\r\nReference1: completed\r\n");
+        assert_eq!(
+            HostComplete::parse(&Headers::parse(&t)),
+            Some(HostComplete {
+                tag: "42",
+                status: SHIORI_200_OK,
+                command: COMMAND_SEND,
+                outcome: Some(OUTCOME_COMPLETED),
+                rejection: None,
+            })
+        );
+
+        let t = complete("Tag: abc-01\r\nStatus: 204\r\nReference0: SEND\r\n");
+        assert_eq!(
+            HostComplete::parse(&Headers::parse(&t)),
+            Some(HostComplete {
+                tag: "abc-01",
+                status: SHIORI_204_NO_CONTENT,
+                command: COMMAND_SEND,
+                outcome: None,
+                rejection: None,
+            })
+        );
+
+        let t = complete("Tag: 7\r\nStatus: 400\r\nReference0: SEND\r\nReason: forbidden\r\n");
+        assert_eq!(
+            HostComplete::parse(&Headers::parse(&t)),
+            Some(HostComplete {
+                tag: "7",
+                status: SHIORI_400_BAD_REQUEST,
+                command: COMMAND_SEND,
+                outcome: None,
+                rejection: Some(Rejection::Forbidden),
+            })
+        );
+    }
+
+    #[test]
+    fn host_complete_passes_unknown_words() {
+        let t = complete("Tag: 1\r\nStatus: 200\r\nReference0: FUTURECMD\r\nReference1: someday\r\n");
+        let c = HostComplete::parse(&Headers::parse(&t)).unwrap();
+        assert_eq!((c.command, c.outcome), ("FUTURECMD", Some("someday")));
+        // Reference0 が無ければ ""
+        let c =
+            HostComplete::parse(&Headers::parse("ID: OnHostComplete\r\nTag: 1\r\nStatus: 204\r\n"))
+                .unwrap();
+        assert_eq!(c.command, "");
+    }
+
+    #[test]
+    fn host_complete_rejects_malformed() {
+        let bad = [
+            // ID 違い（値は大文字小文字を区別する）
+            "ID: OnBoot\r\nTag: 1\r\nStatus: 200\r\nReference0: SEND\r\n",
+            "ID: onhostcomplete\r\nTag: 1\r\nStatus: 200\r\nReference0: SEND\r\n",
+            "Tag: 1\r\nStatus: 200\r\nReference0: SEND\r\n",
+            // Status 無し・数でない
+            "ID: OnHostComplete\r\nTag: 1\r\nReference0: SEND\r\n",
+            "ID: OnHostComplete\r\nTag: 1\r\nStatus: ok\r\nReference0: SEND\r\n",
+            // Tag 無し
+            "ID: OnHostComplete\r\nStatus: 200\r\nReference0: SEND\r\n",
+        ];
+        for t in bad {
+            assert_eq!(HostComplete::parse(&Headers::parse(t)), None, "{t}");
         }
     }
 
