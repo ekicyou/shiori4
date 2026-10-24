@@ -105,3 +105,7 @@ DLL に触る芯だけを shiori4_host に置く。プロセスの起こし方�
 ## 申し送り（host-protocol より）
 - `Host` の形が変わった: `name()` が必須、`request(&str) -> ShioriResponse`（既定は 400）、`accept_post(&str)`（既定は受け付け）、`Host::property` は無い。`Post` は原文と `Completer` だけを持ち、`Completer::complete_with` は渡したヘッダをそのまま積む。従来の SHIORI/3.0 のホストでこの `Host` を使うなら、この形を前提にする（`.kiro/specs/completed/host-protocol/design.md` の HostCore）。
 - v3 の変換（`shiori4` の `v3::parse_request`）は開始行と終端の空行を除いた原文のヘッダ部分を `Ghost` に渡す。Charset は v3 の中で検査する（UTF-8 以外は 400）。
+
+## 申し送り（abi-textbook より）
+- 試験用のホスト `shiori4_host/examples/shiori4-testhost.rs` は、`LoadedGhost::Legacy` を `run_legacy` の枝で受け、`entry: loadu`／`entry: load` を表示して何も呼ばずに終了の状態 4（`EXIT_LEGACY`）で終わる。この spec で、`run_legacy` を従来の DLL を読んで往復する形に差し替える（x86 の Windows だけ。ほかの環境では今の枝のまま）。終了の状態は下流の CI の契約なので、変えるなら `doc/textbook/testhost.md` の表（4 の行）と CI の job `textbook` も直す。
+- `doc/textbook/migration.md` の「v3 互換モードと旧来の DLL」の節の「旧来の DLL を読む口は `shiori4_host` にまだ無い」の項目を、この spec で足した口（使える環境・入口の名前）を指す文に書き換える（abi-textbook 要件 11.3）。

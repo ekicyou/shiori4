@@ -1,5 +1,7 @@
 //! shiori4 — shiori4_abi の上に載る高水準層（SHIORI 側）
 //!
+//! 教科書: <https://github.com/ekicyou/shiori4/blob/main/doc/textbook/README.md>
+//!
 //! - 芯: [`Ghost`] と、それを ABI につなぐ [`Adapter`]。v4 ではホストからの要求の原文（ヘッダ部分）を
 //!   解析せずにそのまま `Ghost` に渡し、v3 では SHIORI/3.0 の全文とヘッダ部分の文字列形式だけを変換する
 //! - 便利関数: [`protocol`]。ホスト側プロトコルの語に合わせたヘッダの解析と組み立て、プロパティの取得など。
@@ -10,6 +12,8 @@
 //! <https://github.com/ekicyou/shiori4/blob/main/doc/host-protocol.md> が定める。
 //!
 //! ホストを呼べるかどうか（プロパティを同期で取れるか）は `Ghost` の実装に見せる（v4 なら `load` の host が `Some`）。
+//!
+//! この例は DLL として書き出す形なので、ビルドだけを検査する（実行しない）。
 //!
 //! ```no_run
 //! use shiori4::protocol::{HeaderWriter, Headers, Lookup, Properties, HEADER_VALUE};
@@ -71,6 +75,269 @@ pub const fn shiori_reason_phrase(s: ShioriStatus) -> &'static str {
 /// unload は Drop で表す。unload を始めた時点で、このインスタンスから取り出した ShioriHostPoster は
 /// すべて無効になり、post は SHIORI_E_SHUTDOWN を返し、log は何もせず、どちらもホストに触れない（スレッド規約 5）。
 /// そのため Poster を渡したスレッドを Drop の中で止めて join する必要はない
+///
+/// # 例: アクターの中継（スレッド規約 2）
+///
+/// host.request を呼べるのは、load / request / notify を呼ばれているスレッドから、その呼び出しが
+/// 返るまでの間だけ。処理を別のスレッド（アクター）に任せるときも、アクターは host.request を呼ばず、
+/// 問い合わせを channel で「応答を待っている SHIORI のスレッド」へ送り、SHIORI のスレッドが中継する。
+/// この例の偽のホストは、呼ばれたスレッドが load・request のスレッドと同じことを `assert_eq!` で確かめる。
+///
+/// ```
+/// use shiori4::protocol::{getproperty_request, HeaderWriter, Headers, HEADER_VALUE};
+/// use std::sync::mpsc::{channel, Receiver, Sender};
+/// use std::thread;
+/// # struct FakeHost {
+/// #     thread: thread::ThreadId,
+/// # }
+/// # impl shiori4::ShioriHost for FakeHost {
+/// #     fn request(&self, req: &[u8]) -> shiori4::ShioriResponse {
+/// #         // スレッド規約 2: load・request を呼んだスレッドからだけ呼ばれる
+/// #         assert_eq!(thread::current().id(), self.thread);
+/// #         assert!(req.starts_with(b"ID: getproperty\r\n"));
+/// #         shiori4::protocol::getproperty_response(Some("さくら"))
+/// #     }
+/// #     fn post(&self, _msg: &[u8]) -> shiori4::ShioriStatus {
+/// #         shiori4::SHIORI_204_NO_CONTENT
+/// #     }
+/// # }
+///
+/// /// アクターから SHIORI のスレッドへの知らせ
+/// enum FromActor {
+///     /// このプロパティをホストに問い合わせてほしい
+///     Ask(String),
+///     /// 応答のスクリプト
+///     Done(String),
+/// }
+///
+/// /// イベントの ID を受け、名前を問い合わせてからスクリプトを組む。host には触れない
+/// fn actor(rx: Receiver<String>, tx: Sender<FromActor>) {
+///     while let Ok(id) = rx.recv() {
+///         let _ = tx.send(FromActor::Ask("currentghost.name".to_owned()));
+///         let Ok(name) = rx.recv() else { return };
+///         let _ = tx.send(FromActor::Done(format!("\\0{name}の{id}だよ\\e")));
+///     }
+/// }
+///
+/// struct ActorGhost {
+///     host: shiori4::ShioriHostHandle,
+///     to_actor: Sender<String>,
+///     from_actor: Receiver<FromActor>,
+/// }
+///
+/// impl shiori4::Ghost for ActorGhost {
+///     const SUPPORTS_V3: bool = false;
+///
+///     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, shiori4::ShioriStatus> {
+///         let host = host.ok_or(shiori4::SHIORI_E_UNSUPPORTED)?;
+///         let (to_actor, rx) = channel();
+///         let (tx, from_actor) = channel();
+///         // アクターは to_actor が落ちると（unload で）抜ける。join は要らない
+///         thread::spawn(move || actor(rx, tx));
+///         Ok(Self { host, to_actor, from_actor })
+///     }
+///
+///     fn request(&mut self, req: &str) -> shiori4::ShioriResponse {
+///         let Some(id) = Headers::parse(req).id() else {
+///             return shiori4::ShioriResponse::bad_request();
+///         };
+///         if self.to_actor.send(id.to_owned()).is_err() {
+///             return shiori4::ShioriResponse::error();
+///         }
+///         // アクターの答えが出るまで、このスレッドで問い合わせを中継する
+///         loop {
+///             match self.from_actor.recv() {
+///                 Ok(FromActor::Ask(name)) => {
+///                     // request を呼ばれているこのスレッドから host.request を呼ぶ（スレッド規約 2）
+///                     let value = self
+///                         .host
+///                         .request_str(&getproperty_request(&name))
+///                         .ok()
+///                         .and_then(|r| {
+///                             let text = r.body.as_str().ok()?;
+///                             Headers::parse(text).get(HEADER_VALUE).map(str::to_owned)
+///                         })
+///                         .unwrap_or_default();
+///                     let _ = self.to_actor.send(value);
+///                 }
+///                 Ok(FromActor::Done(script)) => {
+///                     return HeaderWriter::new().push(HEADER_VALUE, &script).into_response();
+///                 }
+///                 Err(_) => return shiori4::ShioriResponse::error(),
+///             }
+///         }
+///     }
+/// }
+///
+/// static API: shiori4::ShioriApi =
+///     shiori4::ShioriApi::new::<shiori4::Adapter<ActorGhost>, { shiori4::SHIORI_ABI_VERSION }>();
+///
+/// let host = shiori4::ShioriHostBox::new(FakeHost { thread: thread::current().id() });
+/// let mut inst = API.load(&host, "/ghost").expect("load");
+/// let r = inst.request("ID: OnBoot\r\n").expect("abi");
+/// assert_eq!(r.body.as_str().unwrap(), "Value: \\0さくらのOnBootだよ\\e\r\n");
+/// ```
+///
+/// # 例: join しない unload（スレッド規約 5）
+///
+/// Poster（`.clone()` したもの）を持つワーカーを起こし、Drop（unload）で止めも join もしない。
+/// unload を始めた後のワーカーの post は SHIORI_E_SHUTDOWN を返し、log は何もせず、どちらも
+/// ホストに触れないので、ワーカーはその戻り値を見て自分で抜ければよい。
+/// この例は偽のホストで往復を実行して確かめている。
+///
+/// ```
+/// use std::sync::mpsc::{channel, Sender};
+/// use std::sync::Mutex;
+/// use std::thread;
+/// use std::time::Duration;
+/// # use std::sync::atomic::{AtomicUsize, Ordering};
+/// # #[derive(Default)]
+/// # struct FakeHost {
+/// #     posts: AtomicUsize,
+/// #     logs: AtomicUsize,
+/// # }
+/// # impl shiori4::ShioriHost for FakeHost {
+/// #     fn request(&self, _req: &[u8]) -> shiori4::ShioriResponse {
+/// #         shiori4::ShioriResponse::no_content()
+/// #     }
+/// #     fn post(&self, _msg: &[u8]) -> shiori4::ShioriStatus {
+/// #         self.posts.fetch_add(1, Ordering::SeqCst);
+/// #         shiori4::SHIORI_204_NO_CONTENT
+/// #     }
+/// #     fn log(&self, _level: i32, _msg: &str) {
+/// #         self.logs.fetch_add(1, Ordering::SeqCst);
+/// #     }
+/// # }
+///
+/// /// 例のための仕掛け: ワーカーが最後に見た post の戻り値を、この例の検査へ返す。
+/// /// ふつうの Ghost は static を使わず状態を Self に持つ（load の規約 5）
+/// static DONE: Mutex<Option<Sender<shiori4::ShioriStatus>>> = Mutex::new(None);
+///
+/// /// 1 ミリ秒ごとに post し、SHIORI_E_SHUTDOWN を受けたら抜ける
+/// fn worker(poster: shiori4::ShioriHostPoster, done: Sender<shiori4::ShioriStatus>) {
+///     loop {
+///         let st = poster.post_str("Command: NOTIFY\r\nEvent: OnTick\r\n");
+///         if st == shiori4::SHIORI_E_SHUTDOWN {
+///             poster.log(shiori4::SHIORI_LOG_INFO, "ワーカーを止める"); // unload の後なので何もしない
+///             let _ = done.send(st);
+///             return;
+///         }
+///         thread::sleep(Duration::from_millis(1));
+///     }
+/// }
+///
+/// /// ワーカーの JoinHandle を持たない。Drop で何もしなくてよい
+/// struct TickGhost {
+///     _poster: shiori4::ShioriHostPoster,
+/// }
+///
+/// impl shiori4::Ghost for TickGhost {
+///     const SUPPORTS_V3: bool = false;
+///
+///     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, shiori4::ShioriStatus> {
+///         let host = host.ok_or(shiori4::SHIORI_E_UNSUPPORTED)?;
+///         let poster = host.poster();
+///         let done = DONE.lock().unwrap().take().ok_or(shiori4::SHIORI_E_UNSUPPORTED)?;
+///         let p = poster.clone();
+///         thread::spawn(move || worker(p, done));
+///         Ok(TickGhost { _poster: poster })
+///     }
+///
+///     fn request(&mut self, _req: &str) -> shiori4::ShioriResponse {
+///         shiori4::ShioriResponse::no_content()
+///     }
+/// }
+///
+/// static API: shiori4::ShioriApi =
+///     shiori4::ShioriApi::new::<shiori4::Adapter<TickGhost>, { shiori4::SHIORI_ABI_VERSION }>();
+///
+/// let (tx, rx) = channel();
+/// *DONE.lock().unwrap() = Some(tx);
+/// let host = shiori4::ShioriHostBox::new(FakeHost::default());
+/// let inst = API.load(&host, "/ghost").expect("load");
+/// while host.host().posts.load(Ordering::SeqCst) == 0 {
+///     thread::sleep(Duration::from_millis(1)); // unload の前の post はホストに届く
+/// }
+/// drop(inst); // unload。ワーカーは動いたまま
+/// let st = rx.recv_timeout(Duration::from_secs(5)).expect("ワーカーが抜けない");
+/// assert_eq!(st, shiori4::SHIORI_E_SHUTDOWN);
+/// assert_eq!(host.host().logs.load(Ordering::SeqCst), 0);
+/// ```
+///
+/// # 例: v3 と v4 の両対応（host が None のとき。版 2）
+///
+/// v4 の load は host を Some で受け、`Properties` はホストに同期で問い合わせる。v3 の load は
+/// host を None で受け、`Properties` は `set` で取り込んだ値だけを返す受動的なキャッシュになる
+/// （まだ無ければ `Lookup::Pending` なので、代わりの動作にする）。v3 で値がどう届くかはベースウェアに
+/// 依存する。この例では SHIORI/3.0 の `OnNotifySelfInfo` の Reference0（ゴーストの名前）を取り込む。
+/// この例は偽のホストで v4 と v3 の往復を実行して確かめている。
+///
+/// ```
+/// use shiori4::protocol::{HeaderWriter, Headers, Lookup, Properties, HEADER_VALUE};
+/// # struct FakeHost;
+/// # impl shiori4::ShioriHost for FakeHost {
+/// #     fn request(&self, req: &[u8]) -> shiori4::ShioriResponse {
+/// #         assert!(req.starts_with(b"ID: getproperty\r\n"));
+/// #         shiori4::protocol::getproperty_response(Some("さくら"))
+/// #     }
+/// #     fn post(&self, _msg: &[u8]) -> shiori4::ShioriStatus {
+/// #         shiori4::SHIORI_204_NO_CONTENT
+/// #     }
+/// # }
+///
+/// struct BothGhost {
+///     props: Properties,
+/// }
+///
+/// impl shiori4::Ghost for BothGhost {
+///     // SUPPORTS_V3 は既定で true
+///     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, shiori4::ShioriStatus> {
+///         // v4 なら Some（問い合わせられる）、v3 なら None（受動的なキャッシュ）
+///         Ok(Self { props: Properties::new(host) })
+///     }
+///
+///     fn request(&mut self, req: &str) -> shiori4::ShioriResponse {
+///         if Headers::parse(req).id() != Some("OnBoot") {
+///             return shiori4::ShioriResponse::no_content();
+///         }
+///         let script = match self.props.get("currentghost.name") {
+///             Lookup::Ready(name) => format!("\\0{name}だよ\\e"),
+///             // v3 でまだ届いていない（Pending）か、v4 でホストが知らない（Missing）
+///             _ => "\\0……\\e".to_owned(),
+///         };
+///         HeaderWriter::new().push(HEADER_VALUE, &script).into_response()
+///     }
+///
+///     fn notify(&mut self, req: &str) -> shiori4::ShioriStatus {
+///         let h = Headers::parse(req);
+///         if let (Some("OnNotifySelfInfo"), Some(name)) = (h.id(), h.reference(0)) {
+///             self.props.set("currentghost.name", name);
+///         }
+///         shiori4::SHIORI_204_NO_CONTENT
+///     }
+/// }
+///
+/// static API: shiori4::ShioriApi =
+///     shiori4::ShioriApi::new::<shiori4::Adapter<BothGhost>, { shiori4::SHIORI_ABI_VERSION }>();
+/// static API_V3: shiori4::ShioriApi =
+///     shiori4::ShioriApi::new::<shiori4::Adapter<BothGhost>, { shiori4::SHIORI_ABI_VERSION_3 }>();
+///
+/// // v4: その場でホストに問い合わせる
+/// let host = shiori4::ShioriHostBox::new(FakeHost);
+/// let mut v4 = API.load(&host, "/ghost").expect("load v4");
+/// let r = v4.request("ID: OnBoot\r\n").expect("abi");
+/// assert_eq!(r.body.as_str().unwrap(), "Value: \\0さくらだよ\\e\r\n");
+///
+/// // v3: 届いた値をキャッシュに取り込み、それを使う
+/// let mut v3 = API_V3.load_v3("/ghost").expect("load v3");
+/// let st = v3.notify("NOTIFY SHIORI/3.0\r\nCharset: UTF-8\r\nID: OnNotifySelfInfo\r\nReference0: さくら\r\n\r\n");
+/// assert_eq!(st, Ok(shiori4::SHIORI_204_NO_CONTENT));
+/// let r = v3.request("GET SHIORI/3.0\r\nCharset: UTF-8\r\nID: OnBoot\r\n\r\n").expect("abi");
+/// assert_eq!(
+///     r.body.as_str().unwrap(),
+///     "SHIORI/3.0 200 OK\r\nCharset: UTF-8\r\nValue: \\0さくらだよ\\e\r\n\r\n"
+/// );
+/// ```
 pub trait Ghost: Sized + 'static {
     /// v3（SHIORI3 互換モード）にも対応するか
     const SUPPORTS_V3: bool = true;
@@ -81,6 +348,53 @@ pub trait Ghost: Sized + 'static {
     /// 自動で host.log に出る（load の規約）。詳しい理由は自分で log すること。
     /// 状態は Self（インスタンス）ごとに持ち、グローバルな状態を避ける。
     /// export_ghost! で作った SHIORI は、同じプロセスで複数のインスタンスを受け付ける（load の規約）
+    ///
+    /// # 例: インスタンスごとの状態（load の規約 5）
+    ///
+    /// 状態は `static` に置かず `Self` に持つ。同じテーブルから 2 つのインスタンスを読んでも、
+    /// 数えた値は混ざらない。この例は偽のホストで往復を実行して確かめている。
+    ///
+    /// ```
+    /// use shiori4::protocol::{HeaderWriter, HEADER_VALUE};
+    /// # struct FakeHost;
+    /// # impl shiori4::ShioriHost for FakeHost {
+    /// #     fn request(&self, _req: &[u8]) -> shiori4::ShioriResponse {
+    /// #         shiori4::ShioriResponse::no_content()
+    /// #     }
+    /// #     fn post(&self, _msg: &[u8]) -> shiori4::ShioriStatus {
+    /// #         shiori4::SHIORI_204_NO_CONTENT
+    /// #     }
+    /// # }
+    ///
+    /// /// 受けた要求の数。インスタンスごとに持つ
+    /// struct CountGhost {
+    ///     count: u32,
+    /// }
+    ///
+    /// impl shiori4::Ghost for CountGhost {
+    ///     fn load(_host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, shiori4::ShioriStatus> {
+    ///         Ok(Self { count: 0 })
+    ///     }
+    ///
+    ///     fn request(&mut self, _req: &str) -> shiori4::ShioriResponse {
+    ///         self.count += 1;
+    ///         HeaderWriter::new().push(HEADER_VALUE, &self.count.to_string()).into_response()
+    ///     }
+    /// }
+    ///
+    /// static API: shiori4::ShioriApi =
+    ///     shiori4::ShioriApi::new::<shiori4::Adapter<CountGhost>, { shiori4::SHIORI_ABI_VERSION }>();
+    ///
+    /// let host = shiori4::ShioriHostBox::new(FakeHost);
+    /// let mut a = API.load(&host, "/a").expect("load a");
+    /// let mut b = API.load(&host, "/b").expect("load b");
+    /// let value = |i: &mut shiori4::ShioriInstance<'_>| {
+    ///     i.request("ID: OnSecondChange\r\n").expect("abi").body.as_str().unwrap().to_owned()
+    /// };
+    /// assert_eq!(value(&mut a), "Value: 1\r\n");
+    /// assert_eq!(value(&mut a), "Value: 2\r\n");
+    /// assert_eq!(value(&mut b), "Value: 1\r\n"); // a の数は b に混ざらない
+    /// ```
     fn load(host: Option<ShioriHostHandle>, dir: &str) -> Result<Self, ShioriStatus>;
 
     /// GET に相当する。req はヘッダ部分の原文。v4 はホストが渡したまま、v3 は開始行と終端の空行を除いたもの。
@@ -407,6 +721,121 @@ mod tests {
                 "ID: b\r\n",
             ]
         );
+    }
+
+    // ---- v3 の host（copy_from_slice だけのテーブル） ----
+
+    use std::ffi::c_void;
+    use std::ptr::NonNull;
+
+    /// Ghost::load が受けた host が None だったか（この Ghost を使うテストは 1 本だけ）
+    static V3_HOST_WAS_NONE: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
+    struct SeeHost;
+
+    impl Ghost for SeeHost {
+        fn load(host: Option<ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+            *V3_HOST_WAS_NONE.lock().unwrap() = Some(host.is_none());
+            Ok(SeeHost)
+        }
+        fn request(&mut self, _req: &str) -> ShioriResponse {
+            HeaderWriter::new().push("Value", "v3").into_response()
+        }
+    }
+
+    static SEE_HOST_V3: ShioriApi = ShioriApi::new::<Adapter<SeeHost>, { SHIORI_ABI_VERSION_3 }>();
+
+    /// C ヘッダの ShioriHostApi と同じ並び（shiori4_abi の大きさの assert が一致を保つ）
+    #[repr(C)]
+    struct RawHostApi {
+        struct_size: u32,
+        abi_version: u32,
+        ctx: *mut c_void,
+        request: Option<unsafe extern "C" fn()>,
+        post: Option<unsafe extern "C" fn()>,
+        log: Option<unsafe extern "C" fn()>,
+        copy_from_slice:
+            Option<unsafe extern "C" fn(*mut c_void, *const u8, usize, *mut ShioriBytes)>,
+    }
+
+    /// C ヘッダの ShioriApi と同じ並び
+    #[repr(C)]
+    struct RawApi {
+        struct_size: u32,
+        abi_version: u32,
+        load: unsafe extern "C" fn(Option<NonNull<ShioriHostApi>>, *const u8, usize) -> *mut c_void,
+        unload: unsafe extern "C" fn(*mut c_void),
+        request:
+            unsafe extern "C" fn(*mut c_void, *const u8, usize, *mut ShioriBytes) -> ShioriStatus,
+    }
+
+    static COPIES: AtomicU64 = AtomicU64::new(0);
+    static RELEASES: AtomicU64 = AtomicU64::new(0);
+
+    /// ホストの copy_from_slice。写した数と、host_release で解放した数を数える
+    unsafe extern "C" fn host_copy(
+        _ctx: *mut c_void,
+        ptr: *const u8,
+        len: usize,
+        out: *mut ShioriBytes,
+    ) {
+        COPIES.fetch_add(1, Ordering::SeqCst);
+        let buf: Box<[u8]> = unsafe { std::slice::from_raw_parts(ptr, len) }.into();
+        let p = Box::into_raw(buf) as *const u8;
+        unsafe {
+            out.write(ShioriBytes::from_raw_parts(
+                p,
+                len,
+                std::ptr::null_mut(),
+                Some(host_release),
+            ))
+        }
+    }
+
+    unsafe extern "C" fn host_release(b: *mut ShioriBytes) {
+        RELEASES.fetch_add(1, Ordering::SeqCst);
+        let b = unsafe { &mut *b };
+        let len = b.len();
+        let p = b.as_slice().as_ptr() as *mut u8;
+        drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, len)) });
+        *b = ShioriBytes::empty();
+    }
+
+    #[test]
+    fn v3_ghost_load_gets_none_and_response_is_made_by_copy_from_slice() {
+        // 写しの並びがずれたら UB にせず、ここで落とす
+        assert_eq!(size_of::<RawHostApi>(), size_of::<ShioriHostApi>());
+        // RawApi は request までの頭の部分だけを写す
+        assert_eq!(
+            size_of::<RawApi>() + size_of::<usize>(),
+            size_of::<ShioriApi>()
+        );
+        let table = RawHostApi {
+            struct_size: size_of::<RawHostApi>() as u32,
+            abi_version: SHIORI_ABI_VERSION_3,
+            ctx: std::ptr::null_mut(),
+            request: None,
+            post: None,
+            log: None,
+            copy_from_slice: Some(host_copy),
+        };
+        // SAFETY: RawApi は ShioriApi と同じ並び
+        let api = unsafe { &*(&SEE_HOST_V3 as *const ShioriApi as *const RawApi) };
+        let host = NonNull::from(&table).cast::<ShioriHostApi>();
+        let inst = unsafe { (api.load)(Some(host), "/ghost".as_ptr(), 6) };
+        assert!(!inst.is_null());
+        assert_eq!(*V3_HOST_WAS_NONE.lock().unwrap(), Some(true));
+
+        let req = "GET SHIORI/3.0\r\nID: OnBoot\r\n\r\n";
+        let mut out = ShioriBytes::empty();
+        let st = unsafe { (api.request)(inst, req.as_ptr(), req.len(), &mut out) };
+        let body = unsafe { ShioriOwnedBytes::from_raw(out) };
+        assert_eq!(st, 200);
+        assert!(body.as_str().unwrap().contains("Value: v3\r\n"));
+        assert_eq!(COPIES.load(Ordering::SeqCst), 1);
+        unsafe { (api.unload)(inst) };
+        drop(body);
+        assert_eq!(RELEASES.load(Ordering::SeqCst), 1);
     }
 
     // ---- v4 の Charset・複数インスタンス・Poster の複製 ----

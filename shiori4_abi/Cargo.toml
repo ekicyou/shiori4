@@ -9,5 +9,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
+# 教科書の検査はリポジトリの文書を include_str! で読むので、パッケージに入れない
+exclude = ["tests/textbook.rs"]
 
 [dependencies]
