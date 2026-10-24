@@ -15,6 +15,7 @@
 | `V` | 今回リリースする版（`v` を付けない） | 段 3 の手順 5。再開のときは `V_MAIN` |
 | `BRANCH` | 作業ブランチ | `git rev-parse --abbrev-ref HEAD` |
 | `PR` | 版の更新の PR の番号 | `gh pr list --state all --head {BRANCH} --json number,title,state` |
+| `NEXT_FILES` | 次の版の印を `V` に置き換えたファイル（無いこともある） | `git diff --name-only origin/main...HEAD` から、`Cargo.toml` と `doc/release-notes/v{V}.md` を除いたもの |
 | `TARGET` | タグを付けるコミットの SHA | 段 6 の手順 1 |
 | `RUN` | リリース CI の実行の ID | 定型コマンド A の `run` の行 |
 | `ATTEMPT` | 待つ対象の試行の番号（新しい実行は 1。再実行のたびに 1 増える） | 定型コマンド A の `run` の行の `attempt` |
@@ -76,9 +77,9 @@
    ```
 
    - 1 つ目が 1 行だけで、`chore(release): vX.Y.Z`（`X.Y.Z` は数字 3 つ）の形である。
-   - 2 つ目が、段 4 の 2 ファイル（`Cargo.toml` と、見どころのファイル `doc/release-notes/v{V}.md`）だけである。
+   - 2 つ目が、段 4 で変えたファイル（`Cargo.toml`、見どころのファイル `doc/release-notes/v{V}.md`、次の版の印を置き換えたファイル）だけである。`Cargo.toml` と見どころのファイルのほかの行を `NEXT_FILES` とする。
 
-   続け方: 件名の `X.Y.Z` を `V` として開発者に示す。`VREQ` があって `V` と違うときは、止まって開発者に確かめる。手順 4（main の取り込み）を行い、段 2 を飛ばして、次の 3 つをやり直す。
+   続け方: 件名の `X.Y.Z` を `V` として開発者に示す。`VREQ` があって `V` と違うときは、止まって開発者に確かめる。手順 4（main の取り込み）を行い、段 2 を飛ばして、次の 4 つをやり直す。
 
    - 段 3 の手順 4（重複の検査。定型コマンド A を `-Version {V}` で実行する）
    - 版の更新の確認: 次の 1 つ目の出力が `3`、2 つ目の出力が `Cargo.toml` の 1 行だけで、追加と削除がどちらも `3` であること
@@ -89,6 +90,7 @@
      ```
 
    - 定型コマンド D（`-Version {V} -Head origin/main`）。4 行とも `合格`
+   - 次の版の印の確認: 段 4 の手順 4 の (5)・(6) と同じ基準。(6) は `git diff --numstat origin/main...HEAD -- {NEXT_FILES}` の出力で見る（`NEXT_FILES` が無ければ (6) は合格とする）
 
    どれも合格なら、段 5 から続ける。不合格なら止まる。
 
@@ -157,10 +159,12 @@
 
 | Field | Detail |
 |-------|--------|
-| Intent | 版の表記の 3 か所をそろえ、見どころを書き、2 ファイルだけの 1 つのコミットにする |
+| Intent | 版の表記の 3 か所をそろえ、文書の次の版の印を版にし、見どころを書き、それだけの 1 つのコミットにする |
 | Requirements | 9.1, 9.2, 9.3, 9.4, 9.5, 9.6 |
 
-`V_OLD` は更新の前の版（= `V_MAIN`）である。変えてよいのは、ルートの `Cargo.toml` と見どころのファイル `doc/release-notes/v{V}.md` の 2 ファイルだけである（9.4）。`Cargo.lock` は `.gitignore` の対象で、コミットしない。手元で `cargo` のコマンドを実行しない。
+`V_OLD` は更新の前の版（= `V_MAIN`）である。変えてよいのは、ルートの `Cargo.toml`、見どころのファイル `doc/release-notes/v{V}.md`、次の版の印を置き換えるファイル（`NEXT_FILES`）だけである（9.4）。
+
+次の版の印は `X.Y.Z-next` である（タグやリンクでは `vX.Y.Z-next`）。版はリリースのこの段まで決まらないので、まだ出ていない版を指す文書（教科書・spec・README など）には、版の番号を予想して書かず、この印を書く（決まりは `doc/release-notes/README.md` の「次の版の印」）。印を探すときは、印そのものを説明している `.claude/skills/release/` と `doc/release-notes/` を除く。`Cargo.lock` は `.gitignore` の対象で、コミットしない。手元で `cargo` のコマンドを実行しない。
 
 1. **事前の確認**（まだ何も変えない）。出力が `3` であること。違えば、何も変えずに止まり、出力を示す。
 
@@ -171,6 +175,14 @@
    3 か所は、`[workspace.package]` の `version` と、`[workspace.dependencies]` の `shiori4_abi`・`shiori4` の `version` である。
 
 2. **版の表記**（9.1）。`Cargo.toml` の `version = "{V_OLD}"` を `version = "{V}"` に、Edit の全置換で置き換える（3 か所）。
+
+   続けて、次の版の印を含むファイルを探す。出力のファイルを `NEXT_FILES` とする（出力が空で終了コード 1 なら、`NEXT_FILES` は無い）。
+
+   ```bash
+   git grep -lF 'X.Y.Z-next' -- . ':!.claude/skills/release' ':!doc/release-notes'
+   ```
+
+   `NEXT_FILES` のファイルごとに、`X.Y.Z-next` を `{V}` に、Edit の全置換で置き換える（`vX.Y.Z-next` は `v{V}` になる）。
 
 3. **見どころを書く**（9.2・9.3）。リリースの本文の先頭になる見どころのファイル `doc/release-notes/v{V}.md` を書く。書き方の決まりは `doc/release-notes/README.md` である。
 
@@ -184,25 +196,29 @@
    - **H3 確認**。定型コマンド D を `-Version {V} -Head origin/main` で実行する。4 行とも `合格` であること。合格なら、手順 4 へ進む。
    - **H4 不合格のとき**。`不合格` の行の値（材料に無い番号・載っていない番号・見つかった spec 名など）を直して、H3 をやり直す。直すのは 3 回までである。3 回直しても `合格` にならなければ、手順 5（戻し方）を行い、`不合格` の行を示して止まる（9.3）。H3 が合格するまで、手順 6（コミット）を行わない。
 
-4. **確認**（9.4・9.5）。次の 4 つをすべて満たすこと。
+4. **確認**（9.4・9.5）。次の 6 つをすべて満たすこと。
 
    ```bash
    grep -cF 'version = "{V}"' Cargo.toml
    git diff --numstat
    git status --porcelain
+   git grep -nF 'X.Y.Z-next' -- . ':!.claude/skills/release' ':!doc/release-notes'
    ```
 
    | # | 確認 | 合格の基準 |
    |---|------|------------|
    | (1) | 3 か所が同じ版 | 1 つ目の出力が `3` |
-   | (2) | 版の行だけを変えた | 2 つ目の出力が `Cargo.toml` の 1 行だけで、追加と削除がどちらも `3` |
-   | (3) | ほかのファイルを変えていない | 3 つ目の出力が ` M Cargo.toml` と `?? doc/release-notes/v{V}.md` の 2 行だけ |
+   | (2) | 版の行だけを変えた | 2 つ目の出力の `Cargo.toml` の行が、追加と削除がどちらも `3` |
+   | (3) | ほかのファイルを変えていない | 3 つ目の出力が ` M Cargo.toml`、`?? doc/release-notes/v{V}.md`、`NEXT_FILES` のファイルごとの ` M <ファイル>` の行だけ |
    | (4) | 見どころが約束に合う | 定型コマンド D（`-Version {V} -Head origin/main`）の 4 行とも `合格` |
+   | (5) | 次の版の印が残っていない | 4 つ目の出力が空（終了コード 1） |
+   | (6) | 印の行だけを変えた | 2 つ目の出力の、`Cargo.toml` のほかの行がちょうど `NEXT_FILES` のファイルで、それぞれ追加と削除が同じ数 |
 
    どれかが不合格なら、手順 5 を行い、不合格の確認（番号と出力）を示して止まる（9.5）。
 
 5. **戻し方**（不合格のとき。9.3・9.5）。変えたものだけを、変えたときの逆の操作で戻す。
    - `Cargo.toml` を変えた後なら、`version = "{V}"` を `version = "{V_OLD}"` に、Edit の全置換で戻す（3 か所）。
+   - `NEXT_FILES` を変えた後なら、ファイルごとに `git diff -U0 -- <ファイル>` の `+` の行を見て、その行の `{V}` を `X.Y.Z-next` に Edit で戻す（`-` の行と同じになる）。もとからあった `{V}` の表記は戻さないので、全置換を使わない。
    - `doc/release-notes/v{V}.md` を作った後なら、パスを指定して消す。
 
      ```bash
@@ -215,12 +231,12 @@
 6. **コミット**（9.6）
 
    ```bash
-   git add Cargo.toml doc/release-notes/v{V}.md
+   git add Cargo.toml doc/release-notes/v{V}.md {NEXT_FILES}
    git commit -m "chore(release): v{V}"
    git show --stat --format=%s HEAD
    ```
 
-   最後の出力が、件名 `chore(release): v{V}` と 2 ファイル（`Cargo.toml`・`doc/release-notes/v{V}.md`）であること。違えば止まり、出力を示す。その後、`doc/release-notes/v{V}.md` の全文を開発者に示す。承認を求めない。開発者の答えを待たずに、段 5 へ進む。
+   `{NEXT_FILES}` は、ファイルのパスを空白で区切って並べる（無ければ書かない）。最後の出力が、件名 `chore(release): v{V}` と、`Cargo.toml`・`doc/release-notes/v{V}.md`・`NEXT_FILES` のファイルだけであること。違えば止まり、出力を示す。その後、`doc/release-notes/v{V}.md` の全文を開発者に示す。承認を求めない。開発者の答えを待たずに、段 5 へ進む。
 
 ## 段 5: main への統合
 
@@ -231,7 +247,7 @@
 
 main へ直接 push しない（9.7）。
 
-1. PR に入る変更が、段 4 の 2 ファイルだけであることを確かめてから、作業ブランチを push する（main ではない）。1 つ目の出力が `Cargo.toml` と `doc/release-notes/v{V}.md` の 2 行だけでなければ、push せずに止まる（ほかのファイルがコミットに混ざっている）。
+1. PR に入る変更が、段 4 で変えたファイルだけであることを確かめてから、作業ブランチを push する（main ではない）。1 つ目の出力が `Cargo.toml`・`doc/release-notes/v{V}.md`・`NEXT_FILES` のファイルの行だけでなければ、push せずに止まる（ほかのファイルがコミットに混ざっている）。
 
    ```bash
    git diff --name-only origin/main...HEAD
