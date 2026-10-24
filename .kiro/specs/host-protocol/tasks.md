@@ -107,7 +107,7 @@
   - _Requirements: 1.5, 9.3, 10.1, 10.10, 11.4_
 
 - [ ] 6. 導線と steering の同期
-- [ ] 6.1 (P) README と C ヘッダ・`shiori4_abi` の doc から文書への導線を足す
+- [x] 6.1 (P) README と C ヘッダ・`shiori4_abi` の doc から文書への導線を足す
   - `README.md`・`shiori4/README.md`・`shiori4_host/README.md` のヘッダの型・プロパティの取得・Tag の待ち合わせ・語の定数の記述を `protocol` の置き場所に合わせ、文書へのリンクを 1 つ足す。「暫定」と書かない
   - C ヘッダと `shiori4_abi` の `//!` の「post の完了通知（v4）」の節の末尾に、運ぶ中身の語は文書が定めると 1 行ずつ同じ文で足す。ABI の文・レイアウト・定数には触れない
   - 完了の状態: 3 つの README と C ヘッダ・`shiori4_abi` の doc に文書への導線がそれぞれ 1 か所あり、C ヘッダの差分がコメントの 1 行だけである
