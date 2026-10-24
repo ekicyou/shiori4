@@ -3,10 +3,17 @@
 //! `Host` trait を実装すれば、SHIORI（v4）を読み込んで動かすホストが作れる。
 //!
 //! - SHIORI の DLL / .so / .dylib を読み込み、ライフタイムを一括管理する（`GhostRuntime`）
-//! - SHIORI からの同期リクエスト（プロパティ取得など）を `Host` に振り分ける
-//! - 任意のスレッドから来る post をキューに積み、イベントループで `Host::on_post` に渡す
+//! - SHIORI からの同期の要求（プロパティの取得など）を、原文のまま `Host::request` に渡す
+//! - 任意のスレッドから来る post を原文のままキューに積み、イベントループで `Host::on_post` に渡す
 //! - 非同期処理の完了や任意のイベントを、規約どおりのタイミングで SHIORI に届ける（`pump`）
 //! - unload 時に未配送のイベントを破棄し、以後の post を SHIORI_E_SHUTDOWN にする
+//!
+//! 芯は要求・post・完了通知の中身を解釈しない。運ぶ中身の語（`getproperty`・post の `Command`・`Tag`・
+//! `OnHostComplete`・拒否の返し方など）は、ホスト側プロトコル仕様
+//! <https://github.com/ekicyou/shiori4/blob/main/doc/host-protocol.md> が定める。
+//! 解析と組み立ては便利関数のモジュール `protocol`（`shiori4::protocol` の再エクスポート）で行う。
+//! 下の例では `getproperty` に `protocol::getproperty_response` で答え、post の完了通知を
+//! `protocol::host_complete` で組み立てて、post に付いてきた `Completer` で返す。
 //!
 //! # スレッドモデル
 //! `GhostRuntime` は `!Send`。作ったスレッド（UI スレッドなど）で request / notify / pump を呼ぶ。
@@ -68,7 +75,7 @@
 //!   SHIORI に join は求めない。unload が返った後、SHIORI はホストを呼ばない
 //! - load の規約（dir）: dir を検査し、絶対パスでないか UTF-8 で表せなければ `LoadError::InvalidPath`。
 //!   通るときは見た目だけ正規化し（OS の区切り・末尾に区切り）、SHIORI に渡す
-//! - Charset: v4 は UTF-8 固定なので、組み込みの応答と完了通知の見出しに Charset を付けない
+//! - Charset: v4 は UTF-8 固定なので、芯が作る応答と便利関数が作るヘッダに Charset を付けない
 //!
 //! # エラー定数
 //! `shiori4_host` を use するだけで、ABI 層のエラー（`SHIORI_E_*`）がすべて使える。
@@ -1038,31 +1045,35 @@ mod tests {
         assert!(rx.try_recv().is_err());
     }
 
-    // ---- Charset を付けない（9.2） ----
+    // ---- Charset を付けない（10.10） ----
 
     #[test]
-    fn builtin_responses_have_no_charset() {
-        let b = count_bridge(true);
-        for req in [PROP_REQ, b"ID: property\r\n", b"ID: unknown\r\n"] {
-            let r = ShioriHost::request(&b, req).into_owned();
-            assert!(r.status >= 0);
-            assert!(!r.body.as_str().unwrap().to_ascii_lowercase().contains("charset"), "{:?}", r.body.as_str());
-        }
-    }
+    fn no_charset_in_core_and_helpers() {
+        let no_charset = |s: &str| assert!(!s.to_ascii_lowercase().contains("charset"), "{s:?}");
+        let (b, _rx) = bridge(DefaultHost, true);
+        let r = ShioriHost::request(&b, PROP_REQ).into_owned();
+        assert_eq!(r.status, SHIORI_400_BAD_REQUEST);
+        no_charset(r.body.as_str().unwrap());
+        assert_eq!(ShioriHost::post(&b, b"Command: SEND\r\nTag: 1\r\n"), SHIORI_204_NO_CONTENT);
 
-    #[test]
-    fn completion_headers_have_no_charset() {
-        let (sender, rx) = test_sender();
-        for tag in ["1", "2"] {
-            let text = format!("Command: test.echo\r\nTag: {tag}\r\n");
-            let headers = protocol::host_complete(&text, "test", SHIORI_200_OK, &["ok"], None).expect("Tag 付き");
-            let post = Post::new(text, sender.clone());
-            assert!(post.into_completer().complete_with(Delivery::Request, &headers));
+        let post = protocol::send_post(r"\0hi\e", &["nobreak"], Some("1"));
+        for s in [
+            protocol::getproperty_request("baseware.name"),
+            protocol::setproperty_request("currentghost.name", "x"),
+            protocol::notify_post("OnTest", &["a"], &["nobreak"], Some("2")),
+            protocol::host_complete(&post, "test", SHIORI_200_OK, &["ok"], None).expect("Tag 付き"),
+            protocol::host_complete(&post, "test", SHIORI_400_BAD_REQUEST, &[], Some("forbidden")).expect("Tag 付き"),
+            post,
+        ] {
+            no_charset(&s);
         }
-        for _ in 0..2 {
-            let Ok(Msg::Event(ev)) = rx.try_recv() else { panic!("event") };
-            assert!(Headers::parse(&ev.headers).get(protocol::HEADER_TAG).is_some());
-            assert!(!ev.headers.to_ascii_lowercase().contains("charset"), "{}", ev.headers);
+        for r in [
+            protocol::getproperty_response(Some("v")),
+            protocol::getproperty_response(None),
+            protocol::rejection_response(None),
+            protocol::rejection_response(Some("forbidden")),
+        ] {
+            no_charset(r.into_owned().body.as_str().unwrap());
         }
     }
 
@@ -1418,5 +1429,39 @@ mod tests {
         let dir = std::path::Path::new(GHOST_DIR).join("fail");
         let r = GhostRuntime::load(crate::test_dll::dll_path(), &dir, test_host());
         assert!(matches!(r, Err(LoadError::LoadFailed)));
+    }
+
+    // ---- 芯は便利関数を参照しない（9.3・10.1） ----
+
+    /// 芯のコードの行（`mod tests {` より前の、空でなくコメントでない行）。
+    /// 境目は `#[cfg(test)]` でなく `mod tests {`（芯の途中に `#[cfg(test)] mod test_dll;` があるため）
+    fn code_lines_before_tests(src: &str) -> impl Iterator<Item = &str> {
+        src.lines()
+            .map(str::trim)
+            .take_while(|l| *l != "mod tests {")
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+    }
+
+    /// code_lines_before_tests のうち `protocol` を語として含む行
+    fn protocol_lines(src: &str) -> Vec<&str> {
+        code_lines_before_tests(src)
+            .filter(|l| l.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|w| w == "protocol"))
+            .collect()
+    }
+
+    #[test]
+    fn protocol_lines_counts_only_code_before_tests() {
+        // 途中の `#[cfg(test)] mod test_dll;` は境目でない。その後の芯の参照も数える
+        let src = "//! protocol の doc\n/// protocol::Headers を使ってよい\npub use shiori4::protocol;\n#[cfg(test)]\nmod test_dll;\nlet protocols = my_protocol;\n    use protocol::Headers;\n#[cfg(test)]\nmod tests {\n    use protocol::Headers;\n}\n";
+        assert_eq!(protocol_lines(src), ["pub use shiori4::protocol;", "use protocol::Headers;"]);
+
+        // 境目が無ければテストの中の参照も数え、検査は黙って通らない
+        let no_boundary = "pub use shiori4::protocol;\nmod test {\n    use protocol::Headers;\n}\n";
+        assert_eq!(protocol_lines(no_boundary).len(), 2);
+    }
+
+    #[test]
+    fn core_refers_to_protocol_only_by_its_reexport() {
+        assert_eq!(protocol_lines(include_str!("lib.rs")), ["pub use shiori4::protocol;"]);
     }
 }

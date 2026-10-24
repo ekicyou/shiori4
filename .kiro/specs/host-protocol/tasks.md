@@ -99,7 +99,7 @@
   - 完了の状態: 完了通知の口で積んだイベントのヘッダが引数と同じで Tag が足されないこと、Tag の無い post の口でも送れること、SHIORI のプロパティの取得と Tag 付きの post に対しホストが便利関数で完了通知を組み立てて返し `pump` の後に `done:dl:200:ok` が返ること（往復のテストの作り直し）をテストが確かめる
   - _Depends: 3.3, 3.4, 5.1_
   - _Requirements: 8.7, 8.8, 8.9, 10.6, 10.7_
-- [ ] 5.3 ホスト側の芯の独立の検査・Charset のテスト・crate doc を書き直す
+- [x] 5.3 ホスト側の芯の独立の検査・Charset のテスト・crate doc を書き直す
   - `shiori4_host` の芯のソースで、テストより前のコメントでない行のうち `protocol` を語として含む行が再エクスポートの 1 行だけであることを確かめるテストを足す
   - 組み込みの応答と完了通知を前提にした Charset のテスト 2 本を、`Bridge` の既定の 400・post の受付と、便利関数が作るすべての出力（要求・post・応答・完了通知）に `charset` が含まれないことを確かめる 1 本に作り直す
   - crate doc（`//!`）の例と説明を、便利関数で `getproperty` に答え、完了通知を組み立てて口で返す形に書き直す（`no_run` の doctest がコンパイルされる）。「規約との対応」の規約 2 の行から組み込みのプロパティを消し、Charset の行を「芯が作る応答と便利関数が作るヘッダに Charset を付けない」にし、文書を指す
@@ -140,3 +140,4 @@
 - `cargo fmt --all --check` は main の時点でリポジトリ全体が通らない（rustfmt 未適用・rustfmt.toml 無し）。CI は fmt を見ない。7.1 で扱いを決める
 - `cargo test --all` が testdata/testghost を test_dll.rs 経由でビルドして DLL のテストを回す
 - テストの文字列は `\r\n` のエスケープで 1 行に書く（シェルで書き込むとエスケープが生の改行に化けた。Edit で直す）
+- 独立の検査の境目: shiori4 は最初の `#[cfg(test)]`、shiori4_host は `mod tests {`（途中に `#[cfg(test)] mod test_dll;` があるため）で止める。design.md の IndependenceCheck は `#[cfg(test)]` と書いている
