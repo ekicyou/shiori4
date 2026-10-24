@@ -143,14 +143,14 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 #### Acceptance Criteria
 1. While v4 で動いている, the shiori4 の芯（`Ghost` と、それを ABI につなぐ層） shall ホストからの request・notify の文字列を解析せずに原文（文字列）のまま Ghost 実装へ渡す。解析は実装者が便利関数のモジュールで行う。
 2. While v3 互換モードで動いている, the shiori4 の芯 shall SHIORI/3.0 の全文とヘッダ部分の変換（開始行の読み書き・Charset の検査と補い）を、インターフェースの変換としてこれまでどおり行う。
-3. The shiori4・shiori4_host shall 便利関数のクレートに依存しない（`[dependencies]` に置かない。テストと doc の例のための `[dev-dependencies]` は可）。
+3. The shiori4・shiori4_host の芯 shall 便利関数のモジュールを参照しない（`shiori4_host` が再エクスポートすることは除く）。
 4. The shiori4 の芯 shall `host->request`・post・log を、文字列を解析せずに運ぶ口（`ShioriHostHandle`・`ShioriHostPoster`）をこれまでどおり提供する。
 
 ### Requirement 10: パースのための便利関数のモジュール
 **Objective:** As a SHIORI 実装者・ベースウェア実装者, I want 仕様の語に合わせた解析と組み立ての関数を、必要なら使えること, so that 仕様どおりのメッセージを手で組み立てずに済み、使わない人は芯だけで済む（方針・論点 1〜12）
 
 #### Acceptance Criteria
-1. The 便利関数のモジュール shall `shiori4_abi` だけに依存する独立したクレート `shiori4_protocol` として提供され、使わない利用者の振る舞いに影響しない（設計ディスカッションで確定）。
+1. The 便利関数のモジュール shall 芯から呼ばれない独立したモジュール `shiori4::protocol` として提供され（`shiori4_host` からも再エクスポートで使える）、使わない利用者の振る舞いに影響しない（設計ディスカッションで確定）。
 2. The 便利関数のモジュール shall ヘッダ部分の解析（名前の大文字小文字を区別しない取得、`Reference<n>` の取得、並びの列挙）と組み立て（値の CR・LF を取り除く）を提供する。
 3. The 便利関数のモジュール shall ホスト側プロトコル仕様が定める名前と語（`getproperty`・`setproperty`・`Value`・`Command`・`Tag`・`SEND`・`NOTIFY`・`Script`・`Event`・`Option`・`OnHostComplete`・`Status`・`Reason`・`forbidden`・`completed`・`interrupted` と、要件 5.2 の必須ヘッダの名前）を定数として提供し、`property` を残さない。
 4. The 便利関数のモジュール shall SHIORI 側のために、`getproperty`・`setproperty` の要求と、`SEND`・`NOTIFY` の post を仕様どおりに組み立てる関数を提供する。
@@ -171,8 +171,7 @@ SHIORI 実装者（pasta）とベースウェア実装者（areka）が、v4 で
 4. The 各クレート shall この spec の振る舞い（芯が要求・post を解析せずに渡すこと、既定で post を全部受け付けること、既定の応答、規約 2 の門が先頭に残ること、完了通知の全文の配送、芯と便利関数が Charset を付けないこと、便利関数の組み立てと解析が仕様どおりであること、`PendingTags` の往復）をテストで確かめる。
 5. The 各クレート shall ubuntu・windows・macos の CI（`cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings`）を通す。
 6. The shiori4 の開発者 shall pasta と areka の両セッションへ 2 回知らせる: 要件の承認の後に確定した語（論点 1〜12 と、要件ディスカッションで足した `Reason` の読み分け・`OnHostComplete` のヘッダ・`Ghost`／`Host` が原文を受けること）を、設計で置き場所が決まった後に正本の場所と、pasta・areka の照合で足した語（下の「pasta・areka の照合で足したもの」）を。送るのは開発者の明示の指示による。
-7. The steering（`tech.md`・`structure.md`・`workflow.md`・`roadmap.md`） shall `host_protocol` の置き場所と「芯は中身を解釈しない」方針について、この spec の結果と食い違う記述を持たない。
-8. The shiori4 リポジトリ shall `shiori4_protocol` を 4 つ目の公開クレートとして、ビルドとリリースの CI・`/release` のスキル・`.github/release-ci-setup.md` の対象に加え、公開の順を `shiori4_abi` → `shiori4_protocol` → `shiori4` → `shiori4_host` とする。初回の公開と Trusted Publisher の登録は開発者が手元から行い、その手順を `.github/release-ci-setup.md` に書く。
+7. The steering（`tech.md`・`structure.md`） shall `host_protocol` の置き場所と「芯は中身を解釈しない」方針について、この spec の結果と食い違う記述を持たない。
 
 ## 要件ディスカッションの結果（2026-10-24 確定）
 brief.md だけでは決め切れなかった所を、開発者が全議題とも推奨案で確定した。
