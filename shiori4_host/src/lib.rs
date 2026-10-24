@@ -881,7 +881,8 @@ mod tests {
             Ok(Self { props: Properties::new(host), poster, pending: PendingTags::new() })
         }
 
-        fn request(&mut self, req: &Headers<'_>) -> ShioriResponse {
+        fn request(&mut self, req: &str) -> ShioriResponse {
+            let req = Headers::parse(req);
             match req.id() {
                 Some("OnBoot") => {
                     let name = match self.props.get("name") {
@@ -893,7 +894,7 @@ mod tests {
                     }
                     HeaderWriter::new().push("Value", &name).into_response()
                 }
-                Some(protocol::ID_HOST_COMPLETE) => match self.pending.take_from(req) {
+                Some(protocol::ID_HOST_COMPLETE) => match self.pending.take_from(&req) {
                     Some((_, kind)) => HeaderWriter::new()
                         .push(
                             "Value",
@@ -1097,8 +1098,8 @@ mod tests {
             Ok(Self { props, poster, at_load })
         }
 
-        fn request(&mut self, req: &Headers<'_>) -> ShioriResponse {
-            match req.id() {
+        fn request(&mut self, req: &str) -> ShioriResponse {
+            match Headers::parse(req).id() {
                 Some("OnLog") => {
                     let p = self.poster.clone().unwrap();
                     std::thread::spawn(move || p.log(SHIORI_LOG_INFO, "from worker")).join().unwrap();
@@ -1111,7 +1112,7 @@ mod tests {
             }
         }
 
-        fn notify(&mut self, _req: &Headers<'_>) -> ShioriStatus {
+        fn notify(&mut self, _req: &str) -> ShioriStatus {
             if value(&mut self.props, "notify") == "v:notify" { SHIORI_200_OK } else { SHIORI_500_INTERNAL_SERVER_ERROR }
         }
     }
@@ -1261,7 +1262,7 @@ mod tests {
             Err(SHIORI_500_INTERNAL_SERVER_ERROR)
         }
 
-        fn request(&mut self, _req: &Headers<'_>) -> ShioriResponse {
+        fn request(&mut self, _req: &str) -> ShioriResponse {
             ShioriResponse::no_content()
         }
     }

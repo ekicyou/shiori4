@@ -124,11 +124,11 @@ mod tests {
             assert!(dir.ends_with(std::path::MAIN_SEPARATOR), "dir は正規化されて届く");
             Ok(Self)
         }
-        fn request(&mut self, req: &Headers<'_>) -> ShioriResponse {
-            HeaderWriter::new().push("Value", req.id().unwrap_or("")).into_response()
+        fn request(&mut self, req: &str) -> ShioriResponse {
+            HeaderWriter::new().push("Value", Headers::parse(req).id().unwrap_or("")).into_response()
         }
-        fn notify(&mut self, req: &Headers<'_>) -> ShioriStatus {
-            *NOTIFIED.lock().unwrap() = req.id().unwrap_or("").to_owned();
+        fn notify(&mut self, req: &str) -> ShioriStatus {
+            *NOTIFIED.lock().unwrap() = Headers::parse(req).id().unwrap_or("").to_owned();
             SHIORI_204_NO_CONTENT
         }
     }
@@ -142,7 +142,7 @@ mod tests {
         fn load(_host: Option<ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
             Ok(Self)
         }
-        fn request(&mut self, _req: &Headers<'_>) -> ShioriResponse {
+        fn request(&mut self, _req: &str) -> ShioriResponse {
             ShioriResponse::no_content()
         }
     }
@@ -161,7 +161,7 @@ mod tests {
         fn load(_host: Option<ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
             Err(SHIORI_500_INTERNAL_SERVER_ERROR)
         }
-        fn request(&mut self, _req: &Headers<'_>) -> ShioriResponse {
+        fn request(&mut self, _req: &str) -> ShioriResponse {
             ShioriResponse::no_content()
         }
     }

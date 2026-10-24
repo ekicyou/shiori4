@@ -10,7 +10,7 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use shiori4::protocol::{HeaderWriter, Headers};
+use shiori4::protocol::HeaderWriter;
 use shiori4::{
     Adapter, Ghost, ShioriApi, ShioriHostHandle, ShioriResponse,
     ShioriStatus, SHIORI_500_INTERNAL_SERVER_ERROR, SHIORI_ABI_VERSION, SHIORI_ABI_VERSION_3,
@@ -35,7 +35,7 @@ impl Ghost for TestGhost {
         Ok(Self)
     }
 
-    fn request(&mut self, _req: &Headers<'_>) -> ShioriResponse {
+    fn request(&mut self, _req: &str) -> ShioriResponse {
         HeaderWriter::new().push("Value", "testghost").into_response()
     }
 }
