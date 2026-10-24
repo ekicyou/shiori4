@@ -51,7 +51,7 @@
   - _Boundary: CExamples_
   - _Depends: 1.1_
   - _Requirements: 9.4_
-- [ ] 3.3 (P) 最小の C のホストを作る
+- [x] 3.3 (P) 最小の C のホストを作る
   - Windows は `LoadLibraryW`（UTF-8 から変える）、ほかは `dlopen` で開き、`shiori_get_api(4)` が NULL なら 3 を試す。`SHIORI_API_IS_VALID` と `SHIORI_HAS_FIELD` を確かめる
   - ホストのテーブル（`request` は 400・`post` は 204・`log` は stderr・`copy_from_slice` は `malloc` と `memcpy` で、失敗したら `owner` に印・`release` は `free`）を組み、load → `OnBoot` の request → 表示 → 戻り値に関わらず `release` → unload → 閉じる
   - 表示は `abi <版>`・`status <戻り値>`・応答の全文、終了の状態は 2xx で 0・ほかで 1。v3 の枝はビルドだけの検査であることをファイルの注釈に書く
@@ -209,3 +209,4 @@
 ## Implementation Notes
 - 2.2: `shiori4_abi/tests/textbook.rs` の `split_sections` は規約の 9 節の見出し（SECTIONS）に固く結びついている。9.2 で章の検査に使うときは章ごとの区切りを別に持つ。
 - 3.1: 手元に gcc・clang が無いので、Linux・macOS の `-Wall -Wextra -Werror` は 4 の CI で初めて確かめる。MSVC は vswhere → vcvars64.bat で使える。
+- 3.3: 教科書の例のホストは v4 の要求に `doc/host-protocol.md` 第 2.2 節の 5 つの必須ヘッダ（`SecurityLevel` は `ID` より前）を付ける。testghost は要求のヘッダを見ないので、往復が通っても適合の証拠にならない。
