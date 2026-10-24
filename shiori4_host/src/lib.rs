@@ -204,6 +204,89 @@ pub trait Host: Send + Sync + 'static {
 
     /// 同期の要求（SHIORI のスレッド、規約 2 の期間）に答える。req は原文（ヘッダ部分）。
     /// 戻り値はそのまま SHIORI に返る。既定はどの要求にも 400（このホストでは扱えない）
+    ///
+    /// # 例: getproperty・setproperty に答え、拒否は 400 ＋ `Reason: forbidden`（文書 3.1・3.2・3.4・7.1）
+    ///
+    /// 読みは 200 ＋ `Value`（在る）か 204（無い）、書き込みは 204（書き込んだ）か 400（不正）で答える。
+    /// 書き込ませないプロパティは、「無い」の 204 や「不正」の Reason の無い 400 と分けて、
+    /// 400 ＋ `Reason: forbidden` で拒否する。この例のホストは `baseware.` で始まる名前を書き込ませない。
+    /// この例は DLL なしに [`GhostRuntime::from_static`] で往復を実行して確かめている。
+    ///
+    /// ```
+    /// use shiori4_host::*;
+    /// use std::collections::HashMap;
+    /// use std::sync::Mutex;
+    /// # use shiori4::protocol::Properties;
+    /// # struct PropGhost {
+    /// #     props: Properties,
+    /// # }
+    /// # impl shiori4::Ghost for PropGhost {
+    /// #     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+    /// #         Ok(Self { props: Properties::new(host) })
+    /// #     }
+    /// #     fn request(&mut self, _req: &str) -> ShioriResponse {
+    /// #         // Properties で読み書きを試し、結果を Value に並べて返す
+    /// #         let p = &mut self.props;
+    /// #         let a = format!("{:?}", p.get("baseware.name"));
+    /// #         let b = format!("{:?}", p.set_on_host("MyBase.Volume", "3"));
+    /// #         let c = format!("{:?}", p.get("mybase.volume"));
+    /// #         let d = format!("{:?}", p.set_on_host("baseware.name", "x"));
+    /// #         let e = format!("{:?}", p.get("no.such"));
+    /// #         let v = [a, b, c, d, e].join(" ");
+    /// #         protocol::HeaderWriter::new().push(protocol::HEADER_VALUE, &v).into_response()
+    /// #     }
+    /// # }
+    /// # static API: ShioriApi = ShioriApi::new::<shiori4::Adapter<PropGhost>, { SHIORI_ABI_VERSION }>();
+    ///
+    /// struct PropHost {
+    ///     /// 名前は小文字にして持つ（名前の大文字小文字は区別しない。文書 3.4）
+    ///     props: Mutex<HashMap<String, String>>,
+    /// }
+    ///
+    /// impl Host for PropHost {
+    ///     fn name(&self) -> &str {
+    ///         "MyBase"
+    ///     }
+    ///     fn request(&self, req: &str) -> ShioriResponse {
+    ///         let h = protocol::Headers::parse(req);
+    ///         let name = h.reference(0).map(str::to_lowercase);
+    ///         let mut props = self.props.lock().unwrap();
+    ///         match (h.id(), name, h.reference(1)) {
+    ///             // 在れば 200 ＋ Value、無ければ 204（文書 3.1）
+    ///             (Some(protocol::ID_GETPROPERTY), Some(n), _) => {
+    ///                 protocol::getproperty_response(props.get(&n).map(String::as_str))
+    ///             }
+    ///             // 書き込ませない名前は拒否（文書 7.1）
+    ///             (Some(protocol::ID_SETPROPERTY), Some(n), Some(_)) if n.starts_with("baseware.") => {
+    ///                 protocol::rejection_response(Some(protocol::REASON_FORBIDDEN))
+    ///             }
+    ///             // 書き込んだら 204（文書 3.2）
+    ///             (Some(protocol::ID_SETPROPERTY), Some(n), Some(v)) => {
+    ///                 props.insert(n, v.to_owned());
+    ///                 ShioriResponse::no_content()
+    ///             }
+    ///             // 名前や値の欠けた要求・知らない要求は、Reason の無い 400（不正。文書 7.3）
+    ///             _ => protocol::rejection_response(None),
+    ///         }
+    ///     }
+    ///     fn on_post(&self, _post: Post) {}
+    /// }
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let props = HashMap::from([("baseware.name".to_owned(), "MyBase".to_owned())]);
+    /// let host = PropHost { props: Mutex::new(props) };
+    /// // dir は絶対パス（load の規約 1）
+    /// let dir = if cfg!(windows) { r"C:\ghost" } else { "/ghost" };
+    /// let mut rt = GhostRuntime::from_static(&API, dir, host)?;
+    /// // 例の偽の SHIORI は、shiori4::protocol::Properties で読み書きを試した結果を Value に並べて返す
+    /// let r = rt.request("ID: OnBoot\r\n").map_err(|s| format!("ABI error: {s}"))?;
+    /// assert_eq!(
+    ///     r.body.as_str()?,
+    ///     "Value: Ready(\"MyBase\") Ok(()) Ready(\"3\") Err(Rejected(Forbidden)) Missing\r\n"
+    /// );
+    /// # Ok(())
+    /// # }
+    /// ```
     fn request(&self, _req: &str) -> ShioriResponse {
         ShioriResponse::bad_request()
     }
@@ -226,6 +309,156 @@ pub trait Host: Send + Sync + 'static {
     /// キューに何かが積まれた（任意のスレッドから呼ばれる）
     /// イベントループに「GhostRuntime::pump を呼んで」と依頼する。依頼は非同期で行い、
     /// `GhostRuntime` を Drop するスレッドを同期で待たないこと（規約 4）
+    ///
+    /// # 例: std の channel で待つイベントループ（スレッド規約 1・4）
+    ///
+    /// `wake` は channel に「pump して」を積むだけで、待たずに返る。`GhostRuntime` を作ったスレッドが
+    /// その channel を待ち、受けたら [`GhostRuntime::pump`] を呼ぶ。`on_post` はその pump の中で呼ばれる。
+    /// この例は DLL なしに [`GhostRuntime::from_static`] で往復を実行して確かめている。
+    ///
+    /// ```
+    /// use shiori4_host::*;
+    /// use std::sync::mpsc::{channel, Sender};
+    /// use std::time::Duration;
+    /// # struct WorkerGhost {
+    /// #     poster: shiori4::ShioriHostPoster,
+    /// # }
+    /// # impl shiori4::Ghost for WorkerGhost {
+    /// #     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+    /// #         Ok(Self { poster: host.ok_or(SHIORI_E_UNSUPPORTED)?.poster() })
+    /// #     }
+    /// #     fn request(&mut self, _req: &str) -> ShioriResponse {
+    /// #         let p = self.poster.clone();
+    /// #         std::thread::spawn(move || p.post_str(&protocol::send_post("\\0hi\\e", &[], None)));
+    /// #         ShioriResponse::no_content()
+    /// #     }
+    /// # }
+    /// # static API: ShioriApi = ShioriApi::new::<shiori4::Adapter<WorkerGhost>, { SHIORI_ABI_VERSION }>();
+    ///
+    /// struct ChannelHost {
+    ///     wake: Sender<()>,
+    ///     scripts: Sender<String>,
+    /// }
+    ///
+    /// impl Host for ChannelHost {
+    ///     fn name(&self) -> &str {
+    ///         "MyBase"
+    ///     }
+    ///     // pump を呼んだスレッドで呼ばれる。この例では台本を再生する代わりに送り出す
+    ///     fn on_post(&self, post: Post) {
+    ///         if let Some(s) = protocol::Headers::parse(post.text()).get(protocol::HEADER_SCRIPT) {
+    ///             let _ = self.scripts.send(s.to_owned());
+    ///         }
+    ///     }
+    ///     // 任意のスレッドから呼ばれる。積むだけで待たない（スレッド規約 4）
+    ///     fn wake(&self) {
+    ///         let _ = self.wake.send(());
+    ///     }
+    /// }
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let (wake, wake_rx) = channel();
+    /// let (scripts, scripts_rx) = channel();
+    /// // dir は絶対パス（load の規約 1）
+    /// let dir = if cfg!(windows) { r"C:\ghost" } else { "/ghost" };
+    /// let mut rt = GhostRuntime::from_static(&API, dir, ChannelHost { wake, scripts })?;
+    /// // 例の偽の SHIORI は、OnBoot でワーカーのスレッドを起こし、そこから SEND を post する
+    /// rt.request("ID: OnBoot\r\n").map_err(|s| format!("ABI error: {s}"))?;
+    /// // イベントループの 1 回り: wake を待ち、rt を作ったこのスレッドで pump する（スレッド規約 1）
+    /// wake_rx.recv_timeout(Duration::from_secs(5))?;
+    /// rt.pump();
+    /// assert_eq!(scripts_rx.try_recv()?, "\\0hi\\e");
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # 例: Win32 のメッセージの輪（スレッド規約 1・4）
+    ///
+    /// `wake` は `PostThreadMessageW` で UI スレッドにメッセージを積むだけで、待たずに返る。
+    /// UI スレッドのメッセージの輪がそのメッセージを受けたら [`GhostRuntime::pump`] を呼ぶ。
+    /// 使う Win32 の関数は、外部の crate を足さずに例の中で宣言する。
+    /// この例は DLL と Windows を要するので、Windows でビルドだけを検査する（実行しない）。ほかの OS では空の例になる。
+    ///
+    /// ```no_run
+    /// # #[cfg(windows)]
+    /// # mod example {
+    /// use shiori4_host::*;
+    /// use std::ffi::c_void;
+    ///
+    /// #[repr(C)]
+    /// struct Point {
+    ///     x: i32,
+    ///     y: i32,
+    /// }
+    ///
+    /// #[repr(C)]
+    /// struct Msg {
+    ///     hwnd: *mut c_void,
+    ///     message: u32,
+    ///     w_param: usize,
+    ///     l_param: isize,
+    ///     time: u32,
+    ///     pt: Point,
+    /// }
+    ///
+    /// #[link(name = "user32")]
+    /// unsafe extern "system" {
+    ///     fn PostThreadMessageW(thread: u32, msg: u32, w_param: usize, l_param: isize) -> i32;
+    ///     fn GetMessageW(msg: *mut Msg, hwnd: *mut c_void, min: u32, max: u32) -> i32;
+    ///     fn TranslateMessage(msg: *const Msg) -> i32;
+    ///     fn DispatchMessageW(msg: *const Msg) -> isize;
+    /// }
+    ///
+    /// #[link(name = "kernel32")]
+    /// unsafe extern "system" {
+    ///     fn GetCurrentThreadId() -> u32;
+    /// }
+    ///
+    /// /// pump を頼むメッセージ（WM_APP）
+    /// const WM_APP_PUMP: u32 = 0x8000;
+    ///
+    /// struct Win32Host {
+    ///     ui_thread: u32,
+    /// }
+    ///
+    /// impl Host for Win32Host {
+    ///     fn name(&self) -> &str {
+    ///         "MyBase"
+    ///     }
+    ///     fn on_post(&self, _post: Post) { /* 台本を再生する */ }
+    ///     // 任意のスレッドから呼ばれる。積むだけで待たない（スレッド規約 4）
+    ///     fn wake(&self) {
+    ///         unsafe { PostThreadMessageW(self.ui_thread, WM_APP_PUMP, 0, 0) };
+    ///     }
+    /// }
+    ///
+    /// pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let dir = std::env::current_exe()?.parent().expect("exe dir").join("ghost").join("master");
+    /// // rt を作るこのスレッドが UI スレッドで、メッセージの輪を回す（スレッド規約 1）。
+    /// // 実際はメッセージの列を先に作っておく（PeekMessageW）。列が無いうちの PostThreadMessageW は失敗する
+    /// let host = Win32Host { ui_thread: unsafe { GetCurrentThreadId() } };
+    /// let mut rt = GhostRuntime::load(dir.join("shiori.dll"), &dir, host)?;
+    /// rt.request("ID: OnBoot\r\n").map_err(|s| format!("ABI error: {s}"))?;
+    /// let mut msg: Msg = unsafe { std::mem::zeroed() };
+    /// // GetMessageW は WM_QUIT で 0、失敗で -1 を返す
+    /// while unsafe { GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) } > 0 {
+    ///     if msg.hwnd.is_null() && msg.message == WM_APP_PUMP {
+    ///         for _d in rt.pump() { /* _d.outcome の応答（スクリプト）を再生する */ }
+    ///         continue;
+    ///     }
+    ///     unsafe {
+    ///         TranslateMessage(&msg);
+    ///         DispatchMessageW(&msg);
+    ///     }
+    /// }
+    /// Ok(())
+    /// }
+    /// # }
+    /// # #[cfg(windows)]
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> { example::main() }
+    /// # #[cfg(not(windows))]
+    /// # fn main() {}
+    /// ```
     fn wake(&self) {}
 }
 
@@ -360,6 +593,271 @@ impl Post {
 
 /// post したインスタンスへ完了通知を届ける口（Send。別スレッドへ持ち出せる。1 回だけ使える）
 /// 使わずに捨てた場合、完了通知は届かない
+///
+/// # 例: SEND の completed・interrupted と、nobreak で待たせた SEND の 204（post の完了通知 3・4、文書 5.1・5.4・6.3・6.8）
+///
+/// 再生中の SEND と、`Option: nobreak` で待たせた SEND を、原文と `Completer` の組で持つ。
+/// - 新しい SEND は既定で今の台本に割り込み、切られた側には 200 ＋ `interrupted` を返す（文書 5.1・5.4）
+/// - 最後まで再生したら 200 ＋ `completed` を返し、待たせた SEND があれば次を再生する（文書 6.3）
+/// - 終了では、待たせた SEND を一度も再生せずに捨てて 204 を返し、それを終了のイベントより前に届ける（文書 6.3・6.8）
+/// - `Tag` の無い post には返さない（`protocol::host_complete` が None。post の完了通知 4）
+///
+/// 完了は `complete_with` でキューに積まれ、pump が SHIORI に届ける（post の完了通知 3）。`on_post` の中で
+/// 積んだ完了は、その同じ pump の中で届く。
+/// この例は DLL なしに [`GhostRuntime::from_static`] で往復を実行して確かめている。
+///
+/// ```
+/// use shiori4_host::*;
+/// use std::sync::Mutex;
+/// # struct TalkGhost {
+/// #     poster: shiori4::ShioriHostPoster,
+/// # }
+/// # impl shiori4::Ghost for TalkGhost {
+/// #     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+/// #         Ok(Self { poster: host.ok_or(SHIORI_E_UNSUPPORTED)?.poster() })
+/// #     }
+/// #     fn request(&mut self, req: &str) -> ShioriResponse {
+/// #         let h = protocol::Headers::parse(req);
+/// #         match h.id() {
+/// #             Some("OnTalk") => {
+/// #                 let options: Vec<&str> = h.reference(2).into_iter().collect();
+/// #                 let post = protocol::send_post(h.reference(1).unwrap_or(""), &options, h.reference(0));
+/// #                 assert_eq!(self.poster.post_str(&post), SHIORI_204_NO_CONTENT);
+/// #                 ShioriResponse::no_content()
+/// #             }
+/// #             Some(protocol::ID_HOST_COMPLETE) => {
+/// #                 let c = protocol::HostComplete::parse(&h).expect("OnHostComplete");
+/// #                 let v = match c.outcome {
+/// #                     Some(o) => format!("{} {} {o}", c.tag, c.status),
+/// #                     None => format!("{} {}", c.tag, c.status),
+/// #                 };
+/// #                 protocol::HeaderWriter::new().push(protocol::HEADER_VALUE, &v).into_response()
+/// #             }
+/// #             _ => ShioriResponse::no_content(),
+/// #         }
+/// #     }
+/// # }
+/// # static API: ShioriApi = ShioriApi::new::<shiori4::Adapter<TalkGhost>, { SHIORI_ABI_VERSION }>();
+///
+/// /// 再生中の SEND と、nobreak で待たせた SEND（原文と Completer）
+/// #[derive(Default)]
+/// struct Balloon {
+///     playing: Option<(String, Completer)>,
+///     waiting: Vec<(String, Completer)>,
+/// }
+///
+/// #[derive(Default)]
+/// struct PlayerHost {
+///     balloon: Mutex<Balloon>,
+/// }
+///
+/// impl PlayerHost {
+///     /// 完了を返す。Tag の無い post は結果が不要なので何もしない（post の完了通知 4）
+///     fn complete(&self, (text, done): (String, Completer), status: ShioriStatus, refs: &[&str]) {
+///         if let Some(h) = protocol::host_complete(&text, self.name(), status, refs, None) {
+///             done.complete_with(Delivery::Request, &h);
+///         }
+///     }
+///
+///     /// 台本を最後まで再生した（実際は再生の終わりから呼ぶ）
+///     fn finish(&self) {
+///         let mut b = self.balloon.lock().unwrap();
+///         if let Some(p) = b.playing.take() {
+///             self.complete(p, SHIORI_200_OK, &[protocol::OUTCOME_COMPLETED]);
+///         }
+///         if !b.waiting.is_empty() {
+///             b.playing = Some(b.waiting.remove(0));
+///         }
+///     }
+///
+///     /// 終了: 待たせた SEND を一度も再生せずに捨てる（文書 6.3）
+///     fn close(&self) {
+///         let waiting = std::mem::take(&mut self.balloon.lock().unwrap().waiting);
+///         for w in waiting {
+///             self.complete(w, SHIORI_204_NO_CONTENT, &[]);
+///         }
+///     }
+/// }
+///
+/// impl Host for PlayerHost {
+///     fn name(&self) -> &str {
+///         "MyBase"
+///     }
+///     fn on_post(&self, post: Post) {
+///         let (text, done) = post.into_parts();
+///         let h = protocol::Headers::parse(&text);
+///         let send = h.get(protocol::HEADER_COMMAND) == Some(protocol::COMMAND_SEND);
+///         let nobreak = h
+///             .get(protocol::HEADER_OPTION)
+///             .is_some_and(|o| o.split(',').any(|w| w.trim() == protocol::OPTION_NOBREAK));
+///         if !send {
+///             // この例のホストは SEND だけを扱う。ほかは Reason の無い 400（不正。文書 7.3）
+///             return self.complete((text, done), SHIORI_400_BAD_REQUEST, &[]);
+///         }
+///         let mut b = self.balloon.lock().unwrap();
+///         if nobreak && b.playing.is_some() {
+///             b.waiting.push((text, done));
+///         } else if let Some(cut) = b.playing.replace((text, done)) {
+///             self.complete(cut, SHIORI_200_OK, &[protocol::OUTCOME_INTERRUPTED]);
+///         }
+///     }
+/// }
+///
+/// /// 例の偽の SHIORI は OnTalk で、Reference0 を Tag に、Reference1 を台本に、Reference2 を Option にして SEND を post する
+/// fn talk(rt: &mut GhostRuntime<PlayerHost>, tag: &str, script: &str, option: Option<&str>) {
+///     let option = option.map(|o| format!("Reference2: {o}\r\n")).unwrap_or_default();
+///     let req = format!("ID: OnTalk\r\nReference0: {tag}\r\nReference1: {script}\r\n{option}");
+///     rt.request(&req).expect("abi");
+/// }
+///
+/// /// pump で届けた OnHostComplete への応答（例の偽の SHIORI は `Value: <Tag> <Status> <Reference1>` を返す）
+/// fn pump_values(rt: &mut GhostRuntime<PlayerHost>) -> Vec<String> {
+///     let value = |d: Delivered| match d.outcome {
+///         Outcome::Response(r) => {
+///             let text = r.body.as_str().expect("utf-8").to_owned();
+///             protocol::Headers::parse(&text).get(protocol::HEADER_VALUE).expect("Value").to_owned()
+///         }
+///         o => panic!("{o:?}"),
+///     };
+///     rt.pump().into_iter().map(value).collect::<Vec<_>>()
+/// }
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// // dir は絶対パス（load の規約 1）
+/// let dir = if cfg!(windows) { r"C:\ghost" } else { "/ghost" };
+/// let mut rt = GhostRuntime::from_static(&API, dir, PlayerHost::default())?;
+///
+/// // 2 が 1 に割り込む
+/// talk(&mut rt, "1", "\\0a\\e", None);
+/// talk(&mut rt, "2", "\\0b\\e", None);
+/// assert_eq!(pump_values(&mut rt), ["1 200 interrupted"]);
+/// rt.host().finish();
+/// assert_eq!(pump_values(&mut rt), ["2 200 completed"]);
+///
+/// // 4 は nobreak なので 3 の再生の終わりを待つ。待つ間に終了が来たら捨てて 204
+/// talk(&mut rt, "3", "\\0c\\e", None);
+/// talk(&mut rt, "4", "\\0d\\e", Some(protocol::OPTION_NOBREAK));
+/// assert!(pump_values(&mut rt).is_empty());
+/// rt.host().close();
+/// rt.host().finish(); // 再生中の 3 は捨てずに完了を 1 つ返す（文書 6.7）
+/// assert_eq!(pump_values(&mut rt), ["4 204", "3 200 completed"]);
+/// // 204 を届けてから終了のイベントを送る（文書 6.8）。実際は文書の第 2.2 節の必須ヘッダも付ける
+/// rt.request("ID: OnClose\r\n").map_err(|s| format!("ABI error: {s}"))?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # 例: NOTIFY の完了（post の完了通知 3、文書 2.4・6.4）
+///
+/// NOTIFY の post は `on_post` で預かり、pump を呼んだイベントループがそのイベントを SHIORI に起こす
+/// （`on_post` は `&self` しか持たず、ランタイムに触れない）。SHIORI が答えたら 200 を返す。
+/// NOTIFY の完了は `Reference1` を持たない（文書 6.4）。
+/// この例は DLL なしに [`GhostRuntime::from_static`] で往復を実行して確かめている。
+///
+/// ```
+/// use shiori4_host::*;
+/// use std::sync::Mutex;
+/// # struct NotifyGhost {
+/// #     poster: shiori4::ShioriHostPoster,
+/// # }
+/// # impl shiori4::Ghost for NotifyGhost {
+/// #     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+/// #         Ok(Self { poster: host.ok_or(SHIORI_E_UNSUPPORTED)?.poster() })
+/// #     }
+/// #     fn request(&mut self, req: &str) -> ShioriResponse {
+/// #         let h = protocol::Headers::parse(req);
+/// #         let v = match h.id() {
+/// #             Some("OnBoot") => {
+/// #                 let post = protocol::notify_post("OnMyEvent", &["x"], &[], Some("7"));
+/// #                 assert_eq!(self.poster.post_str(&post), SHIORI_204_NO_CONTENT);
+/// #                 return ShioriResponse::no_content();
+/// #             }
+/// #             Some("OnMyEvent") => format!(
+/// #                 "{} {}",
+/// #                 h.get(protocol::HEADER_SENDER_TYPE).unwrap_or(""),
+/// #                 h.reference(0).unwrap_or("")
+/// #             ),
+/// #             Some(protocol::ID_HOST_COMPLETE) => {
+/// #                 let c = protocol::HostComplete::parse(&h).expect("OnHostComplete");
+/// #                 format!("{} {} {} {:?}", c.tag, c.status, c.command, c.outcome)
+/// #             }
+/// #             _ => return ShioriResponse::no_content(),
+/// #         };
+/// #         protocol::HeaderWriter::new().push(protocol::HEADER_VALUE, &v).into_response()
+/// #     }
+/// # }
+/// # static API: ShioriApi = ShioriApi::new::<shiori4::Adapter<NotifyGhost>, { SHIORI_ABI_VERSION }>();
+///
+/// #[derive(Default)]
+/// struct NotifyHost {
+///     /// イベントループで起こすまで預かる NOTIFY（原文と Completer）
+///     raised: Mutex<Vec<(String, Completer)>>,
+/// }
+///
+/// impl Host for NotifyHost {
+///     fn name(&self) -> &str {
+///         "MyBase"
+///     }
+///     fn on_post(&self, post: Post) {
+///         let (text, done) = post.into_parts();
+///         if protocol::Headers::parse(&text).get(protocol::HEADER_COMMAND) == Some(protocol::COMMAND_NOTIFY) {
+///             self.raised.lock().unwrap().push((text, done));
+///         } else if let Some(h) = protocol::host_complete(&text, self.name(), SHIORI_400_BAD_REQUEST, &[], None) {
+///             // この例のホストは NOTIFY だけを扱う。ほかは Reason の無い 400（不正。文書 7.3）
+///             done.complete_with(Delivery::Request, &h);
+///         }
+///     }
+/// }
+///
+/// /// post の Event と Reference* から、起こすイベントのヘッダを組む（必須ヘッダは文書 2.2、
+/// /// post から起きた要求の SenderType と SecurityLevel は文書 2.4）。Event が無ければ None
+/// fn raise_headers(post: &str, sender: &str) -> Option<String> {
+///     let h = protocol::Headers::parse(post);
+///     let w = protocol::HeaderWriter::new()
+///         .push(protocol::HEADER_SENDER, sender)
+///         .push(protocol::HEADER_SENDER_TYPE, protocol::SENDER_TYPE_INTERNAL)
+///         .push(protocol::HEADER_SECURITY_LEVEL, protocol::SECURITY_LEVEL_LOCAL)
+///         .push(protocol::HEADER_SECURITY_ORIGIN, "null")
+///         .push(protocol::HEADER_ID, h.get(protocol::HEADER_EVENT)?);
+///     let refs = (0..).map_while(|i| h.reference(i).map(|r| (i, r)));
+///     Some(refs.fold(w, |w, (i, r)| w.push(&format!("Reference{i}"), r)).finish())
+/// }
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// // dir は絶対パス（load の規約 1）
+/// let dir = if cfg!(windows) { r"C:\ghost" } else { "/ghost" };
+/// let mut rt = GhostRuntime::from_static(&API, dir, NotifyHost::default())?;
+/// // 例の偽の SHIORI は、OnBoot で Tag: 7 の NOTIFY（Event: OnMyEvent・Reference0: x）を post する
+/// rt.request("ID: OnBoot\r\n").map_err(|s| format!("ABI error: {s}"))?;
+/// rt.pump(); // on_post が NOTIFY を預かる
+///
+/// let raised = std::mem::take(&mut *rt.host().raised.lock().unwrap());
+/// for (text, done) in raised {
+///     let status = match raise_headers(&text, "MyBase") {
+///         Some(ev) => {
+///             // 例の偽の SHIORI は、SenderType と Reference0 を Value にして答える
+///             let r = rt.request(&ev).map_err(|s| format!("ABI error: {s}"))?;
+///             assert_eq!(r.body.as_str()?, "Value: internal x\r\n");
+///             SHIORI_200_OK // 起こし、SHIORI が答えた（文書 6.4）
+///         }
+///         None => SHIORI_400_BAD_REQUEST, // Event の無い NOTIFY は不正
+///     };
+///     if let Some(h) = protocol::host_complete(&text, "MyBase", status, &[], None) {
+///         done.complete_with(Delivery::Request, &h);
+///     }
+/// }
+///
+/// // 完了は次の pump で届く。例の偽の SHIORI は Tag・Status・Reference0・Reference1 を Value にして答える
+/// let ds = rt.pump();
+/// match &ds[..] {
+///     [Delivered { outcome: Outcome::Response(r), .. }] => {
+///         assert_eq!(r.body.as_str()?, "Value: 7 200 NOTIFY None\r\n");
+///     }
+///     other => panic!("{other:?}"),
+/// }
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct Completer {
     sender: EventSender,

@@ -108,7 +108,7 @@
   - _Boundary: HostExamples_
   - _Depends: 1.2, 2.1_
   - _Requirements: 1.5, 4.7, 8.1, 8.2, 8.9, 14.1, 14.3_
-- [ ] 6.2 `wake` → `pump`・完了通知・プロパティの例を足す
+- [x] 6.2 `wake` → `pump`・完了通知・プロパティの例を足す
   - std の channel のスレッドは `from_static` で実行し、Win32 のメッセージの輪は使う関数を例の中で宣言して Windows でだけビルドする（`no_run`）
   - `Completer` で SEND の completed・interrupted、NOTIFY、nobreak で待たせた SEND を終了で捨てる 204 を返す例
   - getproperty・setproperty に答え、拒否を 400 ＋ `Reason: forbidden` で返す `Host` の例
