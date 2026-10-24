@@ -51,7 +51,7 @@
   - 知らない Command・結果の語はそのまま返し、拒否しない
   - 完了の状態: `Reason` の無し・`forbidden`・未知の語、SEND の 200 completed・204・400 forbidden・ID 違い・Status 無しの各場合をテストが確かめる
   - _Requirements: 6.2, 6.3, 6.5, 7.1, 7.3, 7.4, 10.9_
-- [ ] 3.3 ホスト側の応答と完了通知の組み立てを足す
+- [x] 3.3 ホスト側の応答と完了通知の組み立てを足す
   - getproperty の応答（値があれば 200 ＋ `Value`（改行を除く）、無ければ 204）と、400 の応答（`Reason` の有無）を組み立てる
   - post の原文から Tag の値を変えずに、Command を `Reference0` に引き継ぎ、ホストの名前から作る `Sender`・`SenderType: internal`・`SecurityLevel: local`・`SecurityOrigin: null` の 4 行を ID より前に置いて完了通知を組み立てる。Tag の無い post からは組み立てない
   - 完了の状態: 数でない Tag・`:` の後に空白が 2 つある Tag の写し、4 行が ID より前、Reason の有無、Tag の無い post で組み立てないことをテストが確かめ、どの出力にも Charset が無い

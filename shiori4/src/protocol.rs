@@ -267,6 +267,57 @@ impl<'a> HostComplete<'a> {
 }
 
 // ============================================================
+// ホスト側: 応答と完了通知の組み立て
+// ============================================================
+
+/// Some(v): 200 + `Value`（v の CR・LF を除く）。None: 204
+pub fn getproperty_response(value: Option<&str>) -> ShioriResponse {
+    match value {
+        Some(v) => HeaderWriter::new().push(HEADER_VALUE, v).into_response(),
+        None => ShioriResponse::no_content(),
+    }
+}
+
+/// 400。reason が Some なら `Reason` を付ける
+pub fn rejection_response(reason: Option<&str>) -> ShioriResponse {
+    ShioriResponse::with_status(SHIORI_400_BAD_REQUEST, push_reason(HeaderWriter::new(), reason).finish())
+}
+
+/// post の原文から Tag（値を変えずに）と Command を引き継ぎ、完了通知のヘッダ部分を組み立てる。
+/// 並び: `Sender: <sender>` / `SenderType: internal` / `SecurityLevel: local` / `SecurityOrigin: null`
+/// / `ID` / `Tag` / `Status` / `Reference0: <Command>` / `Reference1..` / [`Reason`]。
+/// post に Tag が無ければ None
+pub fn host_complete(
+    post: &str,
+    sender: &str,
+    status: ShioriStatus,
+    refs: &[&str],
+    reason: Option<&str>,
+) -> Option<String> {
+    let h = Headers::parse(post);
+    // Headers::get は `:` の後の先頭の空白だけを除く（文書 4.6）
+    let tag = h.get(HEADER_TAG)?;
+    let w = HeaderWriter::new()
+        .push(HEADER_SENDER, sender)
+        .push(HEADER_SENDER_TYPE, SENDER_TYPE_INTERNAL)
+        .push(HEADER_SECURITY_LEVEL, SECURITY_LEVEL_LOCAL)
+        .push(HEADER_SECURITY_ORIGIN, "null")
+        .push(HEADER_ID, ID_HOST_COMPLETE)
+        .push(HEADER_TAG, tag)
+        .push(HEADER_STATUS, &status.to_string())
+        .push("Reference0", h.get(HEADER_COMMAND).unwrap_or(""));
+    let w = refs.iter().enumerate().fold(w, |w, (i, r)| w.push(&format!("Reference{}", i + 1), r));
+    Some(push_reason(w, reason).finish())
+}
+
+fn push_reason(w: HeaderWriter, reason: Option<&str>) -> HeaderWriter {
+    match reason {
+        Some(r) => w.push(HEADER_REASON, r),
+        None => w,
+    }
+}
+
+// ============================================================
 // プロパティ
 // ============================================================
 
@@ -579,6 +630,67 @@ mod tests {
         ];
         for t in bad {
             assert_eq!(HostComplete::parse(&Headers::parse(t)), None, "{t}");
+        }
+    }
+
+    fn body(r: &ShioriResponse) -> &str {
+        r.body.as_str().unwrap()
+    }
+
+    #[test]
+    fn host_responses() {
+        let r = getproperty_response(Some("a\r\nb\nc"));
+        assert_eq!((r.status, body(&r)), (SHIORI_200_OK, "Value: abc\r\n"));
+        let r = getproperty_response(None);
+        assert_eq!((r.status, body(&r)), (SHIORI_204_NO_CONTENT, ""));
+
+        let r = rejection_response(None);
+        assert_eq!((r.status, body(&r)), (SHIORI_400_BAD_REQUEST, ""));
+        let r = rejection_response(Some(REASON_FORBIDDEN));
+        assert_eq!((r.status, body(&r)), (SHIORI_400_BAD_REQUEST, "Reason: forbidden\r\n"));
+    }
+
+    #[test]
+    fn host_complete_builds() {
+        // 数でない Tag をそのまま写す。sender の 4 行が ID より前
+        let post = send_post("x", &[], Some("abc-01"));
+        assert_eq!(
+            host_complete(&post, "areka", SHIORI_200_OK, &[OUTCOME_COMPLETED], None).as_deref(),
+            Some(
+                "Sender: areka\r\nSenderType: internal\r\nSecurityLevel: local\r\nSecurityOrigin: null\r\nID: OnHostComplete\r\nTag: abc-01\r\nStatus: 200\r\nReference0: SEND\r\nReference1: completed\r\n"
+            )
+        );
+
+        // `:` の後の空白 2 つは除いて写す。Reason を最後に付ける
+        let post = "Command: NOTIFY\r\nTag:  abc\r\nEvent: OnX\r\n";
+        assert_eq!(
+            host_complete(post, "areka", SHIORI_400_BAD_REQUEST, &[], Some(REASON_FORBIDDEN)).as_deref(),
+            Some(
+                "Sender: areka\r\nSenderType: internal\r\nSecurityLevel: local\r\nSecurityOrigin: null\r\nID: OnHostComplete\r\nTag: abc\r\nStatus: 400\r\nReference0: NOTIFY\r\nReason: forbidden\r\n"
+            )
+        );
+
+        // 組み立てたものを読み分けで読み戻せる
+        let t = host_complete(post, "areka", SHIORI_400_BAD_REQUEST, &[], Some(REASON_FORBIDDEN)).unwrap();
+        let c = HostComplete::parse(&Headers::parse(&t)).unwrap();
+        assert_eq!((c.tag, c.command, c.rejection), ("abc", COMMAND_NOTIFY, Some(Rejection::Forbidden)));
+
+        // Tag の無い post からは組み立てない
+        assert_eq!(host_complete(&send_post("x", &[], None), "areka", SHIORI_200_OK, &[], None), None);
+        assert_eq!(host_complete("", "areka", SHIORI_200_OK, &[], None), None);
+    }
+
+    #[test]
+    fn host_side_builders_have_no_charset() {
+        let post = send_post("s", &[], Some("1"));
+        let all = [
+            body(&getproperty_response(Some("v"))).to_owned(),
+            body(&rejection_response(Some(REASON_FORBIDDEN))).to_owned(),
+            host_complete(&post, "areka", SHIORI_400_BAD_REQUEST, &[OUTCOME_COMPLETED], Some("x")).unwrap(),
+        ];
+        for s in all {
+            assert!(!s.is_empty());
+            assert!(!s.to_ascii_lowercase().contains("charset"), "{s}");
         }
     }
 
