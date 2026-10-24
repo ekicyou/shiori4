@@ -768,7 +768,7 @@ CI の job ごとの結果（既存の GitHub の PR の検査）だけを使う
 - CI は runner に入っているコンパイラだけを使い、新しいサードパーティの Action や crate を足さない（供給網を広げない）。
 
 ## Migration Strategy
-- OwnershipChange は 0.0.2 以前と二進互換でない（関数の形は同じだが、`out` を作る側が変わる）。`copy_from_slice` を持たない古いホストから読まれた新しい SHIORI は load を失敗させる。古い SHIORI を新しいホストが読むと昔のまま動く。v4 の DLL はまだ配られていないので、0.0.3 の見どころに明記し、pasta と areka に知らせる（要件 15.7）。
+- OwnershipChange は 0.0.2 以前と二進互換でない（関数の形は同じだが、`out` を作る側が変わる）。`copy_from_slice` を持たない古いホストから読まれた新しい SHIORI は load を失敗させる。古い SHIORI を新しいホストが読むと昔のまま動く。v4 の DLL はまだ配られていないので、0.1.0 の見どころに明記し、pasta と areka に知らせる（要件 15.7）。
 - 規約の番号の付け方は設計の議論 #2・#4 で確定した。統合後に公開した版から番号は固定になる。
 - shiori3-legacy-host の統合時に、試験用のホストの `Legacy` の枝と、`migration.md` の「旧来の DLL を読む口はまだ無い」を書き換える（申し送り）。
 

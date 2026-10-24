@@ -87,6 +87,7 @@
 |----|----------|------------|----------------|
 | 0.0.1 | 語の文書は無い（`doc/host-protocol.md` は 0.0.2 から当てはまる）。0.0.1 の語のうち 0.0.2 で変わったものは付録 A の A.1 にある | 0.0.1 で公開した API（[`v0.0.1` のタグ](https://github.com/ekicyou/shiori4/tree/v0.0.1)） | 文書に書かれていない語のすべて |
 | 0.0.2 | [`v0.0.2` のタグの `doc/host-protocol.md`](https://github.com/ekicyou/shiori4/blob/v0.0.2/doc/host-protocol.md) に書かれた語 | 0.0.2 で公開した API（[`v0.0.2` のタグ](https://github.com/ekicyou/shiori4/tree/v0.0.2)） | その文書に無い語（定数の無い `Reference*` の並びの拡張など） |
+| 0.1.0 | [`v0.1.0` のタグの `doc/host-protocol.md`](https://github.com/ekicyou/shiori4/blob/v0.1.0/doc/host-protocol.md) に書かれた語 | 0.1.0 で公開した API（[`v0.1.0` のタグ](https://github.com/ekicyou/shiori4/tree/v0.1.0)） | その文書に無い語（定数の無い `Reference*` の並びの拡張など） |
 | 未公開の `main` | 無い（版が公開されたとき、その版のタグの文書に書かれた語が確定になる） | 無い（版が公開されたとき、その版の API が確定になる） | `main` の文書と API のすべて。公開までに変わりうる |
 
 ## 0.0.1 から 0.0.2 への変更

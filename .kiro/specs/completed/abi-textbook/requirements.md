@@ -209,7 +209,7 @@ brief.md で決め切れていなかった所は、要件ディスカッショ�
 4. Where v3 互換モードを使うとき, the 版の規約 shall load の host に `copy_from_slice` だけを持つテーブル（`request`・`post`・`log` は NULL）を渡すと定める。`Ghost::load` に渡す host は、v3 ではこれまでどおり `None` とする。
 5. If ホストのテーブルに `copy_from_slice` が無い（`struct_size` が足りない・NULL・v3 で host が NULL）なら, the 新しい SHIORI shall load を失敗させる（自分のメモリで作る昔の形へ戻らない）。
 6. The 規約の変更 shall C ヘッダと `shiori4_abi` の `//!` の両方に同じ文で入り、`shiori4_abi`・`shiori4`（`export_shiori!`・`Adapter`）・`shiori4_host`（`Bridge`・`V3Runtime`・`from_static`）・`testdata/testghost` がそれに合わせて直され、既存のテストが通る。
-7. The 0.0.3 の見どころ shall 0.0.2 以前と二進互換でないこと（関数の形は変わらないが、`out` を作る側が変わる）を述べ、pasta と areka への知らせに含める。
+7. The 0.1.0 の見どころ shall 0.0.2 以前と二進互換でないこと（関数の形は変わらないが、`out` を作る側が変わる）を述べ、pasta と areka への知らせに含める。
 
 ## 決定事項（要件ディスカッション 2026-10-24）
 brief.md で決め切れず、要件ディスカッションで開発者がすべて推奨案で確定した所である。
