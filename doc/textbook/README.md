@@ -2,7 +2,7 @@
 
 SHIORI の作者とベースウェアの作者に向けて、shiori4 の ABI の規約と、SHIORI とホストが交わすメッセージの語を、決まった順で読めるようにまとめた教科書の目次である。
 
-- **当てはまる版**: shiori4 0.0.3 から。`v0.0.2` までのタグにこの教科書は無く、この教科書が述べる応答の作り方（ABI 規約 5）は 0.0.2 以前と二進互換でない（[移行の手引き](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/migration.md)の「0.0.2 以前の shiori4 から」）。`main` の文書には未公開の版の内容が載りうるので、公開された版の内容は、その版のタグ `vX.Y.Z` の文書で読む（[`doc/host-protocol.md`](https://github.com/ekicyou/shiori4/blob/main/doc/host-protocol.md) 第 0 章と同じ扱い）。
+- **当てはまる版**: shiori4 0.1.0 から。`v0.0.2` までのタグにこの教科書は無く、この教科書が述べる応答の作り方（ABI 規約 5）は 0.0.2 以前と二進互換でない（[移行の手引き](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/migration.md)の「0.0.2 以前の shiori4 から」）。`main` の文書には未公開の版の内容が載りうるので、公開された版の内容は、その版のタグ `vX.Y.Z` の文書で読む（[`doc/host-protocol.md`](https://github.com/ekicyou/shiori4/blob/main/doc/host-protocol.md) 第 0 章と同じ扱い）。
 - 読み物の本文は、このリポジトリの `doc/` の文書と、docs.rs のクレートのドキュメントだけに置く。
 
 ## 読む順

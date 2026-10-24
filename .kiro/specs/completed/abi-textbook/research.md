@@ -271,11 +271,11 @@
   - 古い SHIORI × 新しいホスト: 昔のまま動く。古い SHIORI は足された欄を読まず（v3 は host を見ない）、応答は SHIORI が自分で作り、ホストは `out` の `release`（SHIORI の関数）を呼んで捨てる。ライブラリを外した後に応答を捨ててはいけない昔の注意も、古い SHIORI ではそのまま残る。
   - v4 の DLL はまだ配られていないので、実際に困るのは 0.0.2 以前の `shiori4` でビルドした手元の DLL と、0.0.2 以前の `shiori4_host` で作ったホストだけである。
 - PR の本文の「動きが変わる変更」に載せる文（`release` の見どころの「動きが変わる点」にもこの文で載せる）:
-  - 応答の `ShioriBytes` は常にホストが作るようになり、SHIORI は `ShioriHostApi` の末尾に足した `copy_from_slice` で `out` に写す。関数の形は変わらないが 0.0.2 以前と二進互換でなく、新しい SHIORI は `copy_from_slice` を持たない古いホストでは load に失敗する（古い SHIORI は新しいホストで昔のまま動くが、新しい規約の外なので、ライブラリを外した後に応答を捨てると落ちる）。SHIORI もホストも 0.0.3 で作り直す。
+  - 応答の `ShioriBytes` は常にホストが作るようになり、SHIORI は `ShioriHostApi` の末尾に足した `copy_from_slice` で `out` に写す。関数の形は変わらないが 0.0.2 以前と二進互換でなく、新しい SHIORI は `copy_from_slice` を持たない古いホストでは load に失敗する（古い SHIORI は新しいホストで昔のまま動くが、新しい規約の外なので、ライブラリを外した後に応答を捨てると落ちる）。SHIORI もホストも 0.1.0 で作り直す。
 - pasta と areka への知らせの文:
-  - 0.0.3 から、SHIORI の応答（`request` の `out`）はホストが作ります。ホストは `ShioriHostApi` の末尾の `copy_from_slice` を必ず用意し、v3 互換モードでも load の host に `copy_from_slice` だけを持つテーブルを渡します。新しい SHIORI は、この欄が無いホストからは読み込みに失敗します。関数の形は 0.0.2 と同じですが二進互換ではないので、SHIORI の DLL とホストを両方とも 0.0.3 で作り直してください。Rust の高水準層（`export_ghost!`・`Adapter`・`GhostRuntime`）を使っていれば、ソースの直しは要りません。応答の `release` は常にホストの関数になり、unload の後に呼んでもよくなりました（スレッド規約 6）。ただし 0.0.2 以前の SHIORI の応答はこの規約の外なので、ライブラリを外した後に捨ててはいけません。
-  - pasta（`shiori4` で作る SHIORI）: 版を 0.0.3 に上げてビルドし直す。0.0.2 以前のホストで試さない。
-  - areka（`shiori4_host` で作るホスト）: 版を 0.0.3 に上げる。別のプロセスに置くなど自前で `ShioriHostApi` を組んでいるなら、`copy_from_slice` を足す（写せなかったときは自分で決めた印を `out` に残し、SHIORI には知らせない）。
+  - 0.1.0 から、SHIORI の応答（`request` の `out`）はホストが作ります。ホストは `ShioriHostApi` の末尾の `copy_from_slice` を必ず用意し、v3 互換モードでも load の host に `copy_from_slice` だけを持つテーブルを渡します。新しい SHIORI は、この欄が無いホストからは読み込みに失敗します。関数の形は 0.0.2 と同じですが二進互換ではないので、SHIORI の DLL とホストを両方とも 0.1.0 で作り直してください。Rust の高水準層（`export_ghost!`・`Adapter`・`GhostRuntime`）を使っていれば、ソースの直しは要りません。応答の `release` は常にホストの関数になり、unload の後に呼んでもよくなりました（スレッド規約 6）。ただし 0.0.2 以前の SHIORI の応答はこの規約の外なので、ライブラリを外した後に捨ててはいけません。
+  - pasta（`shiori4` で作る SHIORI）: 版を 0.1.0 に上げてビルドし直す。0.0.2 以前のホストで試さない。
+  - areka（`shiori4_host` で作るホスト）: 版を 0.1.0 に上げる。別のプロセスに置くなど自前で `ShioriHostApi` を組んでいるなら、`copy_from_slice` を足す（写せなかったときは自分で決めた印を `out` に残し、SHIORI には知らせない）。
 
 ## 規約の理由の草案（要件 4.8。実装 7.1、2026-10-24。統合の前に開発者が確かめる）
 `doc/textbook/rules.md` で `**理由（草案・記録に無い）**:` の印を付けた理由の一覧。開発者が 2026-10-24 に 8 つとも確かめて印を外した（ABI 規約 8 は、理由を書いていない出典「abi-conventions 要件 1.4」を外した）。記録として表を残す。完了済みの spec（abi-conventions・host-protocol）・steering・hearing.md・この spec の design.md と research.md を探したが、規約の文か「既存」の記述だけで理由が無かったもの。確かめたら `rules.md` の印を外し、この一覧から消す。

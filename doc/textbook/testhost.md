@@ -141,7 +141,7 @@ usage: shiori4-testhost [--entry v3] [-H "名前: 値"]... <SHIORI のファイ�
 
 ## 取り込み方
 
-試験用のホストは `shiori4_host` の example なので、`cargo install` に `--example` を付けて取り込む。`--tag` で版を固定する。`vX.Y.Z` には、この example を含む版のタグを入れる（`v0.0.2` のタグには、まだこの example が無い）。
+試験用のホストは `shiori4_host` の example なので、`cargo install` に `--example` を付けて取り込む。`--tag` で版を固定する。`vX.Y.Z` には、この example を含む版のタグを入れる（この example は `v0.1.0` から含まれる。`v0.0.2` のタグには無い）。
 
 ```bash
 cargo install --git https://github.com/ekicyou/shiori4 --tag vX.Y.Z shiori4_host --example shiori4-testhost
