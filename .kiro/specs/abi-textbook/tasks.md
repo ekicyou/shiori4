@@ -69,7 +69,7 @@
   - _Depends: 1.4_
   - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.9_
 
-- [ ] 4. CI の job `textbook` を足す
+- [x] 4. CI の job `textbook` を足す
   - 3 OS の matrix（`fail-fast: false`）で testghost と試験用のホストをビルドし、C の例を runner のコンパイラ（Windows は `vswhere` → `vcvars64.bat` → `cl /std:c11 /utf-8 /W4 /WX`、SHIORI は `/MT /LD`。Linux・macOS は `cc -std=c11 -Wall -Wextra -Werror`）でビルドする
   - 往復: C のホスト × testghost で 0 と `Value`、試験用のホスト × C の SHIORI 2 本で 0、試験用のホスト × testghost で 0、`fail` のディレクトリで 3、`--entry v3` × `versioned_shiori`・testghost で 0
   - 新しい Action や crate を足さない
