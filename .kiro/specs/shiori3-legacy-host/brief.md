@@ -101,3 +101,7 @@ DLL に触る芯だけを shiori4_host に置く。プロセスの起こし方�
 - `LoadError::NotShiori4` は `load_ghost_with` では「許可した口（V4・V3・loadu・load）が 1 つも見つからない」を表し、Display は `no allowed SHIORI entry point found`。
 - 候補のファイル名と機械の種類は `shiori_file_candidates`・`machine_matches`・`TargetOs`・`TargetArch`（`shiori4_host/src/dist.rs`。DLL を読まない）。発見の口は機械の種類を確かめない。
 - テスト用 cdylib `testdata/testghost`（`shiori4_host/src/test_dll.rs` の `dll_path()`・`lock()`・`set_mode`）はダミーの `loadu`・`load` を持つが中身は呼ばれない前提。HGLOBAL の口を試すなら、ここに本物の口を足すか別の cdylib を作る。
+
+## 申し送り（host-protocol より）
+- `Host` の形が変わった: `name()` が必須、`request(&str) -> ShioriResponse`（既定は 400）、`accept_post(&str)`（既定は受け付け）、`Host::property` は無い。`Post` は原文と `Completer` だけを持ち、`Completer::complete_with` は渡したヘッダをそのまま積む。従来の SHIORI/3.0 のホストでこの `Host` を使うなら、この形を前提にする（`.kiro/specs/completed/host-protocol/design.md` の HostCore）。
+- v3 の変換（`shiori4` の `v3::parse_request`）は開始行と終端の空行を除いた原文のヘッダ部分を `Ghost` に渡す。Charset は v3 の中で検査する（UTF-8 以外は 400）。
