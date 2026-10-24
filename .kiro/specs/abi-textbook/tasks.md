@@ -122,7 +122,7 @@
   - _Boundary: HostExamples_
   - _Requirements: 4.7, 8.7, 8.8, 8.9, 14.1_
 
-- [ ] 7. 教科書の章
+- [x] 7. 教科書の章
 - [x] 7.1 規約の一覧（`rules.md`）を書く
   - 番号の付け方と引用の仕方・番号を使い回さない方針・写しは CI が確かめることを冒頭に置く
   - 9 つの節を正本の順で `## <見出し>` にし、全 40 項目を `//!` の綴りで引用（`>`）として写し、各規約の直後に 1〜2 文の理由と出典を添える
@@ -163,7 +163,7 @@
   - _Boundary: DistributionGuide_
   - _Depends: 2.1_
   - _Requirements: 12.1, 12.2, 12.3, 12.4, 14.3_
-- [ ] 7.7 (P) 試験用のホストの使い方（`testhost.md`）を書く
+- [x] 7.7 (P) 試験用のホストの使い方（`testhost.md`）を書く
   - 引数・表示・終了の状態の表、`cargo install --git … --tag vX.Y.Z shiori4_host --example shiori4-testhost` と公開後の取り込み方、GitHub Actions の 1 段の例（検査しない例の注記つき）、信頼できる SHIORI だけを渡す注意
   - 完了の状態: `testhost.md` の表が試験用のホストの使い方の出力と一致している
   - _Boundary: TestHostGuide_
