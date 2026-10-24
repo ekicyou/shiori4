@@ -113,7 +113,7 @@
   - 完了の状態: 3 つの README と C ヘッダ・`shiori4_abi` の doc に文書への導線がそれぞれ 1 か所あり、C ヘッダの差分がコメントの 1 行だけである
   - _Boundary: CoreDocLinks_
   - _Requirements: 1.5, 11.2_
-- [ ] 6.2 (P) steering を spec の結果に合わせる
+- [x] 6.2 (P) steering を spec の結果に合わせる
   - `tech.md` の 3 層の図の `shiori4` の行と、メッセージ名（`ID: property` …）の行を直す
   - `structure.md` の `shiori4` の Purpose・Example、再エクスポートの例、命名の「プロトコル語彙」の行（`COMMAND_*`・`OPTION_*`・`REASON_*`・`OUTCOME_*`・`SENDER_TYPE_*`・`SECURITY_LEVEL_*` を足す）を直す
   - Key Technical Decisions に「芯は中身を解釈しない」の 1 行を足す
@@ -141,3 +141,4 @@
 - `cargo test --all` が testdata/testghost を test_dll.rs 経由でビルドして DLL のテストを回す
 - テストの文字列は `\r\n` のエスケープで 1 行に書く（シェルで書き込むとエスケープが生の改行に化けた。Edit で直す）
 - 独立の検査の境目: shiori4 は最初の `#[cfg(test)]`、shiori4_host は `mod tests {`（途中に `#[cfg(test)] mod test_dll;` があるため）で止める。design.md の IndependenceCheck は `#[cfg(test)]` と書いている
+- `.kiro/steering/roadmap.md` の 50 行目（host-protocol は `shiori4::host_protocol` と `shiori4_host` の組み込みの処理を持つ）は古い。kiro-complete のロードマップ更新で「`doc/host-protocol.md` と便利関数 `shiori4::protocol` を持つ」に直す

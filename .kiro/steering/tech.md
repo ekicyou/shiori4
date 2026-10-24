@@ -7,12 +7,12 @@
 ```
 shiori4_abi   … C ABI（関数テーブル・ShioriBytes・版・規約）。ペイロードは解釈しない
    ↑
-shiori4       … SHIORI 側の高水準層（Ghost, Adapter, Headers, Properties, PendingTags, host_protocol）
+shiori4       … SHIORI 側の高水準層（芯: Ghost, Adapter, v3 変換。便利関数: protocol（Headers, Properties, PendingTags, 語の定数と組み立て・読み分け））
    ↑
 shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, 読み込みの口 load_ghost, post キュー, pump）
 ```
 
-- ホストと SHIORI が共有するメッセージ名（`ID: property`, `Tag`, `OnHostComplete` など）は `shiori4::host_protocol` に置き、ホスト側はそれを再エクスポートして使う
+- ホストと SHIORI が共有する語（`ID: getproperty`, `Command: SEND`, `Tag`, `OnHostComplete` など）は `doc/host-protocol.md`（ホスト側プロトコル仕様）が定める。その定数と組み立て・読み分けは便利関数 `shiori4::protocol` に置き、ホスト側は `shiori4_host::protocol` として再エクスポートして使う
 - 各層は「ABI 層の trait（`Shiori` / `ShioriHost`）」と「高水準 trait（`Ghost` / `Host`）」の2段。実装者は通常、高水準 trait だけを実装する
 
 ## Core Technologies
@@ -95,6 +95,7 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, �
 
 ## Key Technical Decisions
 
+- **芯は中身を解釈しない**: 3 クレートの芯は運ぶ文字列を解析せず原文のまま渡す（求めるのは UTF-8 であることだけ）。解析と組み立ては芯から独立した便利関数 `shiori4::protocol` に置く。中身の形が替わっても芯を変えずに済むようにするため
 - **ABI はバイト列の運搬だけ**: SHIORI/3.0 の解析・v3/v4 変換・プロパティは上位層の責務。ABI を小さく保ち、言語非依存にするため
 - **v3/v4 の差のうち透過にするのは文字列形式だけ**: ホストを呼べるか（`Option<ShioriHostHandle>`）は `Ghost` に見せる。v3 で同期プロパティ取得ができない事実を隠さない
 - **完了通知は通常のイベント**: post の結果は専用 API ではなく、`Tag` 付きの request / notify として後から届ける。届けるのは `pump` の中だけ（post 中や host.request 中には届けない）

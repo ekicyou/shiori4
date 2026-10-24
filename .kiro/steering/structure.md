@@ -15,8 +15,8 @@
 
 ### SHIORI 側の高水準層
 **Location**: `/shiori4/`
-**Purpose**: ゴースト開発者向け API。ヘッダ処理、v3 変換（`mod v3`）、ホストとの共有語彙（`mod host_protocol`）
-**Example**: `Ghost`, `export_ghost!`, `Headers`, `Properties`, `PendingTags`
+**Purpose**: ゴースト開発者向け API。芯（`Ghost`・`Adapter`、v3 変換 `mod v3`）と、芯から独立した便利関数（`mod protocol`: ヘッダ処理・語の定数・組み立てと読み分け・プロパティの取得）
+**Example**: `Ghost`, `export_ghost!`, `protocol::Headers`, `protocol::Properties`, `protocol::PendingTags`
 
 ### ホスト側の高水準層
 **Location**: `/shiori4_host/`
@@ -29,7 +29,7 @@
 - **ABI 層の型・定数**: C 側と揃えるため `Shiori` / `SHIORI_` 接頭辞（`ShioriBytes`, `SHIORI_200_OK`, `SHIORI_E_SHUTDOWN`, `SHIORI_LOG_INFO`）
 - **高水準層の型**: 接頭辞なしの短い名前（`Ghost`, `Host`, `Headers`, `Event`）
 - **ステータス定数**: `SHIORI_<コード>_<理由>`、ABI エラーは `SHIORI_E_<名前>`
-- **プロトコル語彙**: `host_protocol` 内で `ID_*` / `HEADER_*`
+- **プロトコル語彙**: `protocol` 内で `ID_*` / `HEADER_*` / `COMMAND_*` / `OPTION_*` / `REASON_*` / `OUTCOME_*` / `SENDER_TYPE_*` / `SECURITY_LEVEL_*`
 - **所有の区別**: 借用・未所有は `ShioriBytes` / `ShioriResponse`、解放責任を持つものは `ShioriOwned*`
 
 ## Import Organization
@@ -43,7 +43,7 @@ pub use shiori4_abi::*;
 
 // shiori4_host: 必要なものだけ明示的に再エクスポート
 pub use shiori4;
-pub use shiori4::{host_protocol, HeaderWriter, Headers};
+pub use shiori4::protocol;
 ```
 
 クレート間の参照は、ルートの `[workspace.dependencies]` に `path`（手元のソース）と `version`（公開時の版要求）の両方を書き、各クレートが `<dep>.workspace = true` で受け継ぐ。
