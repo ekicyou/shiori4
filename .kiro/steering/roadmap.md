@@ -42,6 +42,7 @@ pasta（`C:\home\maz\git\pasta`）のリリースの仕組みを下敷きにし�
 - [x] host-protocol -- 暫定の `host_protocol` を、ホスト側プロトコル仕様として確定させる（getproperty / setproperty・post の語彙 SEND / NOTIFY と宛先・割り込み・拒否の返し方・プロパティ名の決まり・v4 の要求ヘッダの語彙・version・OnHostComplete の届け方と Reference の並び）。pasta と areka が上流として参照する正本。Dependencies: none
 - [x] abi-textbook -- ABI の教科書を作る。中身は README.md（全体図・最小の例・道案内）、docs.rs の利用方法（SHIORI 側とホスト側の例）、C ヘッダの説明（所有権・版の判定・最小の C のホスト）、規約の理由、移行の手引き、ゴーストの配布の決まりの章。あわせて、DLL だけを読んで要求を投げる試験用のホストを作る。要望は pasta と areka に聞いた（`.kiro/specs/completed/abi-textbook/hearing.md`）。Dependencies: abi-conventions, host-protocol
 - [ ] shiori3-legacy-host -- x86 の Windows だけで、shiori4_host を従来の SHIORI/3.0 の DLL（HGLOBAL の load・loadu・unload・request）のホストとしても使えるようにする。DLL に触る芯（HGLOBAL の受け渡し・loadu と load の選び方・CP_ACP の dir・ダイアログの抑止・unload の順）を置き、プロセス・IPC・待ち時間・文字コードの方針はホストに残す。i686 の Windows の CI を足す。Dependencies: abi-conventions
+- [ ] shiori2-helpers -- ホストの側の便利関数として、SHIORI/2.x の要求の組み立て（汎用の形と命令ごと）・応答の読み分け・版の見分けと切り替えの手順を `shiori4_host::shiori2` に置く。全環境で使え、文字コードには触れない。SHIORI の側と試験用のホストは変えない。Dependencies: none（shiori3-legacy-host の芯と組み合わせて使う）
 
 ## Phase 2: v4 の規約とホスト側プロトコルの確定
 
@@ -55,4 +56,5 @@ v0.0.1 の公開の後、SHIORI 実装者（pasta、`SHIORI4:pasta` セッショ
 - **中身に関与しない方針**（開発者の裁定。2026-10-23）: このリポジトリが支えるのは、インターフェースの変換と取得までである。3 つのクレートの芯は、やり取りされる文字列の中身を解釈しない（求めるのは UTF-8 であることだけ）。パースは「使いたい人が使う便利関数」として、芯から独立したモジュールで提供する。将来、中身が JSON-RPC などに替わってもよいように、芯にパースの層を抱え込まない。
 - **v3 互換モードの位置づけ**（開発者の方針。2026-10-23）: v3 互換モード（`shiori_get_api(3)`）は、Windows 以外のベースウェアを組みたい人のために、HGLOBAL に依存しない SHIORI/3.0 の口を用意したものである。従来の SHIORI/3.0 の DLL（HGLOBAL の load・unload・request）を置き換えるものではない。
 - **従来の SHIORI/3.0 のホスト**: shiori3-legacy-host として起票した（2026-10-23）。有効なのは x86 の Windows だけで、ほかの環境ではビルドに含めない。ANSI のエンコーダーは抱え込まず、変換は Win32 の API に任せる。
+- **SHIORI/2.x の便利関数**: shiori2-helpers として起票した（2026-10-25）。HGLOBAL の口は SHIORI/3.0 と同じなので、shiori3-legacy-host の芯がそのまま運ぶ。違う文字列の形（組み立て・読み分け・版の見分け）だけを、芯から独立した便利関数として `shiori4_host::shiori2` に置く。shiori3-legacy-host の裁定 c（SHIORI/2.x は areka の `shiori2-protocol` が持つ）を、これに合わせて改めた
 - **Release**: abi-conventions と host-protocol を統合した後、`/release` で 0.0.2 を出す（spec ではない）。0.0.2 は CI からの初めての公開で、1 回の認証で 3 クレートを出せるかと 401・403 の分類も確かめる。出したら pasta と areka に知らせる（pasta は 0.4.2 の試験で `shiori4_host` の v3 の口と許可する口の種類を使いたい。areka は host-protocol が入った版が出たら `shiori4-api` に着手する）
