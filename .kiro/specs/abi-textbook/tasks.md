@@ -86,7 +86,7 @@
   - _Boundary: ShioriExamples_
   - _Depends: 1.2, 2.1_
   - _Requirements: 1.5, 4.7, 7.1, 7.3, 7.6, 14.1_
-- [ ] 5.2 インスタンスごとの状態と、v3・v4 の両対応の例を足す
+- [x] 5.2 インスタンスごとの状態と、v3・v4 の両対応の例を足す
   - `Ghost::load` の doc に、`static` を使わず状態を `Self` に持ち、2 つのインスタンスで混ざらない例（load の規約 5）
   - `Ghost` の doc に、host が `None` のときは `Properties` の受動キャッシュに代える例を v4 と v3 の両方で 1 往復させる
   - 5.1 と同じファイルなので 5.1 の後に行う
