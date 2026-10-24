@@ -178,7 +178,7 @@
   - 完了の状態: README の C の塊がファイルの全文と一致し、Rust の例のフェンスに言語が書かれている
   - _Depends: 2.1, 3.1, 3.3, 7.1_
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 3.4, 4.7, 6.1, 6.3, 6.5_
-- [ ] 8.2 教科書の目次（`doc/textbook/README.md`）を書く
+- [x] 8.2 教科書の目次（`doc/textbook/README.md`）を書く
   - 読む順・当てはまる版（タグで読むこと）・正本の位置と「食い違ったら正本が正しい」・例の注記の規則・正本の欠けは決めずに research.md の「正本の未決」に記録すること
   - 完了の状態: 目次からすべての章とルートの README と docs.rs の 3 クレートへのリンクがある
   - _Requirements: 1.1, 1.3, 1.4, 1.5, 14.3_
@@ -210,3 +210,4 @@
 - 2.2: `shiori4_abi/tests/textbook.rs` の `split_sections` は規約の 9 節の見出し（SECTIONS）に固く結びついている。9.2 で章の検査に使うときは章ごとの区切りを別に持つ。
 - 3.1: 手元に gcc・clang が無いので、Linux・macOS の `-Wall -Wextra -Werror` は 4 の CI で初めて確かめる。MSVC は vswhere → vcvars64.bat で使える。
 - 3.3: 教科書の例のホストは v4 の要求に `doc/host-protocol.md` 第 2.2 節の 5 つの必須ヘッダ（`SecurityLevel` は `ID` より前）を付ける。testghost は要求のヘッダを見ないので、往復が通っても適合の証拠にならない。
+- 8.2: 既存の docs.rs の例のうち `shiori4/src/lib.rs:16`・`shiori4_host/src/lib.rs:25/117`（`no_run`）・`shiori4_host/src/dist.rs:58`・`shiori4_abi/src/lib.rs:996`（`ignore`）は、要件 14.3 の理由の文を持たない（この spec より前からある）。
