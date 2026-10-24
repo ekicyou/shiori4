@@ -14,7 +14,7 @@ SHIORI とホスト（ベースウェア）を C ABI でつなぐ、SHIORI 次�
 
 | 関数 | 呼ぶ側 → 呼ばれる側 | 呼べるスレッド | 呼べる期間 | 外れたときの結果 | 根拠 |
 |------|------|------|------|------|------|
-| `load` | ホスト → SHIORI | ホストがインスタンスごとに決めた 1 つのスレッド | インスタンスの始まり | 失敗は NULL。v4 は NULL を返す前に `host.log` で理由を出す | スレッド規約 1、load の規約 3 |
+| `load` | ホスト → SHIORI | ホストがインスタンスごとに決めた 1 つのスレッド | インスタンスの始まり | 失敗は NULL。`copy_from_slice` の無いテーブルでも NULL。v4 は NULL を返す前に `host.log` で理由を出す | スレッド規約 1、版 1・2、load の規約 3 |
 | `request` | ホスト → SHIORI | load と同じスレッド | load が返ってから unload を呼ぶまで | — | スレッド規約 1 |
 | `notify` | ホスト → SHIORI | load と同じスレッド | load が返ってから unload を呼ぶまで | — | スレッド規約 1・7 |
 | `host.request` | SHIORI → ホスト | load・request・notify を呼ばれているスレッド | その呼び出しが返るまで（v4） | ホストは `SHIORI_E_WRONG_THREAD`（-7）を返してよい（out は空）。処理中にホストは SHIORI を呼び返さない（`SHIORI_E_REENTRANT`（-4）） | スレッド規約 2・3 |

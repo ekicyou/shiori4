@@ -182,11 +182,11 @@
 - **Implications**: 理由は各規約の後に出典付きで書き、出典の無いものは草案の印を付ける（要件 4.8）。SEND の割り込みは C ヘッダの規約ではないので、規約の節の後の「ホスト側プロトコルの決まりの理由」に置く（design.md の Open Question 5）。
 
 ## 正本の未決（要件 1.3。開発者の裁定へ回す）
-- 1・2 は設計の議論 #1 でこの spec の中で直すと決まり、OwnershipChange で正本に入った（実装 9.3 で確かめた、2026-10-24）。1 はスレッド規約 1 が `load`・`unload` まで含み、2 はスレッド規約 6 が「いつでも・どのスレッドから呼んでもよい（インスタンスの unload の後でもよい）」と定める。残る未決は 3 だけ。
+- 1・2 は設計の議論 #1 でこの spec の中で直すと決まり、OwnershipChange で正本に入った（実装 9.3 で確かめた、2026-10-24）。1 はスレッド規約 1 が `load`・`unload` まで含み、2 はスレッド規約 6 が「いつでも・どのスレッドから呼んでもよい（インスタンスの unload の後でもよい）」と定める。3 は開発者の裁定で版 1 の下位の項目として正本に入った（2026-10-24）。未決は残っていない。
 
 1. **（解決済み）`load`・`unload` を呼べるスレッド**: 当初のスレッド規約 1 は `request`・`notify` の単一のスレッドだけを定め、`load`・`unload` のスレッドを定めていなかった。→ 今のスレッド規約 1 は `load / request / notify / unload` を、ホストがインスタンスごとに決めた単一のスレッドから呼ぶと定める。
 2. **（解決済み）`release` を呼べる期間**: 当初のスレッド規約 6 は「どのスレッドから呼んでもよい」とだけ言い、unload の後に呼んでよいかを定めず、`ShioriOwnedResponse` をランタイムの Drop の後に捨てると外れたライブラリの `release` を呼びえた。→ 今は `release` が常にホストの関数になり（ABI 規約 5）、スレッド規約 6 が unload の後でもよいと定める（`response_dropped_after_runtime_is_safe` が確かめる）。
-3. **v4 で `copy_from_slice` が無いときの load**（実装 8.1 で見つけた、2026-10-24）: 要件 15.5 と `shiori4_abi` の実装は、v4 のテーブルに `copy_from_slice` が無ければ load を失敗させる。正本の文は版 2 で v3 について「SHIORI は copy_from_slice があるかだけを確かめる」と言うだけで、v4 の失敗を定めない（ABI 規約 5・7 も言わない）。そのため README の全体図の load の行には書いていない。正本に足すかを開発者が裁定する。
+3. **（解決済み）v4 で `copy_from_slice` が無いときの load**（実装 8.1 で見つけた、2026-10-24）: 要件 15.5 と `shiori4_abi` の実装は、v4 のテーブルに `copy_from_slice` が無ければ load を失敗させる。正本の文は版 2 で v3 について「SHIORI は copy_from_slice があるかだけを確かめる」と言うだけで、v4 の失敗を定めない（ABI 規約 5・7 も言わない）。そのため README の全体図の load の行には書いていない。→ 開発者の裁定で、版 1 に下位の項目「SHIORI は copy_from_slice があるかを確かめ、無ければ load で NULL を返す」を C ヘッダと `//!` に足し、`rules.md` の写しと README の全体図の load の行も直した（2026-10-24）。
 
 ## Architecture Pattern Evaluation（設計）
 
@@ -278,7 +278,7 @@
   - areka（`shiori4_host` で作るホスト）: 版を 0.0.3 に上げる。別のプロセスに置くなど自前で `ShioriHostApi` を組んでいるなら、`copy_from_slice` を足す（写せなかったときは自分で決めた印を `out` に残し、SHIORI には知らせない）。
 
 ## 規約の理由の草案（要件 4.8。実装 7.1、2026-10-24。統合の前に開発者が確かめる）
-`doc/textbook/rules.md` で `**理由（草案・記録に無い）**:` の印を付けた理由の一覧。完了済みの spec（abi-conventions・host-protocol）・steering・hearing.md・この spec の design.md と research.md を探したが、規約の文か「既存」の記述だけで理由が無かったもの。確かめたら `rules.md` の印を外し、この一覧から消す。
+`doc/textbook/rules.md` で `**理由（草案・記録に無い）**:` の印を付けた理由の一覧。開発者が 2026-10-24 に 8 つとも確かめて印を外した（ABI 規約 8 は、理由を書いていない出典「abi-conventions 要件 1.4」を外した）。記録として表を残す。完了済みの spec（abi-conventions・host-protocol）・steering・hearing.md・この spec の design.md と research.md を探したが、規約の文か「既存」の記述だけで理由が無かったもの。確かめたら `rules.md` の印を外し、この一覧から消す。
 
 | 規約 | 草案の理由の要点 | 記録に無かった事情 |
 |------|------------------|--------------------|
@@ -293,7 +293,7 @@
 
 ### 開発者に回すもの（統合の前に。実装 9.3、2026-10-24）
 裁定は開発者が行う。この spec の実装では決めていない。
-- [ ] 正本の未決 3（v4 で `copy_from_slice` が無いときの load の失敗）を正本に書き足すか（足すなら C ヘッダと `//!` の両方と `doc/textbook/rules.md` の写し、README の全体図の load の行）
-- [ ] 上の表の 8 つの草案の理由を確かめる（版 1・ABI 規約 4・6・8・戻り値 2・スレッド規約 3・post の完了通知 3・4）。確かめたものは `rules.md` の `**理由（草案・記録に無い）**:` の印を外し、表の行を消す。直すものは `rules.md` の理由の文を直す
+- [x] 正本の未決 3（v4 で `copy_from_slice` が無いときの load の失敗）を正本に書き足すか（足すなら C ヘッダと `//!` の両方と `doc/textbook/rules.md` の写し、README の全体図の load の行）
+- [x] 上の表の 8 つの草案の理由を確かめる（版 1・ABI 規約 4・6・8・戻り値 2・スレッド規約 3・post の完了通知 3・4）。確かめたものは `rules.md` の `**理由（草案・記録に無い）**:` の印を外し、表の行を消す。直すものは `rules.md` の理由の文を直す
 
 - 出典の付いた理由のうち、steering（tech.md・product.md・roadmap.md）を出典にしたものがある（版 1・2、ABI 規約 1〜3・7、post の完了通知 2・5）。steering の「Key Technical Decisions」などに理由の文があるものだけを出典にした。

@@ -4,6 +4,7 @@
  *
  * 版（abi_version）
  * 1. SHIORI_ABI_VERSION（4）: 既定。host 必須。ペイロードはヘッダ部分だけ（開始行なし）
+ *    - SHIORI は copy_from_slice があるかを確かめ、無ければ load で NULL を返す
  * 2. SHIORI_ABI_VERSION_3（3）: SHIORI3 互換モード。異なる OS の互換ベースウェア向け
  *    - load の host は copy_from_slice だけを持つテーブル（abi_version は 3。request・post・log は NULL）。
  *      SHIORI は copy_from_slice があるかだけを確かめる。ほかのホストの呼び出しは使えない
