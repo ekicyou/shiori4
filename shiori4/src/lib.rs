@@ -1,47 +1,51 @@
 //! shiori4 — shiori4_abi の上に載る高水準層（SHIORI 側）
 //!
-//! - ヘッダの解析と生成（Headers / HeaderWriter）
-//! - v3（SHIORI/3.0 全文）と v4（ヘッダ部分だけ）の文字列形式の変換（Adapter）
-//! - プロパティ取得の抽象化（Properties / Lookup）
-//! - post の受付 ID（Tag）の発行と待ち合わせ（PendingTags）
-//! - ホストとの間のメッセージ名（host_protocol）。ホスト側クレート shiori4_host と共有する
+//! - 芯: [`Ghost`] と、それを ABI につなぐ [`Adapter`]。v4 ではホストからの要求の原文（ヘッダ部分）を
+//!   解析せずにそのまま `Ghost` に渡し、v3 では SHIORI/3.0 の全文とヘッダ部分の文字列形式だけを変換する
+//! - 便利関数: [`protocol`]。ホスト側プロトコルの語に合わせたヘッダの解析と組み立て、プロパティの取得など。
+//!   芯はこれを使わず、使わなくても仕様に従える。ホスト側クレート shiori4_host からも再エクスポートで使える
 //!
-//! v3 と v4 の差のうち、このクレートが透過にするのは「文字列形式」だけ。
-//! ホストを呼べるかどうか（プロパティを同期で取れるか）は Ghost の実装に見せる。
+//! 運ぶ中身の語（`getproperty`・`setproperty`・post の `Command`・`Tag`・`OnHostComplete`・拒否の返し方など）は、
+//! ホスト側プロトコル仕様
+//! <https://github.com/ekicyou/shiori4/blob/main/doc/host-protocol.md> が定める。
 //!
-//! ```ignore
-//! struct MyGhost { props: shiori4::Properties }
+//! ホストを呼べるかどうか（プロパティを同期で取れるか）は `Ghost` の実装に見せる（v4 なら `load` の host が `Some`）。
+//!
+//! ```no_run
+//! use shiori4::protocol::{HeaderWriter, Headers, Lookup, Properties, HEADER_VALUE};
+//!
+//! struct MyGhost {
+//!     props: Properties,
+//! }
 //!
 //! impl shiori4::Ghost for MyGhost {
 //!     fn load(host: Option<shiori4::ShioriHostHandle>, _dir: &str) -> Result<Self, shiori4::ShioriStatus> {
-//!         Ok(Self { props: shiori4::Properties::new(host) })
+//!         Ok(Self { props: Properties::new(host) })
 //!     }
-//!     fn request(&mut self, req: &shiori4::Headers<'_>) -> shiori4::ShioriResponse {
-//!         match req.id() {
-//!             Some("OnBoot") => match self.props.get("currentghost.name") {
-//!                 shiori4::Lookup::Ready(name) => shiori4::HeaderWriter::new()
-//!                     .push("Value", &format!("\\0{name}だよ\\e"))
-//!                     .into_response(),
-//!                 _ => shiori4::HeaderWriter::new().push("Value", "\\0……\\e").into_response(),
-//!             },
+//!
+//!     // req はヘッダ部分の原文。解析は便利関数の Headers で行う
+//!     fn request(&mut self, req: &str) -> shiori4::ShioriResponse {
+//!         match Headers::parse(req).id() {
+//!             Some("OnBoot") => {
+//!                 let script = match self.props.get("currentghost.name") {
+//!                     Lookup::Ready(name) => format!("\\0{name}だよ\\e"),
+//!                     _ => "\\0……\\e".to_owned(),
+//!                 };
+//!                 HeaderWriter::new().push(HEADER_VALUE, &script).into_response()
+//!             }
 //!             _ => shiori4::ShioriResponse::no_content(),
 //!         }
 //!     }
 //! }
 //!
 //! shiori4::export_ghost!(MyGhost);
+//! # fn main() {}
 //! ```
-
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Mutex, MutexGuard,
-    },
-};
 
 pub use shiori4_abi;
 pub use shiori4_abi::*;
+
+pub mod protocol;
 
 // ============================================================
 // SHIORI/3.0 の理由句
@@ -59,99 +63,11 @@ pub const fn shiori_reason_phrase(s: ShioriStatus) -> &'static str {
 }
 
 // ============================================================
-// ヘッダの解析と生成
-// ============================================================
-
-/// "Name: Value" の並びを借用で解析したもの（開始行は含まない）
-#[derive(Debug, Default, Clone)]
-pub struct Headers<'a> {
-    items: Vec<(&'a str, &'a str)>,
-}
-
-impl<'a> Headers<'a> {
-    /// CRLF / LF のどちらの改行でも読む。空行と ':' を含まない行は無視する
-    pub fn parse(text: &'a str) -> Self {
-        let items = text
-            .lines()
-            .filter_map(|line| {
-                let (k, v) = line.split_once(':')?;
-                let k = k.trim();
-                if k.is_empty() {
-                    None
-                } else {
-                    Some((k, v.trim_start()))
-                }
-            })
-            .collect();
-        Self { items }
-    }
-
-    /// 名前は大文字小文字を区別しない。同名が複数あれば最初のもの
-    pub fn get(&self, name: &str) -> Option<&'a str> {
-        self.items
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(name))
-            .map(|&(_, v)| v)
-    }
-
-    pub fn id(&self) -> Option<&'a str> {
-        self.get("ID")
-    }
-
-    pub fn reference(&self, n: usize) -> Option<&'a str> {
-        self.get(&format!("Reference{n}"))
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&'a str, &'a str)> + '_ {
-        self.items.iter().copied()
-    }
-}
-
-/// ヘッダ部分（開始行なし、終端の空行なし）を組み立てる
-#[derive(Debug, Default, Clone)]
-pub struct HeaderWriter {
-    buf: String,
-}
-
-impl HeaderWriter {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// 値に含まれる CR / LF は取り除く（ヘッダの改行注入を防ぐ）
-    pub fn push(mut self, name: &str, value: &str) -> Self {
-        self.buf.push_str(name);
-        self.buf.push_str(": ");
-        self.buf.extend(value.chars().filter(|&c| c != '\r' && c != '\n'));
-        self.buf.push_str("\r\n");
-        self
-    }
-
-    /// 組み立て済みのヘッダ部分をそのまま後ろに足す（改行の正規化はしない）
-    pub fn push_raw(mut self, headers: &str) -> Self {
-        let h = headers.trim_end_matches(['\r', '\n']);
-        if !h.is_empty() {
-            self.buf.push_str(h);
-            self.buf.push_str("\r\n");
-        }
-        self
-    }
-
-    pub fn finish(self) -> String {
-        self.buf
-    }
-
-    /// 200 OK の応答にする
-    pub fn into_response(self) -> ShioriResponse {
-        ShioriResponse::ok(self.buf)
-    }
-}
-
-// ============================================================
 // SHIORI 実装者向けの高水準 trait
 // ============================================================
 
-/// SHIORI の実装者が実装する trait。どちらのモードでもヘッダ部分だけを扱う
+/// SHIORI の実装者が実装する trait。どちらのモードでもヘッダ部分の原文を受ける（解析は実装者が行う。
+/// 便利関数の protocol::Headers::parse を使ってよい）
 /// unload は Drop で表す。unload を始めた時点で、このインスタンスから取り出した ShioriHostPoster は
 /// すべて無効になり、post は SHIORI_E_SHUTDOWN を返し、log は何もせず、どちらもホストに触れない（スレッド規約 5）。
 /// そのため Poster を渡したスレッドを Drop の中で止めて join する必要はない
@@ -167,22 +83,23 @@ pub trait Ghost: Sized + 'static {
     /// export_ghost! で作った SHIORI は、同じプロセスで複数のインスタンスを受け付ける（load の規約）
     fn load(host: Option<ShioriHostHandle>, dir: &str) -> Result<Self, ShioriStatus>;
 
-    /// GET に相当する。応答の body はヘッダ部分だけ
-    fn request(&mut self, req: &Headers<'_>) -> ShioriResponse;
+    /// GET に相当する。req はヘッダ部分の原文。v4 はホストが渡したまま、v3 は開始行と終端の空行を除いたもの。
+    /// 応答の body はヘッダ部分だけ
+    fn request(&mut self, req: &str) -> ShioriResponse;
 
     /// NOTIFY に相当する。既定の実装は 204
     ///
     /// 即 204 で返して処理を後回しにしてよい（スレッド規約 7）。ただし後回しにした処理の中では
-    /// host.request（Properties::get など）を使えない（スレッド規約 2 の期間の外）。
+    /// host.request（protocol::Properties::get など）を使えない（スレッド規約 2 の期間の外）。
     /// ホストへの依頼には ShioriHostPoster の post を使う
-    fn notify(&mut self, _req: &Headers<'_>) -> ShioriStatus {
+    fn notify(&mut self, _req: &str) -> ShioriStatus {
         SHIORI_204_NO_CONTENT
     }
 }
 
 /// Ghost を ABI 層の Shiori に変換するアダプタ
 /// モードは load の時点で記録し、v3 のときだけ文字列形式を変換する
-/// - v4: Charset は UTF-8 固定。要求の Charset ヘッダは見ず（値で拒否しない）、応答に Charset を付けない
+/// - v4: 要求を解析せずに原文のまま Ghost に渡す。Charset は UTF-8 固定。要求の Charset ヘッダは見ず（値で拒否しない）、応答に Charset を付けない
 /// - v3: 従来どおり。UTF-8 以外の Charset は 400、応答に Charset がなければ "Charset: UTF-8" を補う
 pub struct Adapter<G> {
     ghost: G,
@@ -197,21 +114,24 @@ impl<G: Ghost> Shiori for Adapter<G> {
             ShioriLoadMode::V4(h) => (Some(h), false),
             ShioriLoadMode::V3 => (None, true),
         };
-        Ok(Self { ghost: G::load(host, dir)?, v3 })
+        Ok(Self {
+            ghost: G::load(host, dir)?,
+            v3,
+        })
     }
 
     fn request(&mut self, req: &str) -> ShioriResponse {
         if !self.v3 {
-            return self.ghost.request(&Headers::parse(req));
+            return self.ghost.request(req);
         }
         let (status, text) = match v3::parse_request(req) {
             Err(st) => (st, v3::response(st, b"")),
             Ok((v3::Method::Get, h)) => {
-                let r = self.ghost.request(&h).into_owned();
+                let r = self.ghost.request(h).into_owned();
                 (r.status, v3::response(r.status, r.body.as_slice()))
             }
             Ok((v3::Method::Notify, h)) => {
-                let st = self.ghost.notify(&h);
+                let st = self.ghost.notify(h);
                 (st, v3::response(st, b""))
             }
         };
@@ -220,10 +140,10 @@ impl<G: Ghost> Shiori for Adapter<G> {
 
     fn notify(&mut self, req: &str) -> ShioriStatus {
         if !self.v3 {
-            return self.ghost.notify(&Headers::parse(req));
+            return self.ghost.notify(req);
         }
         match v3::parse_request(req) {
-            Ok((v3::Method::Notify, h)) => self.ghost.notify(&h),
+            Ok((v3::Method::Notify, h)) => self.ghost.notify(h),
             Ok((v3::Method::Get, _)) => SHIORI_400_BAD_REQUEST,
             Err(st) => st,
         }
@@ -250,17 +170,23 @@ pub mod v3 {
         Notify,
     }
 
-    /// 開始行を読み、メソッドとヘッダ部分に分ける
+    /// 開始行を読み、メソッドとヘッダ部分の原文に分ける
+    /// ヘッダ部分は req の部分文字列で、開始行と終端の空行（とそれより後）を除き、各行の改行は残す
     /// 不正な開始行（SHIORI/2.x を含む）と UTF-8 以外の Charset は 400
-    pub fn parse_request(req: &str) -> Result<(Method, Headers<'_>), ShioriStatus> {
+    pub fn parse_request(req: &str) -> Result<(Method, &str), ShioriStatus> {
         let (line, rest) = req.split_once('\n').unwrap_or((req, ""));
         let method = match line.trim_end_matches('\r').trim_end() {
             "GET SHIORI/3.0" => Method::Get,
             "NOTIFY SHIORI/3.0" => Method::Notify,
             _ => return Err(SHIORI_400_BAD_REQUEST),
         };
-        let headers = Headers::parse(rest);
-        if let Some(cs) = headers.get("Charset") {
+        let end = rest
+            .split_inclusive('\n')
+            .take_while(|l| *l != "\n" && *l != "\r\n")
+            .map(str::len)
+            .sum();
+        let headers = &rest[..end];
+        if let Some(cs) = charset(headers) {
             if !cs.trim().eq_ignore_ascii_case("UTF-8") {
                 return Err(SHIORI_400_BAD_REQUEST);
             }
@@ -268,11 +194,27 @@ pub mod v3 {
         Ok((method, headers))
     }
 
+    /// Charset ヘッダの値。protocol::Headers と同じ規則（名前は大文字小文字を区別しない・
+    /// 最初の `:` で分ける・値の先頭の空白を除く・同名が複数あれば最初のもの）で読む
+    fn charset(headers: &str) -> Option<&str> {
+        headers.lines().find_map(|line| {
+            let (k, v) = line.split_once(':')?;
+            k.trim()
+                .eq_ignore_ascii_case("Charset")
+                .then(|| v.trim_start())
+        })
+    }
+
     /// ステータスとヘッダ部分から SHIORI/3.0 の応答全文を組み立てる
     /// Charset がなければ "Charset: UTF-8" を補う
     pub fn response(status: ShioriStatus, body: &[u8]) -> Vec<u8> {
-        let status = if status < 0 { SHIORI_500_INTERNAL_SERVER_ERROR } else { status };
-        let mut v = format!("SHIORI/3.0 {} {}\r\n", status, shiori_reason_phrase(status)).into_bytes();
+        let status = if status < 0 {
+            SHIORI_500_INTERNAL_SERVER_ERROR
+        } else {
+            status
+        };
+        let mut v =
+            format!("SHIORI/3.0 {} {}\r\n", status, shiori_reason_phrase(status)).into_bytes();
 
         let mut b = body;
         while b.ends_with(b"\r\n") {
@@ -297,189 +239,14 @@ pub mod v3 {
 }
 
 // ============================================================
-// ホストとの間のメッセージ名（暫定。ホスト側プロトコル仕様で確定させる）
-// ============================================================
-
-/// SHIORI ⇔ ホスト間のメッセージ形式（v4）
-///
-/// - プロパティ取得（host.request）
-///   要求: `ID: property` / `Reference0: <名前>`
-///   応答: 200 + `Value: <値>`、存在しなければ 204
-/// - 非同期依頼（host.post）
-///   `Command: <コマンド名>`（必須）/ `Tag: <受付 ID>`（結果が必要な場合）/ 任意のヘッダ
-/// - 完了通知（ホスト → SHIORI の request または notify）
-///   `ID: OnHostComplete` / `Tag` / `Status: <ステータス>` /
-///   `Reference0: <コマンド名>` / `Reference1..: <結果>`
-pub mod host_protocol {
-    pub const ID_PROPERTY: &str = "property";
-    pub const HEADER_VALUE: &str = "Value";
-
-    pub const HEADER_COMMAND: &str = "Command";
-    pub const HEADER_TAG: &str = "Tag";
-
-    pub const ID_HOST_COMPLETE: &str = "OnHostComplete";
-    pub const HEADER_STATUS: &str = "Status";
-}
-
-// ============================================================
-// プロパティ
-// ============================================================
-
-/// プロパティ取得の結果
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Lookup<'a> {
-    /// 値がある
-    Ready(&'a str),
-    /// v4 でホストが「存在しない」と答えた
-    Missing,
-    /// v3 で未取得。代替動作にし、後続イベントで set されるのを待つ
-    Pending,
-}
-
-/// v4 ではホストに同期で問い合わせ、v3 では受動的に埋まるキャッシュとして振る舞う
-///
-/// v3 でプロパティを得る手順（さくらスクリプトでの取得指示や、届くイベントの形式）は
-/// ベースウェアに依存するため、このクレートでは扱わない。
-/// 届いた値は Ghost 側で解釈して set で取り込む。
-pub struct Properties {
-    host: Option<ShioriHostHandle>,
-    cache: HashMap<String, String>,
-}
-
-impl Properties {
-    pub fn new(host: Option<ShioriHostHandle>) -> Self {
-        Self { host, cache: HashMap::new() }
-    }
-
-    /// ホストに問い合わせられるか（v4 なら true）
-    pub fn is_live(&self) -> bool {
-        self.host.is_some()
-    }
-
-    pub fn get(&mut self, name: &str) -> Lookup<'_> {
-        if let Some(h) = &self.host {
-            let req = HeaderWriter::new()
-                .push("ID", host_protocol::ID_PROPERTY)
-                .push("Reference0", name)
-                .finish();
-            match h.request_str(&req) {
-                Ok(r) if r.status == SHIORI_200_OK => {
-                    let value = r
-                        .body
-                        .as_str()
-                        .ok()
-                        .and_then(|s| Headers::parse(s).get(host_protocol::HEADER_VALUE).map(str::to_owned));
-                    match value {
-                        Some(v) => {
-                            self.cache.insert(name.to_owned(), v);
-                        }
-                        None => return Lookup::Missing,
-                    }
-                }
-                Ok(r) if r.status == SHIORI_204_NO_CONTENT => {
-                    self.cache.remove(name);
-                    return Lookup::Missing;
-                }
-                // ホスト側のエラーや ABI エラーのときは、キャッシュの値で代替する
-                _ => {}
-            }
-        }
-        match self.cache.get(name) {
-            Some(v) => Lookup::Ready(v.as_str()),
-            None if self.host.is_some() => Lookup::Missing,
-            None => Lookup::Pending,
-        }
-    }
-
-    /// キャッシュだけを見る（ホストに問い合わせない）
-    pub fn cached(&self, name: &str) -> Option<&str> {
-        self.cache.get(name).map(String::as_str)
-    }
-
-    /// v3 などで受け取った値を取り込む
-    pub fn set(&mut self, name: impl Into<String>, value: impl Into<String>) {
-        self.cache.insert(name.into(), value.into());
-    }
-
-    pub fn invalidate(&mut self, name: &str) {
-        self.cache.remove(name);
-    }
-
-    pub fn clear(&mut self) {
-        self.cache.clear();
-    }
-}
-
-// ============================================================
-// post の受付 ID（Tag）
-// ============================================================
-
-/// SHIORI が Tag を発行し、登録してから post する（完了イベントとの競合を防ぐ）
-/// 任意のスレッドから使える（T: Send なら Sync）
-pub struct PendingTags<T> {
-    next: AtomicU64,
-    map: Mutex<HashMap<u64, T>>,
-}
-
-impl<T> Default for PendingTags<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T> PendingTags<T> {
-    pub fn new() -> Self {
-        Self { next: AtomicU64::new(1), map: Mutex::new(HashMap::new()) }
-    }
-
-    fn map(&self) -> MutexGuard<'_, HashMap<u64, T>> {
-        self.map.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    /// Tag を付けて post する。受け付けられなければ登録を取り消して Err を返す
-    /// headers はヘッダ部分（Tag 以外。Command を含めること）
-    pub fn post(&self, poster: &ShioriHostPoster, context: T, headers: &str) -> Result<u64, ShioriStatus> {
-        let tag = self.next.fetch_add(1, Ordering::Relaxed);
-        self.map().insert(tag, context);
-        let st = poster.post_str(&format!("{}: {tag}\r\n{headers}", host_protocol::HEADER_TAG));
-        if shiori_is_success(st) {
-            Ok(tag)
-        } else {
-            self.map().remove(&tag);
-            Err(st)
-        }
-    }
-
-    pub fn take(&self, tag: u64) -> Option<T> {
-        self.map().remove(&tag)
-    }
-
-    /// 完了イベントの Tag ヘッダから登録を取り出す
-    pub fn take_from(&self, h: &Headers<'_>) -> Option<(u64, T)> {
-        let tag: u64 = h.get(host_protocol::HEADER_TAG)?.trim().parse().ok()?;
-        self.take(tag).map(|c| (tag, c))
-    }
-
-    pub fn len(&self) -> usize {
-        self.map().len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub fn clear(&self) {
-        self.map().clear();
-    }
-}
-
-// ============================================================
 // テスト（DLL を介さず同一プロセスでテーブルを通す）
 // ============================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use protocol::{HeaderWriter, Headers};
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     struct Echo;
 
@@ -487,8 +254,8 @@ mod tests {
         fn load(_host: Option<ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
             Ok(Echo)
         }
-        fn request(&mut self, req: &Headers<'_>) -> ShioriResponse {
-            match req.id() {
+        fn request(&mut self, req: &str) -> ShioriResponse {
+            match Headers::parse(req).id() {
                 Some(id) => HeaderWriter::new().push("Value", id).into_response(),
                 None => ShioriResponse::bad_request(),
             }
@@ -507,17 +274,24 @@ mod tests {
         const SUPPORTS_V3: bool = false;
         fn load(host: Option<ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
             let host = host.ok_or(SHIORI_E_UNSUPPORTED)?;
-            Ok(Counter { count: 0, poster: host.poster() })
+            Ok(Counter {
+                count: 0,
+                poster: host.poster(),
+            })
         }
-        fn request(&mut self, req: &Headers<'_>) -> ShioriResponse {
-            let v = if req.id() == Some("post") {
+        fn request(&mut self, req: &str) -> ShioriResponse {
+            let v = if Headers::parse(req).id() == Some("post") {
                 let p = self.poster.clone();
-                std::thread::spawn(move || p.post_str("Command: test")).join().unwrap()
+                std::thread::spawn(move || p.post_str("Command: test"))
+                    .join()
+                    .unwrap()
             } else {
                 self.count += 1;
                 self.count as ShioriStatus
             };
-            HeaderWriter::new().push("Value", &v.to_string()).into_response()
+            HeaderWriter::new()
+                .push("Value", &v.to_string())
+                .into_response()
         }
     }
 
@@ -552,7 +326,9 @@ mod tests {
         assert!(text.ends_with("\r\n\r\n"));
 
         // v3 は UTF-8 以外の Charset を 400 で拒む
-        let r = inst.request("GET SHIORI/3.0\r\nCharset: Shift_JIS\r\nID: OnBoot\r\n\r\n").expect("abi");
+        let r = inst
+            .request("GET SHIORI/3.0\r\nCharset: Shift_JIS\r\nID: OnBoot\r\n\r\n")
+            .expect("abi");
         assert_eq!(r.status, 400);
 
         let r = inst.request("GET SHIORI/2.6\r\n\r\n").expect("abi");
@@ -561,11 +337,76 @@ mod tests {
         assert_eq!(inst.notify("NOTIFY SHIORI/3.0\r\nID: x\r\n\r\n"), Ok(204));
     }
 
+    /// v3 の Ghost が受けた原文を残す（この Ghost を使うテストは 1 本だけ）
+    static RECEIVED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+    struct Record;
+
+    impl Ghost for Record {
+        fn load(_host: Option<ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+            Ok(Record)
+        }
+        fn request(&mut self, req: &str) -> ShioriResponse {
+            RECEIVED.lock().unwrap().push(req.to_owned());
+            ShioriResponse::no_content()
+        }
+        fn notify(&mut self, req: &str) -> ShioriStatus {
+            RECEIVED.lock().unwrap().push(req.to_owned());
+            SHIORI_204_NO_CONTENT
+        }
+    }
+
+    static RECORD_V3: ShioriApi = ShioriApi::new::<Adapter<Record>, { SHIORI_ABI_VERSION_3 }>();
+
     #[test]
-    fn headers_parse() {
-        let h = Headers::parse("ID: OnBoot\r\nreference0: a: b\r\n\r\n");
-        assert_eq!(h.id(), Some("OnBoot"));
-        assert_eq!(h.reference(0), Some("a: b"));
+    fn v3_ghost_receives_headers_without_start_line_and_blank_line() {
+        let mut inst = RECORD_V3.load_v3("/tmp").expect("load");
+        assert_eq!(
+            inst.request("GET SHIORI/3.0\r\nCharset: UTF-8\r\nID: OnBoot\r\n\r\n")
+                .expect("abi")
+                .status,
+            204
+        );
+        assert_eq!(
+            inst.notify("NOTIFY SHIORI/3.0\r\ncharset :  utf-8\r\nID: x\r\n\r\n"),
+            Ok(204)
+        );
+        assert_eq!(
+            inst.request("GET SHIORI/3.0\nID: lf\n\n")
+                .expect("abi")
+                .status,
+            204
+        );
+        // 名前の大文字小文字・値の先頭の空白は Headers と同じ規則で読む
+        assert_eq!(
+            inst.request("GET SHIORI/3.0\r\nCHARSET:Shift_JIS\r\nID: x\r\n\r\n")
+                .expect("abi")
+                .status,
+            400
+        );
+        // ヘッダ部分は最初の空行で終わる。その後ろは渡さない。終端の空行が無ければ最後の行まで
+        assert_eq!(
+            inst.request("GET SHIORI/3.0\r\nID: a\r\n\r\nID: after\r\n")
+                .expect("abi")
+                .status,
+            204
+        );
+        assert_eq!(
+            inst.request("GET SHIORI/3.0\r\nID: b\r\n")
+                .expect("abi")
+                .status,
+            204
+        );
+        assert_eq!(
+            *RECEIVED.lock().unwrap(),
+            [
+                "Charset: UTF-8\r\nID: OnBoot\r\n",
+                "charset :  utf-8\r\nID: x\r\n",
+                "ID: lf\n",
+                "ID: a\r\n",
+                "ID: b\r\n",
+            ]
+        );
     }
 
     // ---- v4 の Charset・複数インスタンス・Poster の複製 ----
@@ -574,12 +415,17 @@ mod tests {
     fn v4_ignores_charset_and_adds_none() {
         let host = ShioriHostBox::new(CountHost::default());
         let mut inst = V4_API.load(&host, "/ghost").expect("load");
-        let r = inst.request("Charset: Shift_JIS\r\nID: OnBoot\r\n").expect("abi");
+        let r = inst
+            .request("Charset: Shift_JIS\r\nID: OnBoot\r\n")
+            .expect("abi");
         assert_eq!(r.status, 200);
         let text = r.body.as_str().unwrap();
         assert_eq!(text, "Value: 1\r\n");
         assert!(!text.to_ascii_lowercase().contains("charset"));
-        assert_eq!(inst.notify("Charset: Shift_JIS\r\nID: OnSecondChange\r\n"), Ok(204));
+        assert_eq!(
+            inst.notify("Charset: Shift_JIS\r\nID: OnSecondChange\r\n"),
+            Ok(204)
+        );
     }
 
     #[test]
@@ -587,7 +433,14 @@ mod tests {
         let host = ShioriHostBox::new(CountHost::default());
         let mut a = V4_API.load(&host, "/a").expect("load a");
         let mut b = V4_API.load(&host, "/b").expect("load b");
-        let value = |i: &mut ShioriInstance<'_>| i.request("ID: x\r\n").unwrap().body.as_str().unwrap().to_owned();
+        let value = |i: &mut ShioriInstance<'_>| {
+            i.request("ID: x\r\n")
+                .unwrap()
+                .body
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
         assert_eq!(value(&mut a), "Value: 1\r\n");
         assert_eq!(value(&mut a), "Value: 2\r\n");
         assert_eq!(value(&mut b), "Value: 1\r\n");
@@ -602,5 +455,65 @@ mod tests {
         let r = inst.request("ID: post\r\n").expect("abi");
         assert_eq!(r.body.as_str().unwrap(), "Value: 204\r\n");
         assert_eq!(host.host().posts.load(Ordering::SeqCst), 1);
+    }
+
+    // ---- 芯が便利関数を参照しないことの検査（要件 9.3・10.1） ----
+
+    /// テストより前（`mod tests {` の行の手前まで）の、空でなく `//` で始まらない行。
+    /// 途中に `#[cfg(test)]` の項目が足されても、その後の芯の行を見落とさない
+    fn code_lines_before_tests(src: &str) -> impl Iterator<Item = &str> {
+        src.lines()
+            .map(str::trim)
+            .take_while(|l| *l != "mod tests {")
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+    }
+
+    /// code_lines_before_tests のうち `protocol` を語として含む行
+    fn protocol_lines(src: &str) -> Vec<&str> {
+        code_lines_before_tests(src)
+            .filter(|l| {
+                l.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|w| w == "protocol")
+            })
+            .collect()
+    }
+
+    #[test]
+    fn protocol_lines_counts_only_code_before_tests() {
+        let allowed = "//! protocol の doc\n/// protocol::Headers を使ってよい\npub mod protocol;\nlet protocols = my_protocol;\n#[cfg(test)]\nmod tests {\n    use protocol::Headers;\n}\n";
+        assert_eq!(protocol_lines(allowed), ["pub mod protocol;"]);
+
+        let violated = "//! protocol の doc\npub mod protocol;\n    use crate::protocol::Headers;\n#[cfg(test)]\nmod tests {\n    use protocol::Headers;\n}\n";
+        assert_eq!(
+            protocol_lines(violated),
+            ["pub mod protocol;", "use crate::protocol::Headers;"]
+        );
+
+        // 途中の `#[cfg(test)]` の項目は境目でない。その後の芯の参照も数える
+        let early_cfg = "pub mod protocol;\n#[cfg(test)]\nmod helper;\n    use crate::protocol::Headers;\n#[cfg(test)]\nmod tests {\n    use protocol::Headers;\n}\n";
+        assert_eq!(
+            protocol_lines(early_cfg),
+            ["pub mod protocol;", "use crate::protocol::Headers;"]
+        );
+
+        // 境目が無ければテストの中の参照も数え、検査は黙って通らない
+        let no_boundary = "pub mod protocol;\nmod test {\n    use protocol::Headers;\n}\n";
+        assert_eq!(protocol_lines(no_boundary).len(), 2);
+    }
+
+    #[test]
+    fn core_refers_to_protocol_only_by_its_declaration() {
+        assert_eq!(
+            protocol_lines(include_str!("lib.rs")),
+            ["pub mod protocol;"]
+        );
+    }
+
+    #[test]
+    fn protocol_module_does_not_refer_to_core() {
+        let found: Vec<&str> = code_lines_before_tests(include_str!("protocol.rs"))
+            .filter(|l| l.contains("Ghost") || l.contains("Adapter") || l.contains("v3::"))
+            .collect();
+        assert!(found.is_empty(), "{found:?}");
     }
 }

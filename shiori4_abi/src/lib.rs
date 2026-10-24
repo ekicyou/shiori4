@@ -82,6 +82,7 @@
 //!   - post の呼び出し中や host.request の処理中には届けない（イベントループから届ける）
 //!   - unload を始めたら、そのインスタンス宛ての未配送イベントは破棄する
 //! - Tag を付けない post は「結果は不要」を意味する
+//! - 運ぶ中身の語（Command・Tag・OnHostComplete の並び・拒否の返し方など）は、shiori4 リポジトリの doc/host-protocol.md（ホスト側プロトコル仕様）が定める
 //!
 //! # 配布の決まり（DLL の選び方）
 //! - descript.txt の shiori,<名前> から名前の幹を取る（例 shiori,pasta.dll → pasta）
@@ -103,7 +104,7 @@ use std::{
     fmt,
     mem::{offset_of, size_of},
     ops::Deref,
-    panic::{catch_unwind, AssertUnwindSafe},
+    panic::{AssertUnwindSafe, catch_unwind},
     ptr::{self, NonNull},
     str::Utf8Error,
     string::FromUtf8Error,
@@ -236,7 +237,12 @@ impl ShioriBytes {
         owner: *mut c_void,
         release: Option<unsafe extern "C" fn(bytes: *mut ShioriBytes)>,
     ) -> Self {
-        Self { ptr, len, owner, release }
+        Self {
+            ptr,
+            len,
+            owner,
+            release,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -404,29 +410,47 @@ pub struct ShioriResponse {
 
 impl ShioriResponse {
     pub fn ok(body: impl Into<ShioriBytes>) -> Self {
-        Self { status: SHIORI_200_OK, body: body.into() }
+        Self {
+            status: SHIORI_200_OK,
+            body: body.into(),
+        }
     }
 
     pub fn no_content() -> Self {
-        Self { status: SHIORI_204_NO_CONTENT, body: ShioriBytes::empty() }
+        Self {
+            status: SHIORI_204_NO_CONTENT,
+            body: ShioriBytes::empty(),
+        }
     }
 
     pub fn bad_request() -> Self {
-        Self { status: SHIORI_400_BAD_REQUEST, body: ShioriBytes::empty() }
+        Self {
+            status: SHIORI_400_BAD_REQUEST,
+            body: ShioriBytes::empty(),
+        }
     }
 
     pub fn error() -> Self {
-        Self { status: SHIORI_500_INTERNAL_SERVER_ERROR, body: ShioriBytes::empty() }
+        Self {
+            status: SHIORI_500_INTERNAL_SERVER_ERROR,
+            body: ShioriBytes::empty(),
+        }
     }
 
     pub fn with_status(status: ShioriStatus, body: impl Into<ShioriBytes>) -> Self {
-        Self { status, body: body.into() }
+        Self {
+            status,
+            body: body.into(),
+        }
     }
 
     /// 応答を分解し、body を RAII ラッパに包んで返す（body を読んでから捨てる場合に使う）
     pub fn into_owned(self) -> ShioriOwnedResponse {
         // SAFETY: body はまだ誰にも渡していない
-        ShioriOwnedResponse { status: self.status, body: unsafe { ShioriOwnedBytes::from_raw(self.body) } }
+        ShioriOwnedResponse {
+            status: self.status,
+            body: unsafe { ShioriOwnedBytes::from_raw(self.body) },
+        }
     }
 }
 
@@ -563,7 +587,9 @@ impl<H: ShioriHost> ShioriHostBox<H> {
         // ctx は ShioriHost の実体を指す（Box::into_raw 後なのでアドレスは動かない）
         unsafe { (*raw).api.ctx = ptr::addr_of_mut!((*raw).host).cast() };
         // SAFETY: Box::into_raw の戻り値は null にならない
-        Self { raw: unsafe { NonNull::new_unchecked(raw) } }
+        Self {
+            raw: unsafe { NonNull::new_unchecked(raw) },
+        }
     }
 
     pub fn host(&self) -> &H {
@@ -797,7 +823,10 @@ unsafe extern "C" fn shiori_load<S: Shiori, const V: u32>(
                 return Err(SHIORI_E_UNSUPPORTED);
             }
             let gate = Arc::new(PosterGate::default());
-            (ShioriLoadMode::V4(unsafe { ShioriHostHandle::new(api, gate.clone()) }), Some(gate))
+            (
+                ShioriLoadMode::V4(unsafe { ShioriHostHandle::new(api, gate.clone()) }),
+                Some(gate),
+            )
         } else {
             (ShioriLoadMode::V3, None) // host が渡されても無視する
         };
@@ -872,8 +901,7 @@ unsafe extern "C" fn shiori_notify<S: Shiori>(
 }
 
 /// エクスポート関数 `shiori_get_api` の型
-pub type ShioriGetApiFn =
-    unsafe extern "C" fn(requested_abi_version: u32) -> *const ShioriApi;
+pub type ShioriGetApiFn = unsafe extern "C" fn(requested_abi_version: u32) -> *const ShioriApi;
 
 /// エクスポート関数 `shiori_get_api` を生成する
 ///
@@ -918,9 +946,8 @@ impl ShioriInstance<'_> {
     /// v3 では body に SHIORI/3.0 の応答全文が入る
     pub fn request(&mut self, req: &str) -> Result<ShioriOwnedResponse, ShioriStatus> {
         let mut out = ShioriBytes::empty();
-        let st = unsafe {
-            (self.api.request)(self.inst.as_ptr(), req.as_ptr(), req.len(), &mut out)
-        };
+        let st =
+            unsafe { (self.api.request)(self.inst.as_ptr(), req.as_ptr(), req.len(), &mut out) };
         let body = unsafe { ShioriOwnedBytes::from_raw(out) }; // どの場合でも確実に解放する
         if shiori_is_abi_error(st) {
             Err(st)
@@ -1039,7 +1066,10 @@ impl ShioriHostHandle {
     /// # Safety
     /// api は is_valid() を満たし、unload が返るまで有効であること
     pub(crate) unsafe fn new(api: &ShioriHostApi, gate: Arc<PosterGate>) -> Self {
-        Self { api: NonNull::from(api), gate }
+        Self {
+            api: NonNull::from(api),
+            gate,
+        }
     }
 
     fn api(&self) -> &ShioriHostApi {
@@ -1092,7 +1122,12 @@ impl ShioriHostHandle {
             };
         }
         let api = self.api();
-        ShioriHostPoster { ctx: api.ctx, post: api.post, log: api.log, gate: self.gate.clone() }
+        ShioriHostPoster {
+            ctx: api.ctx,
+            post: api.post,
+            log: api.log,
+            gate: self.gate.clone(),
+        }
     }
 }
 
@@ -1100,7 +1135,9 @@ impl ShioriHostPoster {
     /// 204: 受付、400: 不正、SHIORI_E_SHUTDOWN: 終了中（unload を始めた後を含む）
     pub fn post(&self, msg: &[u8]) -> ShioriStatus {
         // 門を見てから ctx に触れる（閉じた後の ctx はホストが解放しているかもしれない）
-        let Some(_ticket) = self.gate.enter() else { return SHIORI_E_SHUTDOWN };
+        let Some(_ticket) = self.gate.enter() else {
+            return SHIORI_E_SHUTDOWN;
+        };
         unsafe { (self.post)(self.ctx, msg.as_ptr(), msg.len()) }
     }
 
@@ -1110,7 +1147,9 @@ impl ShioriHostPoster {
 
     /// 任意のスレッドから呼べる（規約 4）。unload を始めた後は何もしない
     pub fn log(&self, level: i32, msg: &str) {
-        let Some(_ticket) = self.gate.enter() else { return };
+        let Some(_ticket) = self.gate.enter() else {
+            return;
+        };
         unsafe { (self.log)(self.ctx, level, msg.as_ptr(), msg.len()) }
     }
 }
@@ -1171,7 +1210,10 @@ mod tests {
 
         // 自分が確保したバイト列（release_vec）を別スレッドへ送り、そこで解放する
         let owned = unsafe { ShioriOwnedBytes::from_raw(ShioriBytes::copy_from_str("hello")) };
-        let resp = ShioriOwnedResponse { status: SHIORI_200_OK, body: owned };
+        let resp = ShioriOwnedResponse {
+            status: SHIORI_200_OK,
+            body: owned,
+        };
         let got = std::thread::spawn(move || {
             let s = resp.body.as_str().map(str::to_owned);
             drop(resp);
@@ -1184,8 +1226,8 @@ mod tests {
     // ---- unload と Poster の門 ----
 
     use std::cell::RefCell;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
 
     thread_local! {
@@ -1200,7 +1242,9 @@ mod tests {
 
     impl Shiori for GateShiori {
         fn load(mode: ShioriLoadMode, _dir: &str) -> Result<Self, ShioriStatus> {
-            let ShioriLoadMode::V4(h) = mode else { return Err(SHIORI_E_UNSUPPORTED) };
+            let ShioriLoadMode::V4(h) = mode else {
+                return Err(SHIORI_E_UNSUPPORTED);
+            };
             let poster = h.poster();
             LOADED.with(|l| *l.borrow_mut() = Some(poster.clone()));
             Ok(Self { poster })
@@ -1268,7 +1312,10 @@ mod tests {
         assert_eq!(c.posts.load(Ordering::SeqCst), 1);
         drop(inst);
         // Shiori の Drop の中の post も門で止まる
-        assert_eq!(POST_IN_DROP.with(|d| d.borrow_mut().take()), Some(SHIORI_E_SHUTDOWN));
+        assert_eq!(
+            POST_IN_DROP.with(|d| d.borrow_mut().take()),
+            Some(SHIORI_E_SHUTDOWN)
+        );
         assert_eq!(poster.post_str("after"), SHIORI_E_SHUTDOWN);
         assert_eq!(poster.clone().post(b"after"), SHIORI_E_SHUTDOWN);
         assert_eq!(c.posts.load(Ordering::SeqCst), 1);
@@ -1350,7 +1397,9 @@ mod tests {
 
     impl Shiori for HandleShiori {
         fn load(mode: ShioriLoadMode, _dir: &str) -> Result<Self, ShioriStatus> {
-            let ShioriLoadMode::V4(h) = mode else { return Err(SHIORI_E_UNSUPPORTED) };
+            let ShioriLoadMode::V4(h) = mode else {
+                return Err(SHIORI_E_UNSUPPORTED);
+            };
             HANDLE.with(|s| *s.borrow_mut() = Some(h.clone()));
             Ok(Self)
         }
@@ -1430,11 +1479,17 @@ mod tests {
     fn v4_load_failure_logs_one_line() {
         let host = ShioriHostBox::new(LogHost);
         assert!(FAIL_V4.load(&host, "/ghost").is_none());
-        assert_eq!(take_logged(), vec![(SHIORI_LOG_ERROR, "shiori load failed: status -1".to_owned())]);
+        assert_eq!(
+            take_logged(),
+            vec![(SHIORI_LOG_ERROR, "shiori load failed: status -1".to_owned())]
+        );
         assert!(FAIL_V4.load(&host, "/panic").is_none());
         assert_eq!(
             take_logged(),
-            vec![(SHIORI_LOG_ERROR, "shiori load failed: panic (status -3)".to_owned())]
+            vec![(
+                SHIORI_LOG_ERROR,
+                "shiori load failed: panic (status -3)".to_owned()
+            )]
         );
         // dir の検査の失敗（UTF-8 でない）も 1 行
         let p = unsafe { (FAIL_V4.load)(Some(host.api_ptr()), [0xffu8].as_ptr(), 1) };

@@ -71,3 +71,8 @@ README は 1 と 2 と道案内だけにする。規約の本文は上流の 2 �
 - 規約の本文の節は、C ヘッダ（`shiori4_abi/include/shiori4_abi.h` 冒頭）と `shiori4_abi` の `//!` で同文になった。節の順: 版／ABI 規約／戻り値／スレッド規約 1〜7／load の規約／ホストのプロセス／DLL の口と発見の順／post の完了通知／配布の決まり。教科書はこの番号と言葉を参照する。
 - `ShioriHostPoster` は `Copy` でなくなり（`.clone()` で複製）、任意のスレッドから呼べる `log` を持つ。unload を始めた時点で Poster は無効になり（post は `SHIORI_E_SHUTDOWN`、log は何もしない）、join は要らない。unload の後まで残った `ShioriHostHandle` も、request は `SHIORI_E_SHUTDOWN`、log は何もしない。
 - 新しいエラー `SHIORI_E_WRONG_THREAD`（-7）: 規約 2 の期間（load・request・notify の処理中・同じスレッド）の外の `host->request`。unload の中の request も -7 になる。
+
+## 申し送り（host-protocol より）
+- 語彙の正本は `doc/host-protocol.md`（第 0〜8 章・付録 A 移行・付録 B ukadoc）。語の表（件 4・hearing の「host-protocol の語の表」）は第 8 章の定数と語の対応を参照する。「host_protocol の確定の範囲」は付録 A（0.0.1 からの移行）が版ごとの一覧の起点になる。
+- 芯は中身を解釈しない。`Ghost::request`／`notify` は原文の `&str` を受け、`Host` は `name()` が必須・`request(&str)` の既定は 400・`accept_post(&str)` の既定は受け付け・組み込みのプロパティの応答は無い。パースと組み立ては便利関数 `shiori4::protocol`（`shiori4_host::protocol` で再エクスポート）にある。教科書の例はこの形で書く。
+- getproperty／setproperty に答える Host の例は `protocol::getproperty_response`・`rejection_response`、完了通知は `protocol::host_complete` を `Completer::complete_with` で返す（`shiori4_host/src/lib.rs` の crate doc の例）。拒否は 400 ＋ `Reason: forbidden`（文書の第 7 章）。

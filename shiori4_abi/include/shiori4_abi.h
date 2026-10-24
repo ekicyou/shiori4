@@ -80,6 +80,7 @@
  *   - post の呼び出し中や host->request の処理中には届けない（イベントループから届ける）
  *   - unload を始めたら、そのインスタンス宛ての未配送イベントは破棄する
  * - Tag を付けない post は「結果は不要」を意味する
+ * - 運ぶ中身の語（Command・Tag・OnHostComplete の並び・拒否の返し方など）は、shiori4 リポジトリの doc/host-protocol.md（ホスト側プロトコル仕様）が定める
  *
  * 配布の決まり（DLL の選び方）
  * - descript.txt の shiori,<名前> から名前の幹を取る（例 shiori,pasta.dll → pasta）

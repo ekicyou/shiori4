@@ -62,15 +62,26 @@ impl TargetArch {
 ///     ["libpasta.x64.so", "libpasta.so"]
 /// );
 /// ```
-pub fn shiori_file_candidates(name: &str, os: TargetOs, arch: TargetArch, can_spawn_x64: bool) -> Vec<String> {
+pub fn shiori_file_candidates(
+    name: &str,
+    os: TargetOs,
+    arch: TargetArch,
+    can_spawn_x64: bool,
+) -> Vec<String> {
     let split = name.rfind(['/', '\\']).map_or(0, |i| i + 1);
     let (dir, file) = name.split_at(split);
-    let stem = match file.len().checked_sub(4).and_then(|i| file.get(i..).map(|ext| (i, ext))) {
+    let stem = match file
+        .len()
+        .checked_sub(4)
+        .and_then(|i| file.get(i..).map(|ext| (i, ext)))
+    {
         Some((i, ext)) if ext.eq_ignore_ascii_case(".dll") => &file[..i],
         _ => file,
     };
     let names = match (os, arch) {
-        (TargetOs::Windows, TargetArch::X64) => vec![format!("{stem}.x64.dll"), format!("{stem}.dll")],
+        (TargetOs::Windows, TargetArch::X64) => {
+            vec![format!("{stem}.x64.dll"), format!("{stem}.dll")]
+        }
         (TargetOs::Windows, TargetArch::Arm64) => {
             let mut v = vec![format!("{stem}.arm64.dll")];
             if can_spawn_x64 {
@@ -79,8 +90,12 @@ pub fn shiori_file_candidates(name: &str, os: TargetOs, arch: TargetArch, can_sp
             v.push(format!("{stem}.dll"));
             v
         }
-        (TargetOs::Linux, TargetArch::X64) => vec![format!("lib{stem}.x64.so"), format!("lib{stem}.so")],
-        (TargetOs::Linux, TargetArch::Arm64) => vec![format!("lib{stem}.arm64.so"), format!("lib{stem}.so")],
+        (TargetOs::Linux, TargetArch::X64) => {
+            vec![format!("lib{stem}.x64.so"), format!("lib{stem}.so")]
+        }
+        (TargetOs::Linux, TargetArch::Arm64) => {
+            vec![format!("lib{stem}.arm64.so"), format!("lib{stem}.so")]
+        }
         (TargetOs::MacOs, _) => vec![format!("lib{stem}.dylib")],
     };
     names.into_iter().map(|n| format!("{dir}{n}")).collect()
@@ -109,7 +124,9 @@ pub fn machine_matches(path: impl AsRef<Path>, arch: TargetArch) -> io::Result<b
     (&mut file).take(HEAD_LIMIT).read_to_end(&mut head)?;
 
     if head.starts_with(b"MZ") {
-        let Some(e_lfanew) = u32_at(&head, 0x3C, true) else { return Ok(false) };
+        let Some(e_lfanew) = u32_at(&head, 0x3C, true) else {
+            return Ok(false);
+        };
         file.seek(SeekFrom::Start(u64::from(e_lfanew)))?;
         let mut pe = [0u8; 6];
         match file.read_exact(&mut pe) {
@@ -120,7 +137,10 @@ pub fn machine_matches(path: impl AsRef<Path>, arch: TargetArch) -> io::Result<b
         if &pe[..4] != b"PE\0\0" {
             return Ok(false);
         }
-        let want: u16 = match arch { TargetArch::X64 => 0x8664, TargetArch::Arm64 => 0xAA64 };
+        let want: u16 = match arch {
+            TargetArch::X64 => 0x8664,
+            TargetArch::Arm64 => 0xAA64,
+        };
         return Ok(u16::from_le_bytes([pe[4], pe[5]]) == want);
     }
 
@@ -131,11 +151,17 @@ pub fn machine_matches(path: impl AsRef<Path>, arch: TargetArch) -> io::Result<b
             (Some(2), Some(2)) => false,
             _ => return Ok(false),
         };
-        let want: u16 = match arch { TargetArch::X64 => 62, TargetArch::Arm64 => 183 };
+        let want: u16 = match arch {
+            TargetArch::X64 => 62,
+            TargetArch::Arm64 => 183,
+        };
         return Ok(u16_at(&head, 18, le) == Some(want));
     }
 
-    let want: u32 = match arch { TargetArch::X64 => 0x0100_0007, TargetArch::Arm64 => 0x0100_000C };
+    let want: u32 = match arch {
+        TargetArch::X64 => 0x0100_0007,
+        TargetArch::Arm64 => 0x0100_000C,
+    };
     if u32_at(&head, 0, true) == Some(0xFEED_FACF) {
         return Ok(u32_at(&head, 4, true) == Some(want));
     }
@@ -154,12 +180,20 @@ pub fn machine_matches(path: impl AsRef<Path>, arch: TargetArch) -> io::Result<b
 
 fn u16_at(b: &[u8], off: usize, le: bool) -> Option<u16> {
     let a: [u8; 2] = b.get(off..off.checked_add(2)?)?.try_into().ok()?;
-    Some(if le { u16::from_le_bytes(a) } else { u16::from_be_bytes(a) })
+    Some(if le {
+        u16::from_le_bytes(a)
+    } else {
+        u16::from_be_bytes(a)
+    })
 }
 
 fn u32_at(b: &[u8], off: usize, le: bool) -> Option<u32> {
     let a: [u8; 4] = b.get(off..off.checked_add(4)?)?.try_into().ok()?;
-    Some(if le { u32::from_le_bytes(a) } else { u32::from_be_bytes(a) })
+    Some(if le {
+        u32::from_le_bytes(a)
+    } else {
+        u32::from_be_bytes(a)
+    })
 }
 
 #[cfg(test)]
@@ -173,16 +207,35 @@ mod tests {
         for name in ["pasta", "pasta.dll", "PASTA.DLL"] {
             let stem = &name[..5];
             let c = |os, arch, spawn| shiori_file_candidates(name, os, arch, spawn);
-            assert_eq!(c(Windows, X64, false), [format!("{stem}.x64.dll"), format!("{stem}.dll")]);
-            assert_eq!(c(Windows, X64, true), [format!("{stem}.x64.dll"), format!("{stem}.dll")]);
-            assert_eq!(c(Windows, Arm64, false), [format!("{stem}.arm64.dll"), format!("{stem}.dll")]);
+            assert_eq!(
+                c(Windows, X64, false),
+                [format!("{stem}.x64.dll"), format!("{stem}.dll")]
+            );
+            assert_eq!(
+                c(Windows, X64, true),
+                [format!("{stem}.x64.dll"), format!("{stem}.dll")]
+            );
+            assert_eq!(
+                c(Windows, Arm64, false),
+                [format!("{stem}.arm64.dll"), format!("{stem}.dll")]
+            );
             assert_eq!(
                 c(Windows, Arm64, true),
-                [format!("{stem}.arm64.dll"), format!("{stem}.x64.dll"), format!("{stem}.dll")]
+                [
+                    format!("{stem}.arm64.dll"),
+                    format!("{stem}.x64.dll"),
+                    format!("{stem}.dll")
+                ]
             );
             for spawn in [false, true] {
-                assert_eq!(c(Linux, X64, spawn), [format!("lib{stem}.x64.so"), format!("lib{stem}.so")]);
-                assert_eq!(c(Linux, Arm64, spawn), [format!("lib{stem}.arm64.so"), format!("lib{stem}.so")]);
+                assert_eq!(
+                    c(Linux, X64, spawn),
+                    [format!("lib{stem}.x64.so"), format!("lib{stem}.so")]
+                );
+                assert_eq!(
+                    c(Linux, Arm64, spawn),
+                    [format!("lib{stem}.arm64.so"), format!("lib{stem}.so")]
+                );
                 assert_eq!(c(MacOs, X64, spawn), [format!("lib{stem}.dylib")]);
                 assert_eq!(c(MacOs, Arm64, spawn), [format!("lib{stem}.dylib")]);
             }
@@ -191,22 +244,40 @@ mod tests {
 
     #[test]
     fn candidates_keep_the_directory_part() {
-        assert_eq!(shiori_file_candidates("bin/pasta.dll", Windows, X64, false), ["bin/pasta.x64.dll", "bin/pasta.dll"]);
-        assert_eq!(shiori_file_candidates("bin/pasta.dll", Linux, X64, false), ["bin/libpasta.x64.so", "bin/libpasta.so"]);
+        assert_eq!(
+            shiori_file_candidates("bin/pasta.dll", Windows, X64, false),
+            ["bin/pasta.x64.dll", "bin/pasta.dll"]
+        );
+        assert_eq!(
+            shiori_file_candidates("bin/pasta.dll", Linux, X64, false),
+            ["bin/libpasta.x64.so", "bin/libpasta.so"]
+        );
         // 区切りは書き換えず、最後の区切りで分ける
-        assert_eq!(shiori_file_candidates("a/b\\pasta.DLL", MacOs, Arm64, false), ["a/b\\libpasta.dylib"]);
+        assert_eq!(
+            shiori_file_candidates("a/b\\pasta.DLL", MacOs, Arm64, false),
+            ["a/b\\libpasta.dylib"]
+        );
         // 落とすのは名前の部分の末尾の .dll を 1 つだけ。ディレクトリの .dll は残す
-        assert_eq!(shiori_file_candidates("x.dll/pasta.dll.dll", Linux, Arm64, false), ["x.dll/libpasta.dll.arm64.so", "x.dll/libpasta.dll.so"]);
+        assert_eq!(
+            shiori_file_candidates("x.dll/pasta.dll.dll", Linux, Arm64, false),
+            ["x.dll/libpasta.dll.arm64.so", "x.dll/libpasta.dll.so"]
+        );
         // 短い名前・多バイト文字でもパニックしない
         assert_eq!(shiori_file_candidates("", MacOs, X64, false), ["lib.dylib"]);
-        assert_eq!(shiori_file_candidates("ぱすた", Windows, X64, false), ["ぱすた.x64.dll", "ぱすた.dll"]);
+        assert_eq!(
+            shiori_file_candidates("ぱすた", Windows, X64, false),
+            ["ぱすた.x64.dll", "ぱすた.dll"]
+        );
     }
 
     /// バイト列を一時ファイルに書いて、両方の arch で確かめる
     fn check(tag: &str, bytes: &[u8]) -> (bool, bool) {
         let path = std::env::temp_dir().join(format!("shiori4_dist_{}_{tag}", std::process::id()));
         std::fs::write(&path, bytes).unwrap();
-        let r = (machine_matches(&path, X64).unwrap(), machine_matches(&path, Arm64).unwrap());
+        let r = (
+            machine_matches(&path, X64).unwrap(),
+            machine_matches(&path, Arm64).unwrap(),
+        );
         std::fs::remove_file(&path).unwrap();
         r
     }
@@ -225,7 +296,11 @@ mod tests {
         b[..4].copy_from_slice(b"\x7FELF");
         b[4] = class;
         b[5] = data;
-        let m = if data == 2 { machine.to_be_bytes() } else { machine.to_le_bytes() };
+        let m = if data == 2 {
+            machine.to_be_bytes()
+        } else {
+            machine.to_le_bytes()
+        };
         b[18..20].copy_from_slice(&m);
         b
     }
@@ -278,9 +353,18 @@ mod tests {
         thin[4..8].copy_from_slice(&0x0100_0007u32.to_le_bytes());
         assert_eq!(check("macho_x64", &thin), (true, false));
 
-        assert_eq!(check("fat_both", &fat(0xCAFE_BABE, &[0x0100_0007, 0x0100_000C])), (true, true));
-        assert_eq!(check("fat64_arm64", &fat(0xCAFE_BABF, &[0x0100_000C])), (false, true));
-        assert_eq!(check("fat_other", &fat(0xCAFE_BABE, &[0x0000_0007])), (false, false));
+        assert_eq!(
+            check("fat_both", &fat(0xCAFE_BABE, &[0x0100_0007, 0x0100_000C])),
+            (true, true)
+        );
+        assert_eq!(
+            check("fat64_arm64", &fat(0xCAFE_BABF, &[0x0100_000C])),
+            (false, true)
+        );
+        assert_eq!(
+            check("fat_other", &fat(0xCAFE_BABE, &[0x0000_0007])),
+            (false, false)
+        );
         // nfat_arch が多いのに表が足りない
         let mut short = fat(0xCAFE_BABE, &[0x0100_0007]);
         short[4..8].copy_from_slice(&3u32.to_be_bytes());
@@ -299,7 +383,10 @@ mod tests {
         assert_eq!(check("empty", b""), (false, false));
         assert_eq!(check("short_mz", b"MZ"), (false, false));
         assert_eq!(check("short_elf", b"\x7FELF\x02\x01"), (false, false));
-        assert_eq!(check("short_fat", &[0xCA, 0xFE, 0xBA, 0xBE, 0, 0]), (false, false));
+        assert_eq!(
+            check("short_fat", &[0xCA, 0xFE, 0xBA, 0xBE, 0, 0]),
+            (false, false)
+        );
         assert_eq!(check("text", b"hello, world"), (false, false));
         // e_lfanew がファイルの外・u32 の最大
         let mut out = pe(0x8664);
@@ -311,7 +398,8 @@ mod tests {
 
     #[test]
     fn missing_file_is_err() {
-        let path = std::env::temp_dir().join(format!("shiori4_dist_{}_missing", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("shiori4_dist_{}_missing", std::process::id()));
         assert!(machine_matches(&path, X64).is_err());
     }
 
@@ -319,8 +407,14 @@ mod tests {
     fn current_exe_matches_current_arch() {
         let exe = std::env::current_exe().unwrap();
         if let Some(arch) = TargetArch::CURRENT {
-            assert!(machine_matches(&exe, arch).unwrap(), "{exe:?} should match {arch:?}");
+            assert!(
+                machine_matches(&exe, arch).unwrap(),
+                "{exe:?} should match {arch:?}"
+            );
         }
-        assert!(TargetOs::CURRENT.is_some() || !cfg!(any(windows, target_os = "linux", target_os = "macos")));
+        assert!(
+            TargetOs::CURRENT.is_some()
+                || !cfg!(any(windows, target_os = "linux", target_os = "macos"))
+        );
     }
 }
