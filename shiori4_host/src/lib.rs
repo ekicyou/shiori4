@@ -820,6 +820,7 @@ mod tests {
     use shiori4::protocol::{HeaderWriter, Headers, Lookup, PendingTags, Properties};
     use shiori4::shiori4_abi::{ShioriHostHandle, ShioriHostPoster};
     use shiori4::{Adapter, Ghost};
+    use std::ffi::c_void;
     use std::sync::atomic::AtomicUsize;
 
     /// テストの dir。OS ごとの絶対パス（Windows では "/ghost" は絶対でない）
@@ -1605,6 +1606,200 @@ mod tests {
         let dir = std::path::Path::new(GHOST_DIR).join("fail");
         let r = GhostRuntime::load(crate::test_dll::dll_path(), &dir, test_host());
         assert!(matches!(r, Err(LoadError::LoadFailed)));
+    }
+
+    // ---- 応答はホストが作り、ホストの release で解放する（要件 15.3・15.5・15.6） ----
+
+    #[test]
+    fn response_dropped_after_runtime_is_safe() {
+        // from_static: unload と ShioriHostBox の解放の後に読んで捨てる
+        let mut rt = runtime();
+        let r = rt.request("ID: OnBoot\r\n").expect("abi");
+        drop(rt);
+        assert!(r.body.as_str().unwrap().contains("Value: さくら"));
+        drop(r);
+        // DLL: ライブラリを外した後でも、release はホストの関数なので呼べる
+        let _g = crate::test_dll::lock();
+        let mut rt = GhostRuntime::from_library(test_lib(), GHOST_DIR, test_host()).expect("load");
+        let r = rt.request("ID: OnBoot\r\n").expect("abi");
+        drop(rt);
+        assert!(r.body.as_str().unwrap().contains("Value: testghost"));
+        drop(r);
+    }
+
+    type CopyFn = unsafe extern "C" fn(*mut c_void, *const u8, usize, *mut ShioriBytes);
+
+    /// shiori4_abi の ShioriHostApi と同じ配置（欄は shiori4_abi の外から触れないので写す）
+    #[repr(C)]
+    struct RawHostApi {
+        struct_size: u32,
+        abi_version: u32,
+        ctx: *mut c_void,
+        request: Option<unsafe extern "C" fn()>,
+        post: Option<unsafe extern "C" fn()>,
+        log: Option<unsafe extern "C" fn()>,
+        copy_from_slice: Option<CopyFn>,
+    }
+
+    /// shiori4_abi の ShioriApi と同じ配置
+    #[repr(C)]
+    struct RawApi {
+        struct_size: u32,
+        abi_version: u32,
+        load: unsafe extern "C" fn(*const RawHostApi, *const u8, usize) -> *mut c_void,
+        unload: unsafe extern "C" fn(*mut c_void),
+        request:
+            unsafe extern "C" fn(*mut c_void, *const u8, usize, *mut ShioriBytes) -> ShioriStatus,
+        notify: unsafe extern "C" fn(*mut c_void, *const u8, usize) -> ShioriStatus,
+    }
+
+    const _: () =
+        assert!(size_of::<RawHostApi>() == size_of::<shiori4::shiori4_abi::ShioriHostApi>());
+    const _: () = assert!(size_of::<RawApi>() == size_of::<ShioriApi>());
+
+    unsafe extern "C" fn plain_copy(
+        _ctx: *mut c_void,
+        ptr: *const u8,
+        len: usize,
+        out: *mut ShioriBytes,
+    ) {
+        let b = unsafe { std::slice::from_raw_parts(ptr, len) };
+        unsafe { out.write(ShioriBytes::copy_from_slice(b)) }
+    }
+
+    fn raw_table(abi_version: u32, struct_size: usize, copy: Option<CopyFn>) -> RawHostApi {
+        RawHostApi {
+            struct_size: struct_size as u32,
+            abi_version,
+            ctx: std::ptr::null_mut(),
+            request: None,
+            post: None,
+            log: None,
+            copy_from_slice: copy,
+        }
+    }
+
+    #[test]
+    fn new_shiori_load_fails_without_copy_from_slice() {
+        let _g = crate::test_dll::lock();
+        let lib = test_lib();
+        let get_api =
+            unsafe { lib.get::<unsafe extern "C" fn(u32) -> *const RawApi>(b"shiori_get_api") }
+                .expect("shiori_get_api");
+        let full = size_of::<RawHostApi>();
+        let old = std::mem::offset_of!(RawHostApi, copy_from_slice); // 欄の手前で終わる古いホスト
+        for v in [
+            SHIORI_ABI_VERSION,
+            shiori4::shiori4_abi::SHIORI_ABI_VERSION_3,
+        ] {
+            let api = unsafe { &*get_api(v) };
+            let load = |host: *const RawHostApi| unsafe {
+                (api.load)(
+                    host,
+                    GHOST_DIR_NORMALIZED.as_ptr(),
+                    GHOST_DIR_NORMALIZED.len(),
+                )
+            };
+            assert!(
+                load(&raw_table(v, old, Some(plain_copy))).is_null(),
+                "v{v}: 大きさが足りない"
+            );
+            assert!(load(&raw_table(v, full, None)).is_null(), "v{v}: 欄が NULL");
+            assert!(load(std::ptr::null()).is_null(), "v{v}: host が NULL");
+            // 欄があれば読める（上の失敗が別の理由でないことの確かめ）
+            let inst = load(&raw_table(v, full, Some(plain_copy)));
+            assert!(!inst.is_null(), "v{v}");
+            unsafe { (api.unload)(inst) };
+        }
+    }
+
+    /// PROBE の load が受け取ったテーブル: (版, 大きさ, request・post・log・copy_from_slice があるか)
+    static PROBED: std::sync::Mutex<Vec<(u32, u32, [bool; 4])>> = std::sync::Mutex::new(Vec::new());
+
+    /// 受け取ったテーブルを PROBED に残し、応答はその copy_from_slice で作る
+    unsafe extern "C" fn probe_load(h: *const RawHostApi, _d: *const u8, _l: usize) -> *mut c_void {
+        let h = unsafe { &*h };
+        let has = [
+            h.request.is_some(),
+            h.post.is_some(),
+            h.log.is_some(),
+            h.copy_from_slice.is_some(),
+        ];
+        PROBED
+            .lock()
+            .unwrap()
+            .push((h.abi_version, h.struct_size, has));
+        // 欄が無ければ load を失敗させる（extern "C" の中でパニックしない）
+        match h.copy_from_slice {
+            Some(copy) => Box::into_raw(Box::new((h.ctx, copy))).cast(),
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    unsafe extern "C" fn probe_unload(inst: *mut c_void) {
+        drop(unsafe { Box::from_raw(inst as *mut (*mut c_void, CopyFn)) });
+    }
+
+    unsafe extern "C" fn probe_request(
+        inst: *mut c_void,
+        _req: *const u8,
+        _len: usize,
+        out: *mut ShioriBytes,
+    ) -> ShioriStatus {
+        let (ctx, copy) = unsafe { *(inst as *const (*mut c_void, CopyFn)) };
+        let body = b"Value: probe";
+        unsafe { copy(ctx, body.as_ptr(), body.len(), out) };
+        SHIORI_200_OK
+    }
+
+    unsafe extern "C" fn probe_notify(_i: *mut c_void, _r: *const u8, _l: usize) -> ShioriStatus {
+        SHIORI_200_OK
+    }
+
+    const fn probe(abi_version: u32) -> RawApi {
+        RawApi {
+            struct_size: size_of::<RawApi>() as u32,
+            abi_version,
+            load: probe_load,
+            unload: probe_unload,
+            request: probe_request,
+            notify: probe_notify,
+        }
+    }
+
+    static PROBE_V4: RawApi = probe(SHIORI_ABI_VERSION);
+    static PROBE_V3: RawApi = probe(shiori4::shiori4_abi::SHIORI_ABI_VERSION_3);
+
+    fn as_api(raw: &'static RawApi) -> &'static ShioriApi {
+        // SAFETY: 同じ配置（上の assert）
+        unsafe { &*(raw as *const RawApi).cast::<ShioriApi>() }
+    }
+
+    #[test]
+    fn runtimes_pass_tables_with_copy_from_slice() {
+        let full = size_of::<RawHostApi>() as u32;
+        // v3: copy_from_slice だけのテーブル
+        let mut v3 = V3Runtime::from_static(as_api(&PROBE_V3), GHOST_DIR).expect("load");
+        assert_eq!(v3.request("x"), Ok("Value: probe".to_owned()));
+        drop(v3);
+        // v4: 全部の欄があるテーブル。応答はランタイムを捨てた後にも読めて、捨てられる
+        let mut rt =
+            GhostRuntime::from_static(as_api(&PROBE_V4), GHOST_DIR, test_host()).expect("load");
+        let r = rt.request("x").expect("abi");
+        drop(rt);
+        assert_eq!(r.body.as_str(), Ok("Value: probe"));
+        drop(r);
+        assert_eq!(
+            *PROBED.lock().unwrap(),
+            [
+                (
+                    shiori4::shiori4_abi::SHIORI_ABI_VERSION_3,
+                    full,
+                    [false, false, false, true]
+                ),
+                (SHIORI_ABI_VERSION, full, [true, true, true, true]),
+            ]
+        );
     }
 
     // ---- 芯は便利関数を参照しない（9.3・10.1） ----

@@ -14,7 +14,7 @@
   - `shiori4_host` の `Bridge`・`V3Runtime`・`from_static` と testghost はこの層を通るので、DLL を通す既存のテストを含む `cargo test --all` を緑に保つことはこのタスクの持ち物とする
   - 完了の状態: 「`copy_from_slice` の無いホストでは load が NULL」「応答の確保と解放がホストの関数だけで起きる」「v3 で `Ghost::load` が `None` を受け、応答は `copy_from_slice` で作られる」のテストが足され、`cargo test --all` が通る
   - _Requirements: 15.2, 15.4, 15.5, 15.6_
-- [ ] 1.3 ホスト側に、新しい規約を確かめるテストを足す（コードの直しは 1.2 で済んでいる）
+- [x] 1.3 ホスト側に、新しい規約を確かめるテストを足す（コードの直しは 1.2 で済んでいる）
   - `release` が `owner` だけで解放しインスタンスの状態に頼らないこと、`V3Runtime` と `from_static` が `copy_from_slice` だけのテーブルで動くことをテストで確かめる
   - 完了の状態: 「ランタイムを Drop した後に応答を捨てても安全」「`copy_from_slice` の無いテーブルでは新しい SHIORI の load が失敗する」のテストが `shiori4_host` に足され、`cargo test -p shiori4_host` が通る
   - _Requirements: 15.3, 15.5, 15.6_
