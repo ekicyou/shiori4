@@ -188,7 +188,7 @@
   - _Requirements: 1.5, 6.2, 6.3, 6.5_
 
 - [ ] 9. 教科書の例と写しの検査をつなぐ
-- [ ] 9.1 README と教科書の章を doctest に載せる
+- [x] 9.1 README と教科書の章を doctest に載せる
   - `shiori4_host` の `mod tests` より前に、ルートの README と `doc/textbook/` の 8 つの章を 1 つずつ取り込む doctest だけの項目を置き、crates.io からの `cargo test --doc` が落ちる理由を 1 行の注釈で残す。項目の行に `protocol` の語を書かない
   - 完了の状態: `cargo test --doc -p shiori4_host` が README の Rust の例と配布の決まりの章の例を実行して通り、`cargo package --workspace` が通る
   - 6 と同じ `shiori4_host` のファイルを直すので、6 の後に行う

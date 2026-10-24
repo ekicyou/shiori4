@@ -1546,6 +1546,39 @@ impl<H: Host> Drop for GhostRuntime<H> {
 }
 
 // ============================================================
+// 教科書の例の検査（doctest だけ）
+// ============================================================
+
+// 取り込む文書はパッケージの外にあるので、crates.io から取ったクレートでは `cargo test --doc` が落ちる
+#[cfg(doctest)]
+#[doc = include_str!("../../README.md")]
+struct RootReadmeExamples;
+#[cfg(doctest)]
+#[doc = include_str!("../../doc/textbook/README.md")]
+struct TextbookIndexExamples;
+#[cfg(doctest)]
+#[doc = include_str!("../../doc/textbook/rules.md")]
+struct RulesExamples;
+#[cfg(doctest)]
+#[doc = include_str!("../../doc/textbook/vocabulary.md")]
+struct VocabularyExamples;
+#[cfg(doctest)]
+#[doc = include_str!("../../doc/textbook/c.md")]
+struct CExamples;
+#[cfg(doctest)]
+#[doc = include_str!("../../doc/textbook/process.md")]
+struct ProcessExamples;
+#[cfg(doctest)]
+#[doc = include_str!("../../doc/textbook/migration.md")]
+struct MigrationExamples;
+#[cfg(doctest)]
+#[doc = include_str!("../../doc/textbook/distribution.md")]
+struct DistributionExamples;
+#[cfg(doctest)]
+#[doc = include_str!("../../doc/textbook/testhost.md")]
+struct TestHostExamples;
+
+// ============================================================
 // テスト（DLL を介さず、同一プロセスのゴーストで往復させる）
 // ============================================================
 
