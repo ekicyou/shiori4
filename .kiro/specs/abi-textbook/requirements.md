@@ -31,8 +31,10 @@ brief.md で決め切れていなかった所は、要件ディスカッショ�
   - 試験用のホストと、それを使って DLL の境界まで試す CI の検査。
   - 教科書の例（Rust と C）が腐らないための検査。
   - C ヘッダ冒頭と `shiori4_abi` の `//!` の規約の節に、規約の番号だけを書き入れること（文言は変えない。要件 4.3）。
+  - 設計の議論（2026-10-24）で見つかった正本の穴を埋める ABI の変更（要件 15）: `load`・`unload` を呼ぶスレッド、`ShioriBytes` を作る側と `release` を呼べる期間、それに合わせた 3 クレートと testghost の直し。
 - **Out of scope**:
-  - 規約と語彙そのものの決定・変更（ABI の関数・構造体・規約の文言は abi-conventions、host-protocol の語は host-protocol が持つ）。番号を書き入れることは文言の変更に当たらない。
+  - 規約と語彙そのものの決定・変更（ABI の関数・構造体・規約の文言は abi-conventions、host-protocol の語は host-protocol が持つ）。番号を書き入れることは文言の変更に当たらない。例外は要件 15 の変更だけである。
+  - ホストが使うメモリ確保の簡易版（C ヘッダの既定の実装や、別のプロセスのホストが写しを減らす工夫）。問題になったら別の spec に切り出す。
   - docs.rs 以外のドキュメントサイト。
   - pasta や areka の文書。
   - 従来の SHIORI/3.0 の DLL（HGLOBAL の `load`・`loadu`・`request`・`unload`）を読むこと（shiori3-legacy-host が持つ。試験用のホストへのつなぎも shiori3-legacy-host が持つ）。
@@ -62,7 +64,7 @@ brief.md で決め切れていなかった所は、要件ディスカッショ�
 1. The 全体図 shall `load`・`request`・`notify`・`host.request`・`post`・`log`・`release`・`unload` の 8 つを 1 つの表にまとめ、関数ごとに「呼ぶ側」「呼ばれる側」「呼べるスレッド」「呼べる期間」を示す。
 2. The 全体図 shall 各行に、根拠になるスレッド規約の番号（1〜7）または規約の節の名前を添える。
 3. The 全体図 shall 期間やスレッドの外で呼んだときに返りうる結果（`SHIORI_E_WRONG_THREAD`・`SHIORI_E_REENTRANT`・`SHIORI_E_SHUTDOWN` など）と、unload を始めた後と返った後の扱いを示す。
-4. Where v3 互換モード（`shiori_get_api(3)`）を使うとき, the 全体図 shall host が NULL でホストの関数（`host.request`・`post`・`log`）を呼べないことを示す。
+4. Where v3 互換モード（`shiori_get_api(3)`）を使うとき, the 全体図 shall host が `copy_from_slice` だけを持ち、ほかのホストの関数（`host.request`・`post`・`log`）を呼べないことを示す（要件 15）。
 
 ### Requirement 3: 最小の例
 **Objective:** As a 初めて shiori4 を使う作者, I want 自分の言語と立場に合った最小の動く例があること, so that 全体を読む前に、往復の 1 回を自分の手で動かせる（hearing 1）
@@ -136,9 +138,9 @@ brief.md で決め切れていなかった所は、要件ディスカッショ�
 **Objective:** As a Rust 以外で SHIORI やホストを書く作者, I want 所有権・版の判定・スレッド・例外の扱いが C の書き手の言葉で説明され、動く C の例があること, so that C ヘッダの注釈だけに頼らずに正しく実装できる（hearing 5）
 
 #### Acceptance Criteria
-1. The C の書き手向けの説明 shall `out` の `ShioriBytes` を誰が確保し、誰がいつ `release` するかの所有権の表と図を持つ。
-2. The C の書き手向けの説明 shall `release` がどのスレッドからも呼ばれうること（規約 6）と、戻り値が負のときも呼んだ側が `out` を解放することを、例を付けて示す。
-3. The C の書き手向けの説明 shall 静的 CRT で作る DLL について、確保した側が解放するので CRT が別でも安全であることを述べる。
+1. The C の書き手向けの説明 shall `out` の `ShioriBytes` を誰が作り（常にホスト。SHIORI は `host->copy_from_slice` で作る）、誰がいつ `release` するかの所有権の表と図を持つ（要件 15）。
+2. The C の書き手向けの説明 shall `release` がどのスレッドからも、unload の後にも呼ばれうること（規約 6）と、戻り値が負のときも呼んだ側が `out` を解放することを、例を付けて示す。
+3. The C の書き手向けの説明 shall 静的 CRT で作る DLL について、確保も解放もホストのメモリとホストのコードだけで起きるので CRT が別でも関係ないことを述べる。
 4. The C の書き手向けの説明 shall 版の判定の例として、ホスト側の手順（`shiori_get_api(4)` が NULL なら 3 を試す）と、SHIORI 側の書き方（版ごとに別の静的なテーブルを返す）を示す。
 5. The C の書き手向けの説明 shall 最小の C のホストの例として、ライブラリを開く（Windows は `LoadLibrary`、それ以外は `dlopen`）→ `shiori_get_api(4)` → 無ければ 3 → load → request → unload の流れを示す。
 6. The C の書き手向けの説明 shall `struct_size` で足されたフィールドの有無を確かめる例（`SHIORI_HAS_FIELD`）を示す。
@@ -158,7 +160,7 @@ brief.md で決め切れていなかった所は、要件ディスカッショ�
 **Objective:** As a SHIORI/3.0 の SHIORI やホストを持つ作者, I want 今のものから shiori4 へ移る手順が差分の表で示されていること, so that 何を変えれば動くかを短い時間で掴める（hearing 7）
 
 #### Acceptance Criteria
-1. The 移行の手引き（SHIORI 側） shall SHIORI/3.0 の DLL → v3 互換モード → v4 の 3 段の差分を表で示し、少なくとも Charset が UTF-8 だけであること（Shift_JIS の要求は来ない）・HGLOBAL が (ptr, len) と `release` に変わること・load の dir の形が変わることを含む。
+1. The 移行の手引き（SHIORI 側） shall SHIORI/3.0 の DLL → v3 互換モード → v4 の 3 段の差分を表で示し、少なくとも Charset が UTF-8 だけであること（Shift_JIS の要求は来ない）・HGLOBAL が (ptr, len) と、ホストの `copy_from_slice` で作る応答に変わること・load の dir の形が変わることを含む。
 2. The 移行の手引き（ホスト側） shall 要求は開始行と Charset を外すだけでヘッダの語は同じであること・応答の状態は戻り値で受けること・旧来の DLL との見分け方（`shiori_get_api` の有無）・両方を持つ DLL の扱い（「DLL の口と発見の順」）を示す。
 3. The 移行の手引き（ホスト側） shall v3 互換モードは Windows 以外のホスト向けであり、Windows のホストは旧来の DLL を今までどおり読めばよいことを述べる。shiori3-legacy-host が統合される前は「旧来の DLL を読む口は shiori4_host にまだ無い」と書き、統合後の書き換えは shiori3-legacy-host の brief に申し送る。【決定 Q7】
 4. The 移行の手引き shall shiori4 0.0.1 から 0.0.2 への移行について、`doc/host-protocol.md` 付録 A へ導く。
@@ -197,6 +199,18 @@ brief.md で決め切れていなかった所は、要件ディスカッショ�
 5. The 例の検査 shall 今の DoD（`cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings`）とクレートの公開の検査（`cargo package --workspace`）を壊さない。
 6. The shiori4 の CI shall 規約の一覧（要件 4.1）に写した規約の文と番号が、C ヘッダ冒頭と `shiori4_abi` の `//!` の文と番号に一字一句一致することを確かめ、ずれたら PR の検査を失敗にする。【決定 Q4】
 
+### Requirement 15: 全体図の穴を埋める ABI の変更
+**Objective:** As a SHIORI の作者・ベースウェアの作者, I want 全体図のすべての行が正本の規約で埋まり、外れた DLL のコードを呼ぶ道が ABI から無くなること, so that 全体図に「規約に定めが無い」が残らず、Rust の高水準層が型の上で UB を生まない（設計の議論 #1）
+
+#### Acceptance Criteria
+1. The スレッド規約 1 shall `load`・`request`・`notify`・`unload` を、ホストがインスタンスごとに決めた同じ 1 つのスレッドから呼ぶと定める（`Ghost` は `Send` を求めないため）。
+2. The ABI 規約 shall `out` の `ShioriBytes` を常にホストが作ると定め、SHIORI は応答を `ShioriHostApi` の末尾に足す `copy_from_slice`（`ptr` から `len` バイトをホストのメモリへ写し、ホストが作った `ShioriBytes` を `out` に入れる。戻り値は 0 で成功、負なら ABI エラー）で作る。
+3. The スレッド規約 6 shall `release` が常にホストの関数であること、`release` と `copy_from_slice` をどのスレッドから呼んでもよいこと、`release` はインスタンスの unload の後に呼ばれてもよくホストはそれに耐えることを定め、スレッド規約 5 の「unload の後にホストを呼ばない」の例外が `release` だけであることを明記する。
+4. Where v3 互換モードを使うとき, the 版の規約 shall load の host に `copy_from_slice` だけを持つテーブル（`request`・`post`・`log` は NULL）を渡すと定める。`Ghost::load` に渡す host は、v3 ではこれまでどおり `None` とする。
+5. If ホストのテーブルに `copy_from_slice` が無い（`struct_size` が足りない・NULL・v3 で host が NULL）なら, the 新しい SHIORI shall load を失敗させる（自分のメモリで作る昔の形へ戻らない）。
+6. The 規約の変更 shall C ヘッダと `shiori4_abi` の `//!` の両方に同じ文で入り、`shiori4_abi`・`shiori4`（`export_shiori!`・`Adapter`）・`shiori4_host`（`Bridge`・`V3Runtime`・`from_static`）・`testdata/testghost` がそれに合わせて直され、既存のテストが通る。
+7. The 0.0.3 の見どころ shall 0.0.2 以前と二進互換でないこと（関数の形は変わらないが、`out` を作る側が変わる）を述べ、pasta と areka への知らせに含める。
+
 ## 決定事項（要件ディスカッション 2026-10-24）
 brief.md で決め切れず、要件ディスカッションで開発者がすべて推奨案で確定した所である。
 
@@ -210,3 +224,4 @@ brief.md で決め切れず、要件ディスカッションで開発者がす�
 8. **Q8 試験用のホストの post**: 要求の後に 1 回 pump して post と log を表示する。完了通知は返さず、届けていない post は unload で捨てる（要件 13.5）。
 9. **Q9 試験用のホストの形と配り方**: `shiori4_host` の example 1 本。公開するクレートは増やさない。pasta などは `cargo install --git`（`--example` 付き）で取り込む。引数の形と、`--example` での取り込みが実際に動くかは設計で決め・確かめる（要件 13.9）。
 10. **Q10 C の例の検査**: ビルドと実行まで行う。言語を入れ替えた組（C のホスト × `testdata/testghost`、試験用のホスト × C の SHIORI の例）で往復を確かめる。CI を変える PR なので CI を見届けてから統合する（要件 14.2）。
+11. **Q11 全体図の穴と ABI の所有権**（設計の議論 #1、2026-10-24）: スレッド規約 1 を `load`・`unload` まで広げる。`ShioriBytes` は常にホストが作り（SHIORI は `host->copy_from_slice` で作る）、`release` は常にホストの関数で、いつでも・どのスレッドからでも呼べる。v3 にも `copy_from_slice` だけを持つテーブルを渡す。Rust の型に lifetime は足さない。メモリ確保の簡易版は保留し、問題になったら別の spec に切り出す（要件 15）。

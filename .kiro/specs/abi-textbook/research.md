@@ -250,3 +250,9 @@
 - `shiori4_host/src/discover.rs`（`load_ghost`・`LoadedGhost`）、`shiori4_host/src/lib.rs`（`Host`・`GhostRuntime`・`LoadError`・`Completer`・`core_refers_to_protocol_only_by_its_reexport`）、`shiori4_host/src/test_dll.rs`（testghost の置き場所）
 - `.kiro/specs/completed/abi-conventions/`・`.kiro/specs/completed/host-protocol/brief.md`（規約の理由の出典）
 - `.kiro/specs/shiori3-legacy-host/brief.md`（試験用のホストの継ぎ目）
+
+## 設計の議論 #1 の決定（2026-10-24）
+- 正本の未決 3 つ（`load`・`unload` のスレッド、`release` の期間）と、`ShioriOwnedResponse` がライブラリより長く生きて外れた DLL の `release` を呼びうる不具合を、この spec の中で直すと開発者が裁定した（先送りは無駄、のため）。
+- 検討した案: (1) `ShioriOwnedResponse` に lifetime を付ける、(2) 呼んだ側が書き込み口（`write` の callback）を渡す、(3) **ホストが `ShioriBytes` を作る（`copy_from_slice`）**。開発者の案 (3) を採った。関数の形を変えずにテーブルの末尾に 1 つ足すだけで、`release` が常にホストのコードになり、所有権の決まりが 1 通りになる。
+- `Ghost` は `Send` を求めない（`shiori4/src/lib.rs`）ので、`load`・`unload` を別のスレッドで呼ぶと Rust の SHIORI で UB になる。スレッド規約 1 を広げる根拠。
+- 写しが 1 回増える。別のプロセスのホスト（areka）向けの簡易版や写しを減らす工夫は保留し、問題になったら別の spec に切り出す。

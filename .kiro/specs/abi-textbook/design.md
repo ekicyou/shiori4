@@ -6,7 +6,7 @@
 
 **Users**: SHIORI の作者は最小の例・docs.rs の `shiori4` の例・C の説明・配布の決まり・試験用のホストを使う。ベースウェアの作者は全体図・規約の一覧・語の表と確定の範囲・docs.rs の `shiori4_host` の例・別のプロセスの注意・移行の手引きを使う。
 
-**Impact**: 芯の API・ABI のレイアウト・規約の文言・語彙は変えない。変えるのは (1) 文書（ルートと各クレートの README・`doc/textbook/` の新しい章・各クレートの doc の例）、(2) C ヘッダ冒頭と `shiori4_abi` の `//!` の規約の節への**番号の書き入れ**（文言は変えない）、(3) 例と写しを検査する仕組み（テスト 1 本・doctest の取り込み・CI の job 1 つ）、(4) `shiori4_host` の example 1 本（試験用のホスト）である。
+**Impact**: 語彙は変えない。規約と ABI は、設計の議論 #1 で決めた穴埋め（OwnershipChange。要件 15）だけを変える。ほかに変えるのは (1) 文書（ルートと各クレートの README・`doc/textbook/` の新しい章・各クレートの doc の例）、(2) C ヘッダ冒頭と `shiori4_abi` の `//!` の規約の節への**番号の書き入れ**（文言は変えない）、(3) 例と写しを検査する仕組み（テスト 1 本・doctest の取り込み・CI の job 1 つ）、(4) `shiori4_host` の example 1 本（試験用のホスト）である。
 
 ### Goals
 - 読む順（全体図 → 最小の例 → 規約の一覧 → 語の表 → 細部）で辿れる道案内を、リポジトリの文書と docs.rs だけで持つ（1.1, 1.5）。
@@ -15,7 +15,8 @@
 - 試験用のホスト `shiori4-testhost` を `shiori4_host` の example として持ち、3 OS の CI と他のリポジトリの CI から使える（13.1〜13.9）。
 
 ### Non-Goals
-- 規約・語彙・API・ABI の決定と変更（abi-conventions・host-protocol の持ち物）。教科書を書く中で見つかった欠けや食い違いは、決めずに記録して開発者に回す（1.3）。
+- 規約・語彙・API・ABI の決定と変更（abi-conventions・host-protocol の持ち物）。例外は要件 15 の穴埋めだけ。ほかに教科書を書く中で見つかった欠けや食い違いは、決めずに記録して開発者に回す（1.3）。
+- ホストが使うメモリ確保の簡易版（C ヘッダの既定の実装・別のプロセスのホストが写しを減らす工夫）。問題になったら別の spec に切り出す。
 - 従来の SHIORI/3.0 の DLL を読むこと（shiori3-legacy-host が試験用のホストの継ぎ目に足す）。
 - docs.rs 以外のドキュメントサイト、pasta・areka の文書、版の更新と公開。
 - 新しい公開クレート・新しい外部依存・新しいサードパーティの GitHub Action。
@@ -23,6 +24,7 @@
 ## Boundary Commitments
 
 ### This Spec Owns
+- 全体図の穴を埋める ABI の変更（OwnershipChange。要件 15）: スレッド規約 1・5・6・ABI 規約・版の文言、`ShioriHostApi::copy_from_slice`、それに合わせた 3 クレートと testghost の直し。教科書の執筆より先に行う。
 - 教科書の文書: ルートの `README.md`（全体図と最小の例と道案内）、各クレートの `README.md`（道案内の追加）、`doc/textbook/` の章（目次・規約の一覧・語の表と確定の範囲・C の書き手向けの説明・別のプロセスの注意・移行の手引き・配布の決まり・試験用のホストの使い方）。
 - C の例: `doc/textbook/c/` の 3 本（最小の SHIORI・版ごとのテーブルを返す SHIORI・最小のホスト）。
 - docs.rs の例: `shiori4` の `Ghost` と `protocol::PendingTags` の doc、`shiori4_host` の `Host`・`GhostRuntime`・`LoadError`・`Completer` などの doc に足す例。
@@ -31,9 +33,9 @@
 - 検査の仕組み: `shiori4_abi/tests/textbook.rs`（写し・番号・C の断片・語の表の一致）、`shiori4_host/src/lib.rs` の doctest の取り込み（`#[cfg(doctest)]` の項目）、`.github/workflows/build.yml` の job `textbook`。
 
 ### Out of Boundary
-- 規約の節の**文言**・節の構成・項目の増減（abi-conventions の後継の spec か修正の PR が持つ）。番号の書き入れと、番号に伴う字下げの空白の調整だけを行う。
+- 規約の節の**文言**・節の構成・項目の増減（abi-conventions の後継の spec か修正の PR が持つ）。この spec が行うのは、OwnershipChange の文言の直しと、番号の書き入れと、番号に伴う字下げの空白の調整だけである。
 - `doc/host-protocol.md` の中身（語の正本）。教科書は引くだけで書き換えない。
-- `shiori4_host` の公開 API の追加・変更（試験用のホストは既存の `load_ghost`・`GhostRuntime`・`V3Runtime`・`LoadedGhost` だけで作る）。
+- `shiori4_host` の公開 API の追加・変更（OwnershipChange の中身の直しを除く。試験用のホストは既存の `load_ghost`・`GhostRuntime`・`V3Runtime`・`LoadedGhost` だけで作る）。
 - 従来の口（`LoadedGhost::Legacy`）を実際に読む処理（shiori3-legacy-host）。
 - 規約の理由のうち、完了済みの spec の記録から引けないものの**確定**（草案として書き、統合の前に開発者が確かめる。4.8）。
 
@@ -162,6 +164,12 @@ shiori4_host/
 ```
 
 ### Modified Files
+- **OwnershipChange（最初に行う。要件 15）**:
+  - `shiori4_abi/include/shiori4_abi.h`・`shiori4_abi/src/lib.rs` — 版（v3 の host は `copy_from_slice` だけ）・ABI 規約（`out` は常にホストが作る）・スレッド規約 1（`load`・`unload` を足す）・5（例外は `release` だけ）・6（`release` は常にホストの関数・いつでも・どのスレッドからでも）の文言を両方で同じに直す。`ShioriHostApi` の末尾に `copy_from_slice: Option<unsafe extern "C" fn(ctx, ptr, len, out) -> ShioriStatus>` を足す。`load` の注釈の「v3 では NULL」を直す。`ShioriHostBox` が `copy_from_slice` を持つテーブルを組み、v3 の `load_v3` にも `copy_from_slice` だけのテーブルを渡す。`export_shiori!` の `request` は、応答を `host.copy_from_slice` で写してから `out` に入れ、テーブルに `copy_from_slice` が無ければ load を NULL にする。
+  - `shiori4/src/lib.rs` — `Adapter` が v3 でも host のテーブル（`copy_from_slice` だけ）を持つ。`Ghost::load` に渡す host は v3 では `None` のまま。
+  - `shiori4_host/src/lib.rs`・`shiori4_host/src/v3.rs` — `Bridge` が `copy_from_slice` と、インスタンスに頼らない `release` を持つ。`V3Runtime` が `copy_from_slice` だけのテーブルを渡す。`from_static` も同じ。
+  - `testdata/testghost/` — 応答を `copy_from_slice` で作る（Rust の高水準層を使っていれば中身の直しだけ）。
+  - 既存のテスト（DLL を通すものを含む）を新しい規約に合わせ、「ランタイムを Drop した後に応答を捨てても安全」「`copy_from_slice` の無いホストでは load が失敗する」のテストを足す。
 - `shiori4_abi/include/shiori4_abi.h` — 冒頭の注釈: スレッド規約以外の 8 つの節の最上位の項目の `- ` を `1. `・`2. ` … に替え、続きの行と下位の項目の字下げを番号に合わせる（空白だけ）。冒頭の 1 行目の後に教科書への道案内を 1 行足す（規約の節の外）。
 - `shiori4_abi/src/lib.rs` — `//!`: C ヘッダと同じ番号の書き入れと字下げ。冒頭の説明（`# 版` より前）に教科書への道案内を 1 行足す。
 - `shiori4/src/lib.rs` — `//!` に教科書への道案内を 1 行。`Ghost` の `///` に例 4 本（アクターの中継・join しない unload・インスタンスごとの状態・v3 と v4 の両対応）。
@@ -312,6 +320,7 @@ graph LR
 | 14.4 | 失敗で PR の検査を落とす | CiJob, 既存の job test | — | CI の流れ |
 | 14.5 | DoD と `cargo package --workspace` を壊さない | TextbookConsistencyTest（exclude）, DoctestHooks, TestHost | — | — |
 | 14.6 | 規約の写しと番号の一字一句の一致 | TextbookConsistencyTest | 比べ方 | — |
+| 15.1–15.7 | 全体図の穴を埋める ABI の変更 | OwnershipChange（Modified Files の先頭） | `ShioriHostApi::copy_from_slice` | — |
 
 ## Components and Interfaces
 
@@ -375,15 +384,16 @@ graph LR
 
 | 関数 | 呼ぶ側 → 呼ばれる側 | 呼べるスレッド | 呼べる期間 | 外れたときの結果 | 根拠 |
 |------|------|------|------|------|------|
-| `load` | ホスト → SHIORI | 規約に定めが無い（未決。Open Question 1） | インスタンスの始まり | 失敗は NULL（v4 は先に log） | load の規約・スレッド規約 2 |
-| `request`・`notify` | ホスト → SHIORI | ホストが決めた単一のスレッド（インスタンスごと） | load が返ってから unload を呼ぶまで | — | スレッド規約 1・7 |
+| `load` | ホスト → SHIORI | ホストがインスタンスごとに決めた 1 つのスレッド | インスタンスの始まり | 失敗は NULL（v4 は先に log。`copy_from_slice` が無ければ失敗） | load の規約・スレッド規約 1・2 |
+| `request`・`notify` | ホスト → SHIORI | load と同じスレッド | load が返ってから unload を呼ぶまで | — | スレッド規約 1・7 |
 | `host.request` | SHIORI → ホスト | load・request・notify を呼ばれているスレッド | その呼び出しが返るまで（v4） | `SHIORI_E_WRONG_THREAD`（-7）。中から SHIORI を呼び返すと `SHIORI_E_REENTRANT`（-4） | スレッド規約 2・3 |
 | `post` | SHIORI → ホスト | 任意 | unload が返るまで | unload の開始後は `SHIORI_E_SHUTDOWN`（-5）でよい | スレッド規約 4・5、post の完了通知 2 |
 | `log` | SHIORI → ホスト | 任意 | unload が返るまで | — | スレッド規約 4・5 |
-| `release` | 受け取った側 → 確保した側 | 任意 | 規約に定めが無い（未決。Open Question 2） | — | スレッド規約 6、ABI 規約 5・6 |
-| `unload` | ホスト → SHIORI | 規約に定めが無い（未決。Open Question 1） | インスタンスの終わり。長く止まらない | 返った後、SHIORI はホストを呼ばない | スレッド規約 5 |
+| `copy_from_slice` | SHIORI → ホスト | 任意 | unload が返るまで | 負の値（写せなかった） | ABI 規約・スレッド規約 5・6 |
+| `release` | 受け取った側 → ホスト（`ShioriBytes` は常にホストが作る） | 任意 | いつでも（unload の後でもよい） | — | スレッド規約 5・6、ABI 規約 |
+| `unload` | ホスト → SHIORI | load と同じスレッド | インスタンスの終わり。長く止まらない | 返った後、SHIORI はホストを呼ばない（`release` だけは例外） | スレッド規約 1・5 |
 
-- 表の下に注を 2 つ置く: (a) v3 互換モード（`shiori_get_api(3)`）では host が NULL で、`host.request`・`post`・`log` の行は使えない（版 2。2.4）。(b) unload を始めた後（post は -5 でよい、未配送のイベントは捨てる）と返った後（ホストのどの関数も呼ばない）の違い（2.3）。
+- 行は 9 つ（8 つの関数に `copy_from_slice` を足す）。表の下に注を 2 つ置く: (a) v3 互換モード（`shiori_get_api(3)`）では host は `copy_from_slice` だけを持ち、`host.request`・`post`・`log` の行は使えない（版。2.4）。(b) unload を始めた後（post は -5 でよい、未配送のイベントは捨てる）と返った後（ホストのどの関数も呼ばない）の違い（2.3）。
 - 「根拠」の番号は RulesCatalog の番号の付け方に従う（例「ABI 規約 6」）。上の表の番号は、番号の書き入れの後の C ヘッダの並びから決まり、TextbookConsistencyTest の検査とは別に執筆時に確かめる。
 
 ##### 最小の例 4 本
@@ -453,9 +463,9 @@ graph LR
 | Requirements | 4.7, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8 |
 
 **Responsibilities & Constraints**
-- 所有権の表（「誰が確保」「誰が書く」「誰が `release` を呼ぶ」「いつまで有効」の列。行は `request` の `out`・`host->request` の `out`・引数の `(ptr, len)`・`load` の `dir`）と、`out` の受け渡しの Mermaid の図（9.1）。
-- `release` はどのスレッドからも呼ばれうること（スレッド規約 6）と、戻り値が負でも `shiori_bytes_release(&out)` を呼ぶこと（ABI 規約 6）。例は `minimal_host.c` からの抜き出し（9.2）。
-- 静的 CRT: 確保した側の `release` が確保した側の CRT で解放するので、ホストと SHIORI の CRT が別でも安全である、と 1 段落（9.3）。CI は Windows で C の SHIORI を `/MT`（静的 CRT）でビルドし、Rust で作ったホスト（試験用のホスト）から読む。
+- 所有権の表（「誰が作る」「誰が書く」「誰が `release` を呼ぶ」「いつまで有効」の列。行は `request` の `out`（SHIORI が `host->copy_from_slice` で作る＝ホストのメモリ）・`host->request` の `out`（ホストが作る）・引数の `(ptr, len)`・`load` の `dir`）と、`out` の受け渡しの Mermaid の図。要点は「`ShioriBytes` の確保と解放は、どちらの向きでもホストのメモリとホストのコードだけで起きる」（9.1）。
+- `release` はどのスレッドからも、unload の後にも呼ばれうること（スレッド規約 6）と、戻り値が負でも `shiori_bytes_release(&out)` を呼ぶこと（ABI 規約）。ホストの `release` はインスタンスの状態（`ctx`）に頼らず `owner` だけで解放する。例は `minimal_host.c` からの抜き出し（9.2）。
+- 静的 CRT: SHIORI はメモリを境界の外へ渡さないので、ホストと SHIORI の CRT が別でも関係ない、と 1 段落（9.3）。CI は Windows で C の SHIORI を `/MT`（静的 CRT）でビルドし、Rust で作ったホスト（試験用のホスト）から読む。
 - 版の判定: ホスト側（`shiori_get_api(4)` が NULL なら `shiori_get_api(3)`）は `minimal_host.c` から、SHIORI 側（版ごとに別の静的なテーブル）は `versioned_shiori.c` から抜き出す（9.4）。最小の C のホストの流れ（9.5）と `SHIORI_HAS_FIELD`（9.6）も `minimal_host.c` から抜き出す。
 - スレッド規約 1〜7 の言い直し: 「どの関数をどのスレッドから呼ぶか」「どの関数ポインタがいつまで有効か」の文に、1 文ごとに番号を添える（9.7）。
 - 例外と panic: C++ は `extern "C"` の関数の中で `try { … } catch (...) { return SHIORI_E_PANIC; }`、Zig は panic を境界の外へ出さない（エラーの値を返す作りにし、panic の handler に頼らない）、Rust は `catch_unwind`（`export_shiori!` が行う）、など言語ごとに 1 文ずつ、文で書く（9.8）。ほかの言語のコードの塊（フェンス）は置かない（検査できないため）。
@@ -560,9 +570,9 @@ impl ShioriApi {
 | Requirements | 3.1, 3.2, 3.3, 3.4, 9.2, 9.4, 9.5, 9.6, 14.2 |
 
 **Responsibilities & Constraints**
-- `minimal_shiori.c`（30 行ほど）: `SHIORI_BUILD_MODULE` を定義して C ヘッダを読み、`shiori_get_api(4)` にだけ静的な `ShioriApi` を返す（ほかの版は NULL）。`load` はインスタンスごとの状態を `malloc` で作り（グローバルな状態を置かない）、`request` は `ID: OnBoot` の行があれば `200` ＋ `Value: …` を、無ければ `204` を返す。`out` は SHIORI が `malloc` で確保し、`release` は同じ SHIORI の `free` で解放して `*bytes` を空にする。
+- `minimal_shiori.c`（30 行ほど）: `SHIORI_BUILD_MODULE` を定義して C ヘッダを読み、`shiori_get_api(4)` にだけ静的な `ShioriApi` を返す（ほかの版は NULL）。`load` はインスタンスごとの状態を `malloc` で作り（グローバルな状態を置かない）、`load` は `SHIORI_HAS_FIELD(host, ShioriHostApi, copy_from_slice)` を確かめ、無ければ NULL を返す。受け取った `host` をインスタンスに覚える。`request` は `ID: OnBoot` の行があれば `200` ＋ `Value: …` を、無ければ `204` を返す。応答は静的な文字列を `host->copy_from_slice` で `out` に写す（SHIORI は `release` を実装しない）。
 - `versioned_shiori.c`: 版ごとに別の静的なテーブル（`API_V4`・`API_V3`）を返す。v3 の `request` は SHIORI/3.0 の全文（`SHIORI/3.0 200 OK\r\nCharset: UTF-8\r\nValue: …\r\n\r\n`）を返す（9.4）。
-- `minimal_host.c`: `LoadLibraryW`（Windows。引数は UTF-8 から `MultiByteToWideChar` で変える）／`dlopen`（ほか）で開き、`shiori_get_api` を探し、`shiori_get_api(4)` が NULL なら `shiori_get_api(3)` を試し（9.4, 9.5）、`SHIORI_API_IS_VALID` と `SHIORI_HAS_FIELD(api, ShioriApi, notify)` を確かめ（9.6）、v4 なら `ShioriHostApi` を組んで（`request` は 400、`post` は 204、`log` は stderr へ）`load` → `ID: OnBoot` の `request` → 状態と応答を表示 → 戻り値に関わらず `shiori_bytes_release(&out)`（9.2）→ `unload` → ライブラリを閉じる（3.3）。v3 なら host に NULL を渡し、SHIORI/3.0 の全文で要求する。
+- `minimal_host.c`: `LoadLibraryW`（Windows。引数は UTF-8 から `MultiByteToWideChar` で変える）／`dlopen`（ほか）で開き、`shiori_get_api` を探し、`shiori_get_api(4)` が NULL なら `shiori_get_api(3)` を試し（9.4, 9.5）、`SHIORI_API_IS_VALID` と `SHIORI_HAS_FIELD(api, ShioriApi, notify)` を確かめ（9.6）、v4 なら `ShioriHostApi` を組んで（`request` は 400、`post` は 204、`log` は stderr へ、`copy_from_slice` は `malloc` と `memcpy`、`release` は `free`）`load` → `ID: OnBoot` の `request` → 状態と応答を表示 → 戻り値に関わらず `shiori_bytes_release(&out)`（9.2）→ `unload` → ライブラリを閉じる（3.3）。v3 なら `copy_from_slice` だけを持つテーブルを渡し、SHIORI/3.0 の全文で要求する。
 - 共通: C11、警告を出さない（`-Wall -Wextra -Werror`／`/W4 /WX`）。Windows 以外で `dlopen` を使うために `_POSIX_C_SOURCE 200809L` をファイルの先頭で定義する。
 
 **Contracts**: Service [x]
@@ -756,14 +766,15 @@ CI の job ごとの結果（既存の GitHub の PR の検査）だけを使う
 - CI は runner に入っているコンパイラだけを使い、新しいサードパーティの Action や crate を足さない（供給網を広げない）。
 
 ## Migration Strategy
+- OwnershipChange は 0.0.2 以前と二進互換でない（関数の形は同じだが、`out` を作る側が変わる）。`copy_from_slice` を持たない古いホストから読まれた新しい SHIORI は load を失敗させる。古い SHIORI を新しいホストが読むと昔のまま動く。v4 の DLL はまだ配られていないので、0.0.3 の見どころに明記し、pasta と areka に知らせる（要件 15.7）。
 - 規約の番号の書き入れは、公開の前に開発者が番号の付け方（Open Questions 3・4）を確かめてから統合する。統合後に公開した版から番号は固定になる。
 - shiori3-legacy-host の統合時に、試験用のホストの `Legacy` の枝と、`migration.md` の「旧来の DLL を読む口はまだ無い」を書き換える（申し送り）。
 
 ## Open Questions / Risks
 設計の議論で決める。各項目の「仮の決め」で設計を書いている。
 
-1. **load と unload を呼べるスレッドが正本に無い**: スレッド規約 1 は `request`・`notify` だけを定める。全体図の `load`・`unload` の「呼べるスレッド」は「規約に定めが無い」と書き（1.3）、上流（abi-conventions の後継）へ回すか開発者が裁定する。仮の決め: 教科書では決めず、shiori4_host の実装（同じスレッド）を事実として注に書くだけ。
-2. **`release` を呼べる期間が正本に無い**: unload の後・ライブラリを放した後に `release` を呼んでよいかが定まっていない。shiori4_host では `GhostRuntime::request` の `ShioriOwnedResponse` がライブラリの寿命に縛られず、ランタイムを Drop した後に応答を捨てると、外れたライブラリの `release` を呼びうる（潜在の不具合）。この spec の外（API の変更）なので記録して開発者に回す。仮の決め: 全体図は「規約に定めが無い」、例は応答をランタイムより先に捨てる。
+1. **（決定。設計の議論 #1）load と unload を呼べるスレッド**: スレッド規約 1 を `load`・`unload` まで広げる（OwnershipChange・要件 15.1）。
+2. **（決定。設計の議論 #1）`release` を呼べる期間と、外れたライブラリの `release` を呼びうる不具合**: `ShioriBytes` は常にホストが作り（`copy_from_slice`）、`release` は常にホストの関数でいつでも呼べるので、不具合は ABI から消える。Rust の型に lifetime は足さない（OwnershipChange・要件 15.2〜15.5）。
 3. **写しの綴り**: 規約の一覧の引用を `//!` の形（`host.request`）にし、C ヘッダの `host->request` と同じものとして比べる。要件 4.1 は「C ヘッダ冒頭の…文をそのまま」と読めるので、C ヘッダの形にするかを確かめる。
 4. **番号の粒度と字下げ**: 番号は各節の最上位の項目だけに付け、下位の項目は親の番号で引く。番号に合わせて続きの行と下位の項目の字下げ（空白）を 3 つに揃える。下位の項目にも「post の完了通知 3.1」のような番号を付けるか、字下げの調整が「文言を変えない」に収まるかを確かめる。
 5. **SEND の既定の割り込みの理由の置き場所**: 要件 4.6 が求めるが、C ヘッダの規約ではなく `doc/host-protocol.md` 第 5.1 節の決まりである。仮の決め: `rules.md` の規約の節の後に番号の無い「ホスト側プロトコルの決まりの理由」の節を置く。
