@@ -238,3 +238,6 @@
 
 ### 参照した skill・ガイド
 - `.claude/skills/kiro-spec-design/rules/`（design-principles・design-discovery-light・design-synthesis・design-review-gate）、`.kiro/settings/templates/specs/design.md`・`research.md`、steering の product・tech・structure・roadmap。完了済み spec `abi-conventions` の design.md を書式の手本にした。
+
+## 8. 設計ディスカッション（2026-10-24）
+- **便利関数の置き場所を Option B（新しいクレート `shiori4_helper`）に変えた**: 開発者の指摘「便利関数は SHIORI 側でもホスト側でも使う」から見直した。`shiori4::host_protocol` でも両側から使えはするが、芯が依存しないことをソースを読むテストで守るしかなく、pasta は `shiori4` ごと入れることになる。別のクレートなら依存の向きをコンパイラが守り、pasta は `shiori4_abi` と `shiori4_helper` だけで足りる。代わりに公開するクレートが 4 つになり、リリースの道具（`build.yml`・`release.yml`・`/release`・`release-ci-setup.md`・steering）の更新と、初回の手元からの公開・Trusted Publisher の登録が要る。0.0.2 を出す前で、この spec が API を一度に動かす場なので、足すなら今がいちばん安い。
