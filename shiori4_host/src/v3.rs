@@ -101,7 +101,8 @@ mod tests {
         SHIORI_500_INTERNAL_SERVER_ERROR,
     };
     use shiori4::shiori4_abi::{Shiori, ShioriLoadMode};
-    use shiori4::{Adapter, Ghost, HeaderWriter, Headers, ShioriHostHandle};
+    use shiori4::protocol::{HeaderWriter, Headers};
+    use shiori4::{Adapter, Ghost, ShioriHostHandle};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[cfg(windows)]

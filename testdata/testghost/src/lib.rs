@@ -10,8 +10,9 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
+use shiori4::protocol::{HeaderWriter, Headers};
 use shiori4::{
-    Adapter, Ghost, HeaderWriter, Headers, ShioriApi, ShioriHostHandle, ShioriResponse,
+    Adapter, Ghost, ShioriApi, ShioriHostHandle, ShioriResponse,
     ShioriStatus, SHIORI_500_INTERNAL_SERVER_ERROR, SHIORI_ABI_VERSION, SHIORI_ABI_VERSION_3,
 };
 

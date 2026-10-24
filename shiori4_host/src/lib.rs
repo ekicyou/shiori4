@@ -144,7 +144,10 @@ use std::{
 pub use shiori4;
 // from_library が受ける Library の型を、利用者が版を合わせずに使えるようにする
 pub use libloading;
-pub use shiori4::{host_protocol, HeaderWriter, Headers};
+pub use shiori4::protocol;
+// 一時的な別名（0.0.1 の置き場所）。protocol を指す
+pub use shiori4::protocol as host_protocol;
+pub use shiori4::protocol::{HeaderWriter, Headers};
 pub use shiori4::shiori4_abi::{
     shiori_is_abi_error, shiori_is_success, ShioriApi, ShioriOwnedBytes, ShioriOwnedResponse,
     ShioriResponse, ShioriStatus, SHIORI_200_OK, SHIORI_204_NO_CONTENT, SHIORI_400_BAD_REQUEST,
@@ -196,7 +199,7 @@ pub trait Host: Send + Sync + 'static {
     /// `GhostRuntime` を Drop するスレッドを同期で待たないこと（規約 4）
     /// 既定では `Command` ヘッダがあれば受け付ける。false なら SHIORI に 400 を返す
     fn accept_post(&self, req: &Headers<'_>) -> bool {
-        req.get(host_protocol::HEADER_COMMAND).is_some()
+        req.get(protocol::HEADER_COMMAND).is_some()
     }
 
     /// 受け付けた post を処理する（pump の中で呼ばれる）
@@ -324,8 +327,8 @@ impl Post {
         let (tag, command) = {
             let h = Headers::parse(&text);
             (
-                h.get(host_protocol::HEADER_TAG).map(|s| s.trim().to_owned()),
-                h.get(host_protocol::HEADER_COMMAND).map(str::to_owned),
+                h.get(protocol::HEADER_TAG).map(|s| s.trim().to_owned()),
+                h.get(protocol::HEADER_COMMAND).map(str::to_owned),
             )
         };
         Self { text, completer: Completer { tag, command, sender } }
@@ -386,9 +389,9 @@ impl Completer {
     pub fn complete(self, delivery: Delivery, status: ShioriStatus, refs: &[&str]) -> bool {
         let Some(tag) = self.tag else { return false };
         let mut w = HeaderWriter::new()
-            .push("ID", host_protocol::ID_HOST_COMPLETE)
-            .push(host_protocol::HEADER_TAG, &tag)
-            .push(host_protocol::HEADER_STATUS, &status.to_string())
+            .push("ID", protocol::ID_HOST_COMPLETE)
+            .push(protocol::HEADER_TAG, &tag)
+            .push(protocol::HEADER_STATUS, &status.to_string())
             .push("Reference0", self.command.as_deref().unwrap_or(""));
         for (i, r) in refs.iter().enumerate() {
             w = w.push(&format!("Reference{}", i + 1), r);
@@ -400,7 +403,7 @@ impl Completer {
     pub fn complete_with(self, delivery: Delivery, headers: &str) -> bool {
         let Some(tag) = self.tag else { return false };
         let h = HeaderWriter::new()
-            .push(host_protocol::HEADER_TAG, &tag)
+            .push(protocol::HEADER_TAG, &tag)
             .push_raw(headers)
             .finish();
         self.sender.send(Event { delivery, headers: h })
@@ -452,10 +455,10 @@ impl<H: Host> ShioriHost for Bridge<H> {
             return r;
         }
         match h.id() {
-            Some(id) if id == host_protocol::ID_PROPERTY => match h.reference(0) {
+            Some(id) if id == protocol::ID_PROPERTY => match h.reference(0) {
                 Some(name) => match self.host.property(name) {
                     Some(v) => HeaderWriter::new()
-                        .push(host_protocol::HEADER_VALUE, &v)
+                        .push(protocol::HEADER_VALUE, &v)
                         .into_response(),
                     None => ShioriResponse::no_content(),
                 },
@@ -847,7 +850,8 @@ impl<H: Host> Drop for GhostRuntime<H> {
 mod tests {
     use super::*;
     use shiori4::shiori4_abi::{ShioriHostHandle, ShioriHostPoster};
-    use shiori4::{Adapter, Ghost, Lookup, PendingTags, Properties};
+    use shiori4::protocol::{Lookup, PendingTags, Properties};
+    use shiori4::{Adapter, Ghost};
     use std::sync::atomic::AtomicUsize;
 
     /// テストの dir。OS ごとの絶対パス（Windows では "/ghost" は絶対でない）
@@ -889,13 +893,13 @@ mod tests {
                     }
                     HeaderWriter::new().push("Value", &name).into_response()
                 }
-                Some(host_protocol::ID_HOST_COMPLETE) => match self.pending.take_from(req) {
+                Some(protocol::ID_HOST_COMPLETE) => match self.pending.take_from(req) {
                     Some((_, kind)) => HeaderWriter::new()
                         .push(
                             "Value",
                             &format!(
                                 "done:{kind}:{}:{}",
-                                req.get(host_protocol::HEADER_STATUS).unwrap_or(""),
+                                req.get(protocol::HEADER_STATUS).unwrap_or(""),
                                 req.reference(1).unwrap_or("")
                             ),
                         )
@@ -1004,7 +1008,7 @@ mod tests {
         assert!(post.into_completer().complete_with(Delivery::Notify, "X: y\r\n"));
         for _ in 0..2 {
             let Ok(Msg::Event(ev)) = rx.try_recv() else { panic!("event") };
-            assert!(ev.parsed().get(host_protocol::HEADER_TAG).is_some());
+            assert!(ev.parsed().get(protocol::HEADER_TAG).is_some());
             assert!(!ev.headers.to_ascii_lowercase().contains("charset"), "{}", ev.headers);
         }
     }
