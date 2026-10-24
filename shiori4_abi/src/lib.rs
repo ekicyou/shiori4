@@ -559,7 +559,58 @@ impl ShioriHostApi {
     pub fn is_valid(&self) -> bool {
         self.abi_version >= SHIORI_ABI_VERSION && self.struct_size as usize >= Self::BASE_SIZE
     }
+
+    /// copy_from_slice の欄があれば ctx と一緒に返す（C の SHIORI_HAS_FIELD に当たる）
+    ///
+    /// # Safety
+    /// p は struct_size が読めるテーブルを指すこと。欄を読むのは struct_size を確かめてから
+    unsafe fn copy_from_slice_of(p: NonNull<Self>) -> Option<(*mut c_void, CopyFromSliceFn)> {
+        let p = p.as_ptr();
+        let size = unsafe { ptr::addr_of!((*p).struct_size).read() } as usize;
+        if size < offset_of!(Self, copy_from_slice) + size_of::<usize>() {
+            return None;
+        }
+        let f = unsafe { ptr::addr_of!((*p).copy_from_slice).read() }?;
+        Some((unsafe { ptr::addr_of!((*p).ctx).read() }, f))
+    }
 }
+
+type CopyFromSliceFn =
+    unsafe extern "C" fn(ctx: *mut c_void, ptr: *const u8, len: usize, out: *mut ShioriBytes);
+
+/// ホストの copy_from_slice（ShioriHostBox と load_v3 のテーブルが使う）。
+/// ctx は見ないので、ShioriHostBox を捨てた後に release しても安全（スレッド規約 6）
+unsafe extern "C" fn host_copy_from_slice(
+    _ctx: *mut c_void,
+    ptr: *const u8,
+    len: usize,
+    out: *mut ShioriBytes,
+) {
+    if out.is_null() {
+        return;
+    }
+    // 写せなかったときの印は空の ShioriBytes（パニックも境界の外へ出さない）
+    let b = catch_unwind(AssertUnwindSafe(|| {
+        unsafe { shiori_slice_arg(ptr, len) }.map(ShioriBytes::copy_from_slice)
+    }));
+    unsafe { out.write(b.ok().and_then(Result::ok).unwrap_or_default()) }
+}
+
+/// load_v3 が渡す copy_from_slice だけのテーブル
+struct V3HostApi(ShioriHostApi);
+
+// SAFETY: ctx は null で、中身は関数ポインタだけ。SHIORI は読むだけ
+unsafe impl Sync for V3HostApi {}
+
+static V3_HOST: V3HostApi = V3HostApi(ShioriHostApi {
+    struct_size: size_of::<ShioriHostApi>() as u32,
+    abi_version: SHIORI_ABI_VERSION_3,
+    ctx: ptr::null_mut(),
+    request: None,
+    post: None,
+    log: None,
+    copy_from_slice: Some(host_copy_from_slice),
+});
 
 /// ホストの実装者が実装する trait（ABI 層）
 /// post は任意のスレッドから &self で呼ばれるので Sync を要求する（規約 4）
@@ -598,7 +649,7 @@ impl<H: ShioriHost> ShioriHostBox<H> {
                 request: Some(host_request::<H>),
                 post: Some(host_post::<H>),
                 log: Some(host_log::<H>),
-                copy_from_slice: None, // 中身は SHIORI 側の層の直し（応答の作り方）と一緒に入れる
+                copy_from_slice: Some(host_copy_from_slice),
             },
             host,
         }));
@@ -808,19 +859,23 @@ impl ShioriApi {
         NonNull::new(p).map(|inst| ShioriInstance { api: self, inst })
     }
 
-    /// v3 モードでインスタンスを生成する（host なし）
+    /// v3 モードでインスタンスを生成する（host は copy_from_slice だけのテーブル）
     pub fn load_v3<'a>(&'a self, dir: &str) -> Option<ShioriInstance<'a>> {
         if self.abi_version != SHIORI_ABI_VERSION_3 {
             return None;
         }
-        let p = unsafe { (self.load)(None, dir.as_ptr(), dir.len()) };
+        let host = NonNull::from(&V3_HOST.0);
+        let p = unsafe { (self.load)(Some(host), dir.as_ptr(), dir.len()) };
         NonNull::new(p).map(|inst| ShioriInstance { api: self, inst })
     }
 }
 
 /// shiori_load が返すインスタンスの実体。v4 は門を持ち、v3 は持たない
+/// 応答はこの層がホストの copy_from_slice で写す（S はテーブルを見ない）
 struct Instance<S> {
     gate: Option<Arc<PosterGate>>,
+    ctx: *mut c_void,
+    copy_from_slice: CopyFromSliceFn,
     shiori: S,
 }
 
@@ -835,8 +890,12 @@ unsafe extern "C" fn shiori_load<S: Shiori, const V: u32>(
         _ => None,
     };
     let r = catch_unwind(AssertUnwindSafe(|| -> Result<*mut c_void, ShioriStatus> {
+        let host = host.ok_or(SHIORI_E_INVALID_ARG)?;
+        // 応答を作る口が無いホストでは load を失敗させる（自分のメモリで作る形へ戻らない）
+        let (ctx, copy_from_slice) =
+            unsafe { ShioriHostApi::copy_from_slice_of(host) }.ok_or(SHIORI_E_UNSUPPORTED)?;
         let (mode, gate) = if V >= SHIORI_ABI_VERSION {
-            let api: &ShioriHostApi = unsafe { host.ok_or(SHIORI_E_INVALID_ARG)?.as_ref() };
+            let api: &ShioriHostApi = unsafe { host.as_ref() };
             if !api.is_valid() {
                 return Err(SHIORI_E_UNSUPPORTED);
             }
@@ -846,11 +905,17 @@ unsafe extern "C" fn shiori_load<S: Shiori, const V: u32>(
                 Some(gate),
             )
         } else {
-            (ShioriLoadMode::V3, None) // host が渡されても無視する
+            (ShioriLoadMode::V3, None) // v3 の S にはホストを見せない（copy_from_slice はこの層が使う）
         };
         let dir = unsafe { shiori_str_arg(dir, dir_len)? };
         let shiori = S::load(mode, dir)?;
-        Ok(Box::into_raw(Box::new(Instance { gate, shiori })).cast())
+        let inst = Instance {
+            gate,
+            ctx,
+            copy_from_slice,
+            shiori,
+        };
+        Ok(Box::into_raw(Box::new(inst)).cast())
     }));
     let msg = match r {
         Ok(Ok(p)) => return p,
@@ -895,10 +960,13 @@ unsafe extern "C" fn shiori_request<S: Shiori>(
         if inst.is_null() || out.is_null() {
             return Err(SHIORI_E_INVALID_ARG);
         }
-        let me = unsafe { &mut (*(inst as *mut Instance<S>)).shiori };
+        let inst = unsafe { &mut *(inst as *mut Instance<S>) };
         let req = unsafe { shiori_str_arg(req, len)? };
-        let ShioriResponse { status, body } = me.request(req);
-        unsafe { out.write(body) }; // 最後に書く。パニック時の out は空のまま
+        let ShioriResponse { status, body } = inst.shiori.request(req);
+        let body = unsafe { ShioriOwnedBytes::from_raw(body) }; // 写したら自分の側で解放する
+        let b = body.as_slice();
+        // 最後に書く（ホストが作る）。パニック時の out は空のまま
+        unsafe { (inst.copy_from_slice)(inst.ctx, b.as_ptr(), b.len(), out) };
         Ok(status)
     })
 }
@@ -1528,5 +1596,122 @@ mod tests {
         let p = unsafe { (FAIL_V3.load)(Some(host.api_ptr()), "/panic".as_ptr(), 6) };
         assert!(p.is_null());
         assert!(take_logged().is_empty());
+    }
+
+    // ---- 応答はホストの copy_from_slice で作る ----
+
+    struct CopyShiori;
+
+    impl Shiori for CopyShiori {
+        const SUPPORTS_V3: bool = true;
+        fn load(_mode: ShioriLoadMode, _dir: &str) -> Result<Self, ShioriStatus> {
+            Ok(Self)
+        }
+        fn request(&mut self, req: &str) -> ShioriResponse {
+            ShioriResponse::ok(format!("Value: {req}"))
+        }
+    }
+
+    static COPY_V4: ShioriApi = ShioriApi::new::<CopyShiori, { SHIORI_ABI_VERSION }>();
+    static COPY_V3: ShioriApi = ShioriApi::new::<CopyShiori, { SHIORI_ABI_VERSION_3 }>();
+
+    /// 生のテーブルで load する（host を自分で組んだテーブルにする）
+    fn load_raw<'a>(
+        api: &'a ShioriApi,
+        host: Option<&'a ShioriHostApi>,
+    ) -> Option<ShioriInstance<'a>> {
+        let p = unsafe { (api.load)(host.map(NonNull::from), "/ghost".as_ptr(), 6) };
+        NonNull::new(p).map(|inst| ShioriInstance { api, inst })
+    }
+
+    /// ShioriHostBox のテーブルの写し（ctx は host の実体を指したまま）
+    fn table_of<H: ShioriHost>(host: &ShioriHostBox<H>) -> ShioriHostApi {
+        // SAFETY: ShioriHostApi は Drop を持たないので、ビットの写しでよい
+        unsafe { host.api_ptr().as_ptr().read() }
+    }
+
+    #[test]
+    fn load_is_null_without_copy_from_slice() {
+        let host = ShioriHostBox::new(LogHost);
+        // v4: 欄の手前で終わる（古いホストの）テーブル。失敗の 1 行は出る
+        let mut old = table_of(&host);
+        old.struct_size = offset_of!(ShioriHostApi, copy_from_slice) as u32;
+        assert!(load_raw(&COPY_V4, Some(&old)).is_none());
+        assert_eq!(take_logged().len(), 1);
+        // v4: 欄はあるが NULL
+        let mut none = table_of(&host);
+        none.copy_from_slice = None;
+        assert!(load_raw(&COPY_V4, Some(&none)).is_none());
+        assert_eq!(take_logged().len(), 1);
+        // v3: host が NULL・欄の無いテーブル
+        assert!(load_raw(&COPY_V3, None).is_none());
+        old.abi_version = SHIORI_ABI_VERSION_3;
+        assert!(load_raw(&COPY_V3, Some(&old)).is_none());
+        assert!(take_logged().is_empty());
+        // 欄があれば読める
+        assert!(COPY_V4.load(&host, "/ghost").is_some());
+        assert!(COPY_V3.load_v3("/ghost").is_some());
+    }
+
+    #[derive(Default)]
+    struct CopyCounts {
+        copies: AtomicUsize,
+        releases: AtomicUsize,
+    }
+
+    /// ホストの copy_from_slice（ctx は CopyCounts。owner に ctx を入れ、release で数える）
+    unsafe extern "C" fn counting_copy(
+        ctx: *mut c_void,
+        ptr: *const u8,
+        len: usize,
+        out: *mut ShioriBytes,
+    ) {
+        let c = unsafe { &*(ctx as *const CopyCounts) };
+        c.copies.fetch_add(1, Ordering::SeqCst);
+        let buf: Box<[u8]> = unsafe { shiori_slice_arg(ptr, len) }.unwrap().into();
+        let buf = Box::into_raw(buf);
+        let b = unsafe {
+            ShioriBytes::from_raw_parts(buf as *const u8, len, ctx, Some(counting_release))
+        };
+        unsafe { out.write(b) }
+    }
+
+    unsafe extern "C" fn counting_release(b: *mut ShioriBytes) {
+        let b = unsafe { &mut *b };
+        let c = unsafe { &*(b.owner as *const CopyCounts) };
+        c.releases.fetch_add(1, Ordering::SeqCst);
+        drop(unsafe { Box::from_raw(ptr::slice_from_raw_parts_mut(b.ptr as *mut u8, b.len)) });
+        *b = ShioriBytes::empty();
+    }
+
+    fn counting_table(c: &CopyCounts, abi_version: u32) -> ShioriHostApi {
+        ShioriHostApi {
+            struct_size: size_of::<ShioriHostApi>() as u32,
+            abi_version,
+            ctx: c as *const CopyCounts as *mut c_void,
+            request: None,
+            post: None,
+            log: None,
+            copy_from_slice: Some(counting_copy),
+        }
+    }
+
+    #[test]
+    fn response_is_allocated_and_released_only_by_host_functions() {
+        for (api, v) in [
+            (&COPY_V4, SHIORI_ABI_VERSION),
+            (&COPY_V3, SHIORI_ABI_VERSION_3),
+        ] {
+            let c = CopyCounts::default();
+            let t = counting_table(&c, v);
+            let mut inst = load_raw(api, Some(&t)).expect("load");
+            let r = inst.request("x").expect("abi");
+            assert_eq!(r.body.as_str(), Ok("Value: x"));
+            assert_eq!(c.copies.load(Ordering::SeqCst), 1);
+            assert_eq!(c.releases.load(Ordering::SeqCst), 0);
+            drop(inst);
+            drop(r); // unload の後に捨ててもホストの release で解放される
+            assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+        }
     }
 }

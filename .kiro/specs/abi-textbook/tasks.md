@@ -7,7 +7,7 @@
   - ホストの関数テーブルの末尾に、戻り値を持たない `copy_from_slice` の欄を C と Rust の両方で足し、`struct_size` の版の決まりに沿わせる（この段ではテーブルを組む側は欄を空にしてビルドを通す）。v3 のテーブルが `request`・`post`・`log` を NULL にできるよう、Rust の 3 つの欄を `Option<unsafe extern "C" fn>` に変え（C の関数ポインタと同じ配置で、二進の形は変わらない）、それを呼ぶ所を直す。v3 のテーブルは `abi_version` が 3、`struct_size` は欄を含む大きさとし、SHIORI は v3 では `SHIORI_HAS_FIELD(host, ShioriHostApi, copy_from_slice)` だけで確かめる（`is_valid` と `SHIORI_HOST_API_IS_VALID` は v4 の検査のまま）。C ヘッダと `shiori4_abi` の大きさの assert を新しい大きさに直す
   - 完了の状態: C ヘッダと `//!` の 9 つの節が `host->` と `host.` の差だけで一致し、`cargo test --all` が通り、C ヘッダだけを読む 1 行の C のファイルが手元の MSVC（`cl /std:c11 /utf-8 /W4 /WX /c`）で警告なしにコンパイルされる
   - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.6_
-- [ ] 1.2 SHIORI 側の層（`shiori4_abi` の書き出しと `shiori4` の Adapter）が、応答をホストの `copy_from_slice` で作るようにする
+- [x] 1.2 SHIORI 側の層（`shiori4_abi` の書き出しと `shiori4` の Adapter）が、応答をホストの `copy_from_slice` で作るようにする
   - `ShioriHostBox` が v4 のテーブルに `copy_from_slice` を入れる（ホスト側の `Bridge` もこのテーブルを使う）。v3 の読み込みは、関数の形を変えずに中で `copy_from_slice` だけのテーブルを組んで渡す（`shiori4`・`shiori4_host` の呼び出し側は直さずに済む）
   - 書き出しの `request` が、応答をホストのメモリへ写してから `out` に入れ、テーブルに `copy_from_slice` が無い（`struct_size` が足りない・NULL・v3 で host が NULL）ときは load を失敗させる。`Ghost::load` に渡す host は v3 ではこれまでどおり `None`
   - 低い層の `ShioriLoadMode` は変えない（v3 は今の `V3` のまま）。応答を写すのは書き出しの層のインスタンスが持つホストのテーブルで行い、`Shiori` の実装はテーブルを見ない

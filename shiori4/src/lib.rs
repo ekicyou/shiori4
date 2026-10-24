@@ -409,6 +409,121 @@ mod tests {
         );
     }
 
+    // ---- v3 の host（copy_from_slice だけのテーブル） ----
+
+    use std::ffi::c_void;
+    use std::ptr::NonNull;
+
+    /// Ghost::load が受けた host が None だったか（この Ghost を使うテストは 1 本だけ）
+    static V3_HOST_WAS_NONE: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
+    struct SeeHost;
+
+    impl Ghost for SeeHost {
+        fn load(host: Option<ShioriHostHandle>, _dir: &str) -> Result<Self, ShioriStatus> {
+            *V3_HOST_WAS_NONE.lock().unwrap() = Some(host.is_none());
+            Ok(SeeHost)
+        }
+        fn request(&mut self, _req: &str) -> ShioriResponse {
+            HeaderWriter::new().push("Value", "v3").into_response()
+        }
+    }
+
+    static SEE_HOST_V3: ShioriApi = ShioriApi::new::<Adapter<SeeHost>, { SHIORI_ABI_VERSION_3 }>();
+
+    /// C ヘッダの ShioriHostApi と同じ並び（shiori4_abi の大きさの assert が一致を保つ）
+    #[repr(C)]
+    struct RawHostApi {
+        struct_size: u32,
+        abi_version: u32,
+        ctx: *mut c_void,
+        request: Option<unsafe extern "C" fn()>,
+        post: Option<unsafe extern "C" fn()>,
+        log: Option<unsafe extern "C" fn()>,
+        copy_from_slice:
+            Option<unsafe extern "C" fn(*mut c_void, *const u8, usize, *mut ShioriBytes)>,
+    }
+
+    /// C ヘッダの ShioriApi と同じ並び
+    #[repr(C)]
+    struct RawApi {
+        struct_size: u32,
+        abi_version: u32,
+        load: unsafe extern "C" fn(Option<NonNull<ShioriHostApi>>, *const u8, usize) -> *mut c_void,
+        unload: unsafe extern "C" fn(*mut c_void),
+        request:
+            unsafe extern "C" fn(*mut c_void, *const u8, usize, *mut ShioriBytes) -> ShioriStatus,
+    }
+
+    static COPIES: AtomicU64 = AtomicU64::new(0);
+    static RELEASES: AtomicU64 = AtomicU64::new(0);
+
+    /// ホストの copy_from_slice。写した数と、host_release で解放した数を数える
+    unsafe extern "C" fn host_copy(
+        _ctx: *mut c_void,
+        ptr: *const u8,
+        len: usize,
+        out: *mut ShioriBytes,
+    ) {
+        COPIES.fetch_add(1, Ordering::SeqCst);
+        let buf: Box<[u8]> = unsafe { std::slice::from_raw_parts(ptr, len) }.into();
+        let p = Box::into_raw(buf) as *const u8;
+        unsafe {
+            out.write(ShioriBytes::from_raw_parts(
+                p,
+                len,
+                std::ptr::null_mut(),
+                Some(host_release),
+            ))
+        }
+    }
+
+    unsafe extern "C" fn host_release(b: *mut ShioriBytes) {
+        RELEASES.fetch_add(1, Ordering::SeqCst);
+        let b = unsafe { &mut *b };
+        let len = b.len();
+        let p = b.as_slice().as_ptr() as *mut u8;
+        drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, len)) });
+        *b = ShioriBytes::empty();
+    }
+
+    #[test]
+    fn v3_ghost_load_gets_none_and_response_is_made_by_copy_from_slice() {
+        // 写しの並びがずれたら UB にせず、ここで落とす
+        assert_eq!(size_of::<RawHostApi>(), size_of::<ShioriHostApi>());
+        // RawApi は request までの頭の部分だけを写す
+        assert_eq!(
+            size_of::<RawApi>() + size_of::<usize>(),
+            size_of::<ShioriApi>()
+        );
+        let table = RawHostApi {
+            struct_size: size_of::<RawHostApi>() as u32,
+            abi_version: SHIORI_ABI_VERSION_3,
+            ctx: std::ptr::null_mut(),
+            request: None,
+            post: None,
+            log: None,
+            copy_from_slice: Some(host_copy),
+        };
+        // SAFETY: RawApi は ShioriApi と同じ並び
+        let api = unsafe { &*(&SEE_HOST_V3 as *const ShioriApi as *const RawApi) };
+        let host = NonNull::from(&table).cast::<ShioriHostApi>();
+        let inst = unsafe { (api.load)(Some(host), "/ghost".as_ptr(), 6) };
+        assert!(!inst.is_null());
+        assert_eq!(*V3_HOST_WAS_NONE.lock().unwrap(), Some(true));
+
+        let req = "GET SHIORI/3.0\r\nID: OnBoot\r\n\r\n";
+        let mut out = ShioriBytes::empty();
+        let st = unsafe { (api.request)(inst, req.as_ptr(), req.len(), &mut out) };
+        let body = unsafe { ShioriOwnedBytes::from_raw(out) };
+        assert_eq!(st, 200);
+        assert!(body.as_str().unwrap().contains("Value: v3\r\n"));
+        assert_eq!(COPIES.load(Ordering::SeqCst), 1);
+        unsafe { (api.unload)(inst) };
+        drop(body);
+        assert_eq!(RELEASES.load(Ordering::SeqCst), 1);
+    }
+
     // ---- v4 の Charset・複数インスタンス・Poster の複製 ----
 
     #[test]
