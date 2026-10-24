@@ -61,6 +61,7 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, �
 
 ### 公開とバージョン
 - 版はルート `Cargo.toml` の **3 か所**だけに書く: `[workspace.package] version` と、`[workspace.dependencies]` の `shiori4_abi`・`shiori4` の `version`。3 つは常に同じ値にする（`0.0.x` の版要求は完全一致なので、直し忘れると依存解決で落ちる）
+- 版は `/release` で初めて決まる。まだ出ていない版を文書・spec・注釈に書くときは、番号を予想して書かず、`doc/release-notes/README.md` の「次の版の印」を書く（`/release` の段 4 が版に置き換える）。印の綴りはここに写さない（写すと、ここも置き換えの対象になる）
 - 共通メタデータ（`edition`・`rust-version`・`authors`・`license`・`repository`・`homepage`・`keywords`）も `[workspace.package]` に置き、各クレートは `<field>.workspace = true` で受け継ぐ。クレート固有なのは `name` と `description` だけ
 - ライセンスは **MIT だけ**。各クレートのディレクトリにルート `LICENSE` の写しを置く（`license-file` は使わない）
 - 公開はリリースタグ `vX.Y.Z` の push で動くリリース CI（`.github/workflows/release.yml`）だけが行う。段は `verify` → `gate` → `publish-crates` → `github-release` → `report`。開発者は `/release` で版の更新からタグの push・見届けまでを行う
