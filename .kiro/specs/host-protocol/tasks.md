@@ -56,7 +56,7 @@
   - post の原文から Tag の値を変えずに、Command を `Reference0` に引き継ぎ、ホストの名前から作る `Sender`・`SenderType: internal`・`SecurityLevel: local`・`SecurityOrigin: null` の 4 行を ID より前に置いて完了通知を組み立てる。Tag の無い post からは組み立てない
   - 完了の状態: 数でない Tag・`:` の後に空白が 2 つある Tag の写し、4 行が ID より前、Reason の有無、Tag の無い post で組み立てないことをテストが確かめ、どの出力にも Charset が無い
   - _Requirements: 2.5, 3.7, 5.4, 6.1, 6.2, 10.5, 10.6, 10.10_
-- [ ] 3.4 setproperty の送信と Tag の発行だけの登録を足し、モジュールの doc を書く
+- [x] 3.4 setproperty の送信と Tag の発行だけの登録を足し、モジュールの doc を書く
   - プロパティの取得に、setproperty をホストへ送る別の関数を足す。204 ならキャッシュを改行を除いた値に更新し、400 は読み分け付きの拒否、それ以外の応答と ABI エラーは失敗、v3 はホストに送れない失敗として返す
   - Tag の待ち合わせに、post せずに Tag を発行して登録するだけの関数を足す（今の post する関数はその上に載せる）
   - モジュールの doc の先頭で文書を指し、「芯はこのモジュールを使わない。使わなくても仕様に従える」と書き、本文の無い 204 と 500 は `ShioriResponse::no_content()`／`error()` で作ると 1 行書く。「暫定」と書かない

@@ -1,22 +1,20 @@
-//! SHIORI ⇔ ホスト間のメッセージ（v4）の解析と組み立て
+//! ホスト側プロトコル（v4）の語に合わせた解析と組み立ての便利関数
 //!
-//! - ヘッダの解析と生成（Headers / HeaderWriter）
-//! - メッセージ名の定数
-//! - プロパティ取得の抽象化（Properties / Lookup）
-//! - post の受付 ID（Tag）の発行と待ち合わせ（PendingTags）
+//! 語（ID・ヘッダ名・`Command`・`Tag`・`OnHostComplete` の並び・拒否の返し方など）は、
+//! shiori4 リポジトリの `doc/host-protocol.md`（ホスト側プロトコル仕様）が定める。
 //!
-//! メッセージ形式
+//! 芯はこのモジュールを使わない。使わなくても仕様に従える。
 //!
-//! - プロパティ取得（host.request）
-//!   要求: `ID: property` / `Reference0: <名前>`
-//!   応答: 200 + `Value: <値>`、存在しなければ 204
-//! - 非同期依頼（host.post）
-//!   `Command: <コマンド名>`（必須）/ `Tag: <受付 ID>`（結果が必要な場合）/ 任意のヘッダ
-//! - 完了通知（ホスト → SHIORI の request または notify）
-//!   `ID: OnHostComplete` / `Tag` / `Status: <ステータス>` /
-//!   `Reference0: <コマンド名>` / `Reference1..: <結果>`
+//! - ヘッダの解析と組み立て（[`Headers`] / [`HeaderWriter`]）と語の定数
+//! - SHIORI 側: 要求と post の組み立て（[`getproperty_request`]・[`setproperty_request`]・
+//!   [`send_post`]・[`notify_post`]）、応答と完了通知の読み分け（[`Rejection`]・[`HostComplete`]）
+//! - ホスト側: 応答と完了通知の組み立て（[`getproperty_response`]・[`rejection_response`]・[`host_complete`]）
+//! - SHIORI 側の状態: プロパティの取得と setproperty の送信（[`Properties`]）、Tag の待ち合わせ（[`PendingTags`]）
 //!
-//! 使う型は shiori4_abi のものだけ。ホスト側クレート shiori4_host と共有する
+//! 本文の無い 204（setproperty の成功など）と 500（ホストの中の失敗）は
+//! [`ShioriResponse::no_content()`]／[`ShioriResponse::error()`] で作る。
+//!
+//! 使う型は shiori4_abi のものだけ。ホスト側クレート shiori4_host からも再エクスポートで使える
 
 use std::{
     collections::HashMap,
@@ -171,13 +169,13 @@ pub fn setproperty_request(name: &str, value: &str) -> String {
         .finish()
 }
 
-/// `Command: SEND` / [`Tag`] / `Script` / [`Option: a,b`]
+/// `Command: SEND` / \[`Tag`\] / `Script` / \[`Option: a,b`\]
 pub fn send_post(script: &str, options: &[&str], tag: Option<&str>) -> String {
     let w = post_head(COMMAND_SEND, tag).push(HEADER_SCRIPT, script);
     post_options(w, options).finish()
 }
 
-/// `Command: NOTIFY` / [`Tag`] / `Event` / `Reference0..` / [`Option: a,b`]
+/// `Command: NOTIFY` / \[`Tag`\] / `Event` / `Reference0..` / \[`Option: a,b`\]
 pub fn notify_post(event: &str, refs: &[&str], options: &[&str], tag: Option<&str>) -> String {
     let w = post_head(COMMAND_NOTIFY, tag).push(HEADER_EVENT, event);
     let w = refs.iter().enumerate().fold(w, |w, (i, r)| w.push(&format!("Reference{i}"), r));
@@ -285,7 +283,7 @@ pub fn rejection_response(reason: Option<&str>) -> ShioriResponse {
 
 /// post の原文から Tag（値を変えずに）と Command を引き継ぎ、完了通知のヘッダ部分を組み立てる。
 /// 並び: `Sender: <sender>` / `SenderType: internal` / `SecurityLevel: local` / `SecurityOrigin: null`
-/// / `ID` / `Tag` / `Status` / `Reference0: <Command>` / `Reference1..` / [`Reason`]。
+/// / `ID` / `Tag` / `Status` / `Reference0: <Command>` / `Reference1..` / \[`Reason`\]。
 /// post に Tag が無ければ None
 pub fn host_complete(
     post: &str,
@@ -397,6 +395,25 @@ impl Properties {
         self.cache.insert(name.into(), value.into());
     }
 
+    /// setproperty をホストに送る（キャッシュへの取り込みの `set` とは別）。
+    /// 204 ならキャッシュも改行を除いた値に更新する
+    pub fn set_on_host(&mut self, name: &str, value: &str) -> Result<(), SetPropertyError> {
+        let host = self.host.as_ref().ok_or(SetPropertyError::Offline)?;
+        let r = host.request_str(&setproperty_request(name, value)).map_err(SetPropertyError::Failed)?;
+        match r.status {
+            SHIORI_204_NO_CONTENT => {
+                let v = value.chars().filter(|&c| c != '\r' && c != '\n').collect();
+                self.cache.insert(name.to_owned(), v);
+                Ok(())
+            }
+            SHIORI_400_BAD_REQUEST => {
+                let h = Headers::parse(r.body.as_str().unwrap_or(""));
+                Err(SetPropertyError::Rejected(Rejection::from_reason(h.get(HEADER_REASON))))
+            }
+            st => Err(SetPropertyError::Failed(st)),
+        }
+    }
+
     pub fn invalidate(&mut self, name: &str) {
         self.cache.remove(name);
     }
@@ -404,6 +421,17 @@ impl Properties {
     pub fn clear(&mut self) {
         self.cache.clear();
     }
+}
+
+/// `Properties::set_on_host` の失敗
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetPropertyError {
+    /// v3（ホストを呼べない）
+    Offline,
+    /// 400。Reason の読み分け付き
+    Rejected(Rejection),
+    /// 204・400 以外の応答（200・500 など）と ABI エラー（負の値）
+    Failed(ShioriStatus),
 }
 
 // ============================================================
@@ -432,11 +460,18 @@ impl<T> PendingTags<T> {
         self.map.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Tag を発行して登録する（post はしない）。組み立てと post を別に行う人のため。
+    /// post が受け付けられなかったら `take` で登録を取り消すこと
+    pub fn register(&self, context: T) -> u64 {
+        let tag = self.next.fetch_add(1, Ordering::Relaxed);
+        self.map().insert(tag, context);
+        tag
+    }
+
     /// Tag を付けて post する。受け付けられなければ登録を取り消して Err を返す
     /// headers はヘッダ部分（Tag 以外。Command を含めること）
     pub fn post(&self, poster: &ShioriHostPoster, context: T, headers: &str) -> Result<u64, ShioriStatus> {
-        let tag = self.next.fetch_add(1, Ordering::Relaxed);
-        self.map().insert(tag, context);
+        let tag = self.register(context);
         let st = poster.post_str(&format!("{}: {tag}\r\n{headers}", HEADER_TAG));
         if shiori_is_success(st) {
             Ok(tag)
@@ -694,7 +729,9 @@ mod tests {
         }
     }
 
-    /// Reference0 が "a" なら 200 + Value、それ以外は 204。post は全文を覚える
+    /// property: Reference0 が "a" なら 200 + Value、それ以外は 204。
+    /// setproperty: Reference0 が "ok" なら 204、"deny" なら 400 + forbidden、"bad" なら 400、それ以外は 500。
+    /// post は全文を覚え、`Command: fail` を含めば 400 で断る
     #[derive(Default)]
     struct PropHost {
         posted: Mutex<String>,
@@ -705,12 +742,18 @@ mod tests {
             let h = Headers::parse(std::str::from_utf8(req).unwrap());
             match (h.id(), h.reference(0)) {
                 (Some(ID_PROPERTY), Some("a")) => HeaderWriter::new().push(HEADER_VALUE, "1").into_response(),
+                (Some(ID_SETPROPERTY), Some("ok")) => ShioriResponse::no_content(),
+                (Some(ID_SETPROPERTY), Some("deny")) => rejection_response(Some(REASON_FORBIDDEN)),
+                (Some(ID_SETPROPERTY), Some("bad")) => rejection_response(None),
+                (Some(ID_SETPROPERTY), _) => ShioriResponse::error(),
                 _ => ShioriResponse::no_content(),
             }
         }
         fn post(&self, msg: &[u8]) -> ShioriStatus {
-            *self.posted.lock().unwrap() = String::from_utf8(msg.to_vec()).unwrap();
-            SHIORI_204_NO_CONTENT
+            let msg = String::from_utf8(msg.to_vec()).unwrap();
+            let st = if msg.contains("Command: fail") { SHIORI_400_BAD_REQUEST } else { SHIORI_204_NO_CONTENT };
+            *self.posted.lock().unwrap() = msg;
+            st
         }
     }
 
@@ -730,6 +773,15 @@ mod tests {
             let h = Headers::parse(req);
             let v = match h.id() {
                 Some("post") => format!("{:?}", self.tags.post(&self.poster, "ctx", "Command: test\r\n")),
+                Some("postfail") => {
+                    let r = self.tags.post(&self.poster, "ctx", "Command: fail\r\n");
+                    format!("{r:?} {}", self.tags.len())
+                }
+                Some("set") => {
+                    let r: Vec<_> =
+                        ["ok", "deny", "bad", "other"].map(|n| format!("{:?}", self.props.set_on_host(n, "x\r\ny"))).into();
+                    format!("{} {:?} {:?}", r.join(" "), self.props.cached("ok"), self.props.cached("deny"))
+                }
                 Some(ID_HOST_COMPLETE) => format!("{:?}", self.tags.take_from(&h)),
                 _ => {
                     let a = format!("{:?}", self.props.get("a"));
@@ -769,5 +821,45 @@ mod tests {
         let done = "ID: OnHostComplete\r\nTag: 1\r\nStatus: 200\r\n";
         assert_eq!(value(&mut inst, done), "Value: Some((1, \"ctx\"))\r\n");
         assert_eq!(value(&mut inst, done), "Value: None\r\n");
+    }
+
+    #[test]
+    fn properties_set_on_host() {
+        let host = ShioriHostBox::new(PropHost::default());
+        let mut inst = API.load(&host, "/ghost").expect("load");
+        assert_eq!(
+            value(&mut inst, "ID: set\r\n"),
+            "Value: Ok(()) Err(Rejected(Forbidden)) Err(Rejected(Invalid)) Err(Failed(500)) Some(\"xy\") None\r\n"
+        );
+
+        // v3 はホストに送れない。キャッシュも変えない
+        let mut v3 = Properties::new(None);
+        assert_eq!(v3.set_on_host("a", "1"), Err(SetPropertyError::Offline));
+        assert_eq!(v3.cached("a"), None);
+    }
+
+    #[test]
+    fn pending_tags_register_only() {
+        let tags = PendingTags::new();
+        let a = tags.register("a");
+        let b = tags.register("b");
+        assert_ne!(a, b);
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags.take(a), Some("a"));
+        assert_eq!(tags.take(a), None);
+
+        // 発行した Tag で組み立てた post から完了通知を作り、そこから取り出す
+        let post = send_post("x", &[], Some(&b.to_string()));
+        let done = host_complete(&post, "areka", SHIORI_200_OK, &[OUTCOME_COMPLETED], None).unwrap();
+        assert_eq!(tags.take_from(&Headers::parse(&done)), Some((b, "b")));
+        assert!(tags.is_empty());
+    }
+
+    #[test]
+    fn pending_tags_failed_post_unregisters() {
+        let host = ShioriHostBox::new(PropHost::default());
+        let mut inst = API.load(&host, "/ghost").expect("load");
+        assert_eq!(value(&mut inst, "ID: postfail\r\n"), "Value: Err(400) 0\r\n");
+        assert_eq!(*host.host().posted.lock().unwrap(), "Tag: 1\r\nCommand: fail\r\n");
     }
 }
