@@ -194,7 +194,7 @@
   - 6 と同じ `shiori4_host` のファイルを直すので、6 の後に行う
   - _Depends: 6.3, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 8.1, 8.2_
   - _Requirements: 6.4, 12.2, 14.1, 14.5_
-- [ ] 9.2 写しの一致の検査を教科書の章に広げる
+- [x] 9.2 写しの一致の検査を教科書の章に広げる
   - 規約の一覧の引用が 9 つの節と一致すること、配布の決まりの章の引用が正本と一致すること、README と `c.md` の C の塊が C の例のファイルか C ヘッダのそのままの抜き出しであること（README の 2 つは全文）、語の表が第 8 章の行を綴りのまま持つことを確かめる
   - 完了の状態: `cargo test -p shiori4_abi --test textbook` が通り、写しの 1 字を変えると落ちる
   - _Depends: 7.1, 7.2, 7.3, 7.6, 8.1_
@@ -211,3 +211,4 @@
 - 3.1: 手元に gcc・clang が無いので、Linux・macOS の `-Wall -Wextra -Werror` は 4 の CI で初めて確かめる。MSVC は vswhere → vcvars64.bat で使える。
 - 3.3: 教科書の例のホストは v4 の要求に `doc/host-protocol.md` 第 2.2 節の 5 つの必須ヘッダ（`SecurityLevel` は `ID` より前）を付ける。testghost は要求のヘッダを見ないので、往復が通っても適合の証拠にならない。
 - 8.2: 既存の docs.rs の例のうち `shiori4/src/lib.rs:16`・`shiori4_host/src/lib.rs:25/117`（`no_run`）・`shiori4_host/src/dist.rs:58`・`shiori4_abi/src/lib.rs:996`（`ignore`）は、要件 14.3 の理由の文を持たない（この spec より前からある）。
+- 9.2: `include_str!` の再ビルドは mtime で決まる。写しを壊して戻す確かめでは、戻した後に `touch` しないと古いテストのバイナリが残る。
