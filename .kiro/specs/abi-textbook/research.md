@@ -260,3 +260,16 @@
 ## 設計の議論 #2〜#11 の決定（2026-10-24）
 - 一覧は design.md の「設計の議論の決定」。#3（`copy_from_slice` の失敗）は開発者の案を採った: 失敗を何とかするのはホストで、SHIORI は写せたかを知る必要が無い。戻り値を持たず、ホストが `out` に自分の印を残す形がいちばん軽い（SHIORI の側に分岐が要らない）。
 - 開発者の補足（記録だけ）: ホストの `copy_from_slice` をプロセスの `malloc` で作るのはホストの自由。Windows 限定なら `HSTRING` も選べるが、3 OS の ABI には使わない。
+
+## 二進互換の申し送り（実装 1.4、2026-10-24）
+- testghost（`testdata/testghost`）は `Adapter<TestGhost>` を `ShioriApi::new` に渡して v4・v3 のテーブルを出すだけで、応答は高水準層（`shiori4_abi` の `shiori_request`）がホストの `copy_from_slice` で `out` に写す。中身の直しは要らなかった。DLL を外した後に応答を捨てても落ちないこと（`shiori4_host` の `response_dropped_after_runtime_is_safe`）が、testghost の応答をホストが作っている証拠になる。
+- 0.0.2 以前と二進互換でない。関数の形（`shiori_get_api`・`load`・`request`・`notify`・`unload` と `ShioriBytes`）は変わらず、`ShioriHostApi` の末尾に `copy_from_slice` が足され、`out` を作る側が SHIORI からホストに移る。組ごとの動き:
+  - 新しい SHIORI × 古いホスト: load が失敗する（NULL）。v4 は `copy_from_slice` の欄が無いテーブル（`struct_size` が足りない）で `SHIORI_E_UNSUPPORTED` の 1 行を `log` に出し、v3 は host が NULL なので黙って NULL を返す。ホストからは load の失敗（`shiori4_host` なら `LoadError::LoadFailed`）に見える。自分のメモリで作る昔の形には戻らない（要件 15.5）。
+  - 古い SHIORI × 新しいホスト: 昔のまま動く。古い SHIORI は足された欄を読まず（v3 は host を見ない）、応答は SHIORI が自分で作り、ホストは `out` の `release`（SHIORI の関数）を呼んで捨てる。ライブラリを外した後に応答を捨ててはいけない昔の注意も、古い SHIORI ではそのまま残る。
+  - v4 の DLL はまだ配られていないので、実際に困るのは 0.0.2 以前の `shiori4` でビルドした手元の DLL と、0.0.2 以前の `shiori4_host` で作ったホストだけである。
+- PR の本文の「動きが変わる変更」に載せる文（`release` の見どころの「動きが変わる点」にもこの文で載せる）:
+  - 応答の `ShioriBytes` は常にホストが作るようになり、SHIORI は `ShioriHostApi` の末尾に足した `copy_from_slice` で `out` に写す。関数の形は変わらないが 0.0.2 以前と二進互換でなく、新しい SHIORI は `copy_from_slice` を持たない古いホストでは load に失敗する（古い SHIORI は新しいホストで昔のまま動くが、新しい規約の外なので、ライブラリを外した後に応答を捨てると落ちる）。SHIORI もホストも 0.0.3 で作り直す。
+- pasta と areka への知らせの文:
+  - 0.0.3 から、SHIORI の応答（`request` の `out`）はホストが作ります。ホストは `ShioriHostApi` の末尾の `copy_from_slice` を必ず用意し、v3 互換モードでも load の host に `copy_from_slice` だけを持つテーブルを渡します。新しい SHIORI は、この欄が無いホストからは読み込みに失敗します。関数の形は 0.0.2 と同じですが二進互換ではないので、SHIORI の DLL とホストを両方とも 0.0.3 で作り直してください。Rust の高水準層（`export_ghost!`・`Adapter`・`GhostRuntime`）を使っていれば、ソースの直しは要りません。応答の `release` は常にホストの関数になり、unload の後に呼んでもよくなりました（スレッド規約 6）。ただし 0.0.2 以前の SHIORI の応答はこの規約の外なので、ライブラリを外した後に捨ててはいけません。
+  - pasta（`shiori4` で作る SHIORI）: 版を 0.0.3 に上げてビルドし直す。0.0.2 以前のホストで試さない。
+  - areka（`shiori4_host` で作るホスト）: 版を 0.0.3 に上げる。別のプロセスに置くなど自前で `ShioriHostApi` を組んでいるなら、`copy_from_slice` を足す（写せなかったときは自分で決めた印を `out` に残し、SHIORI には知らせない）。

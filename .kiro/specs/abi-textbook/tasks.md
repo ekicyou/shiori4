@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. 全体図の穴を埋める ABI の変更（OwnershipChange。教科書の執筆より先に行う）
+- [x] 1. 全体図の穴を埋める ABI の変更（OwnershipChange。教科書の執筆より先に行う）
 - [x] 1.1 規約の文言と、ホストのテーブルの新しい欄を、C ヘッダと `shiori4_abi` の `//!` の両方に入れる
   - 版（v3 の host は `copy_from_slice` だけを持つ。v3 の下位の項目「load の host は NULL（渡されても SHIORI は無視する）」を直す）・ABI 規約（`out` は常にホストが作り、写せなかったときはホストが自分の印を `out` に残す）・スレッド規約 1（`load`・`unload` を足す）・5（例外は `release` だけ）・6（`release` は常にホストの関数で、いつでも・どのスレッドからでも呼べる）・load の規約 3（「v3 は host が NULL なので」を、v3 の host に `log` が無いことに直す）の文を、両方で同じ文にする。項目は足さず、各節の項目数を変えない
   - 規約の節の外の注釈で v3 の host を NULL・None と書いた 3 か所（C ヘッダの `SHIORI_ABI_VERSION_3` の注釈・`load` の欄の注釈・`ShioriApi::load` の `///`）も、`copy_from_slice` だけのテーブルを渡す形に直す
@@ -18,7 +18,7 @@
   - `release` が `owner` だけで解放しインスタンスの状態に頼らないこと、`V3Runtime` と `from_static` が `copy_from_slice` だけのテーブルで動くことをテストで確かめる
   - 完了の状態: 「ランタイムを Drop した後に応答を捨てても安全」「`copy_from_slice` の無いテーブルでは新しい SHIORI の load が失敗する」のテストが `shiori4_host` に足され、`cargo test -p shiori4_host` が通る
   - _Requirements: 15.3, 15.5, 15.6_
-- [ ] 1.4 テスト用の SHIORI（testghost）の確かめと、二進互換の申し送り
+- [x] 1.4 テスト用の SHIORI（testghost）の確かめと、二進互換の申し送り
   - testghost が高水準層の直しだけで応答を `copy_from_slice` で作ることを確かめ、要るなら中身を直す（DLL を通すテストは 1.2 で緑になっている）
   - 0.0.2 以前と二進互換でないこと（関数の形は同じで、`out` を作る側が変わる）を、PR の本文の「動きが変わる変更」に載せる文と、pasta・areka への知らせの文として research.md の申し送りに書く
   - 完了の状態: `cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings` が通り、research.md に二進互換の申し送りがある
