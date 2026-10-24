@@ -151,7 +151,7 @@
   - _Boundary: ProcessNotes_
   - _Depends: 2.1_
   - _Requirements: 4.7, 10.1, 10.2, 10.3, 10.4_
-- [ ] 7.5 (P) 移行の手引き（`migration.md`）を書く
+- [x] 7.5 (P) 移行の手引き（`migration.md`）を書く
   - SHIORI 側の 3 段（SHIORI/3.0 の DLL → v3 互換モード → v4）の差分の表、ホスト側の差分の表、v3 互換モードは Windows 以外向けで旧来の DLL を読む口はまだ無いこと、0.0.1 → 0.0.2 は付録 A へ導く
   - 完了の状態: `migration.md` に 2 つの差分の表があり、Charset・`copy_from_slice` で作る応答・load の dir の形・`shiori_get_api` での見分け方が載っている
   - _Boundary: MigrationGuide_
