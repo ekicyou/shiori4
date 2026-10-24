@@ -143,7 +143,7 @@
 **Objective:** As a ベースウェア実装者・SHIORI の作者, I want 従来の DLL を読む口がどの環境で使え、何がホストに残るかが文書で分かること, so that 32bit の helper を設計するときに、shiori4_host に任せる所と自分で書く所を間違えない（Scope）
 
 #### Acceptance Criteria
-1. The shiori4_host の doc（クレート冒頭の `//!` と従来の DLL の口の doc） shall 従来の DLL の口が x86 の Windows でだけ使えること、ほかの環境では現れないこと、入口の名前、ホストに残すもの（プロセスの起こし方・IPC・待ち時間・強制終了・カレントディレクトリ・本文の文字コードの方針）を述べる。
+1. The shiori4_host の doc（クレート冒頭の `//!` と従来の DLL の口の doc） shall 従来の DLL の口が x86 の Windows でだけ使えること、ほかの環境では現れないこと、入口の名前、ホストに残すもの（プロセスの起こし方・IPC・待ち時間・強制終了・カレントディレクトリ・本文の文字コードの方針）を述べる。あわせて、`LoadedGhost::Legacy` の doc と crate doc の例の「このクレートでは読まない」の記述を、x86 の Windows ではこの口で読めることに合わせて直す。
 2. The 移行の手引き（`doc/textbook/migration.md`） shall 「旧来の DLL を読む口は `shiori4_host` にまだ無い」の項目を、この spec で足した口（使える環境・入口の名前）を指す文に書き換える（abi-textbook 要件 11.3）。
 3. The 配布の決まりの章（`doc/textbook/distribution.md`） shall 「旧来の DLL を読む口は `shiori4_host` にまだ無い」の文を、同じくこの spec の口を指す文に書き換える。
 4. The 試験用のホストの章（`doc/textbook/testhost.md`） shall x86 の Windows での従来の口の振る舞い（表示・終了の状態・オプション）を、ほかの環境の振る舞いと分けて述べる。
