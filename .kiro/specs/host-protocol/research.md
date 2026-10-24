@@ -138,3 +138,103 @@
      - `OnHostComplete` の組み立て関数が、必須のヘッダ（`Sender`・`SenderType`・`SecurityLevel`・`SecurityOrigin`）を `ID` より前に置けること（ukadoc の「`SecurityLevel` は少なくとも ID より前」。areka）。
      - 0.0.1 → 0.0.2 の移行の一覧をリリースノートに置くこと、crates.io に出た版を両者に知らせること。
 - **守ること**: `Bridge::request` の先頭の規約 2 の門、UTF-8 の検査、`Host::log`・`accept_post`・`wake` の「Drop するスレッドを同期で待たない」の doc、Charset を付けないことのテスト。
+
+## 7. 設計フェーズ（2026-10-24）
+
+### Summary
+- **Discovery Scope**: Extension（light discovery）。既存の 2 クレートの公開 API の組み替えと、新しい文書・独立したモジュールの追加。新しい外部依存は無いので、外部の調査は ukadoc の参照先の確認だけにした。
+- **Key Findings**:
+  - ホスト側の便利関数（応答・`OnHostComplete` の組み立て）も `shiori4_host` の型を使わない純粋な文字列の関数にできる。Option C の「`shiori4_host` にも別の `pub mod` を置く」は要らず、`shiori4::host_protocol` の 1 つにまとめられる。
+  - 組み込みの `property` が無くなると、`Host::request` の `Option`（None で組み込みへ回す）は意味を失う。戻り値を `ShioriResponse` にし、既定の 400 を trait の既定の実装で持てば足りる。
+  - 芯から解析が抜けると `Completer` は `EventSender` の 1 回きりの包みになる。brief の語（「完了通知の芯は complete_with」）に合わせ、`complete_with` だけを残す。
+  - v3 の私的な解析は Charset の 1 ヘッダを読むだけで足りる。`v3::parse_request` は原文のヘッダ部分（部分文字列）を返せる。
+
+### Research Log
+
+#### ukadoc の参照先
+- **Context**: 要件 1.6（ukadoc を参照先として示す）と、areka の要望（必須ヘッダを ID より前に置けること）の根拠の確認。
+- **Sources Consulted**: <https://ssp.shillest.net/ukadoc/manual/spec_shiori3.html>、<https://ssp.shillest.net/ukadoc/manual/spec_sstp.html>
+- **Findings**:
+  - SHIORI/3.0 の頁は `SecurityLevel` を「少なくとも ID ヘッダより前に現れる」とする。`SenderType` の語は `internal`・`external`・`sakuraapi`・`embed`・`raise`・`property`・`plugin`・`sstp`・`communicate`（カンマ区切り）。`SecurityLevel` は `local`・`external`。`SecurityOrigin` は `null` か `<scheme>://<host>[:<port>]`。節のアンカーは `#request`・`#response`。
+  - SSTP の頁は SEND・NOTIFY を `#method_send`・`#method_notify` に置き、Option の `nobreak`（今のスクリプトを中断せず終わるまで待つ）・`notranslate`・`nodescript`・`strict` を定める。
+- **Implications**: 文書の付録 B にこの URL を置く。`host_complete` は必須ヘッダを `lead` として `ID` より前に置く形にする。
+
+#### 既存コードの影響範囲（gap 分析の確認）
+- **Context**: File Structure Plan を確定させるため。
+- **Findings**: gap 分析の一覧どおり。追加で、`shiori4_host/src/v3.rs` のテスト用 Ghost 3 つと `testdata/testghost/src/lib.rs` が `Ghost` のシグネチャに依存する。`discover.rs`・`dist.rs`・`test_dll.rs` は影響しない。`shiori4_abi` は doc の 1 行だけ。
+- **Implications**: 変更するファイルは `shiori4/src/lib.rs`・`shiori4/src/host_protocol.rs`（新規）・`shiori4_host/src/lib.rs`・`shiori4_host/src/v3.rs`（テストだけ）・`testdata/testghost/src/lib.rs`・C ヘッダと `shiori4_abi/src/lib.rs`（1 行）・README 3 つ・steering 2 つ・`doc/host-protocol.md`（新規）。
+
+### Architecture Pattern Evaluation
+
+| Option | Description | Strengths | Risks / Limitations | Notes |
+|--------|-------------|-----------|---------------------|-------|
+| A | `shiori4` の中に `pub mod` | クレートを増やさない | 独立はモジュールの境界だけ | 検査のテストで補う |
+| B | 新しいクレート | 依存で独立を強制できる | 公開の仕組み（4 クレート目・初回の手動公開・版の置き場所）に波及 | pasta の「依存は shiori4_abi だけ」に最も近い |
+| C | A ＋ `shiori4_host` にも `pub mod` | 利用者ごとに置ける | ホスト側の関数も `shiori4_host` の型を使わないので、分ける理由が無い | gap 分析の推奨 |
+| **採用: A（C の簡約）** | `shiori4/src/host_protocol.rs` の 1 つ。`shiori4_host` は再エクスポート | 最小。境界はファイルで見え、テストで検査できる | pasta は `shiori4` ごと依存する（`shiori4` 自体は `shiori4_abi` と std だけ） | design.md の OPEN QUESTION 1 |
+
+### Design Decisions
+
+#### Decision: 便利関数は `shiori4::host_protocol` の 1 つのモジュール
+- **Context**: 要件 10.1・9.3、本書 6 の 1・9（pasta: `Ghost`／`Adapter` なしで使いたい、依存はできれば `shiori4_abi` だけ）。
+- **Alternatives Considered**: 新しいクレート（B）、両クレートに分ける（C）。
+- **Selected Approach**: 名前は今の `host_protocol` を保ち、`shiori4/src/host_protocol.rs` に置く。`Headers`・`HeaderWriter`・`Properties`・`Lookup`・`PendingTags` もここへ移し、クレートの直下には再エクスポートしない。
+- **Rationale**: 文書の名前（ホスト側プロトコル仕様）と対応し、steering の「層をまたぐ語彙は `shiori4`」に合う。`shiori4` は std と `shiori4_abi` だけに依存するので、pasta の依存の重さは新しいクレートとほぼ同じ。
+- **Trade-offs**: 独立はコンパイラでは強制されない → `include_str!` の検査のテストで守る。
+- **Follow-up**: 将来の別の語は別の名前のモジュールとして並べる。
+
+#### Decision: 芯の trait は原文を受け、既定は 400 と全部受付
+- **Context**: 要件 8.1〜8.3・8.6・8.8・9.1、要件ディスカッションの結果 2・3。
+- **Selected Approach**: `Ghost::request(&mut self, &str)`、`Host::request(&self, &str) -> ShioriResponse`（既定 400）、`Host::accept_post(&self, &str) -> bool`（既定 true）。`Host::property` は削る。
+- **Rationale**: 組み込みの応答が無くなるので `Option` は不要（簡約）。
+
+#### Decision: 完了通知の芯は `Completer::complete_with` だけ
+- **Context**: 要件 8.7・8.8・10.6、本書 6 の 3。
+- **Alternatives Considered**: `Completer` を消して `Post` に `EventSender` を持たせる／`complete` に改名する。
+- **Selected Approach**: `Completer` を残し、`complete_with(self, delivery, headers)` を「全文をそのまま届ける」にする。`complete`・`tag`・`is_wanted` を削る。`Tag` を引き継ぐのは便利関数 `host_complete`。
+- **Rationale**: brief の語と一致し、利用者の移行が `into_completer()` を保ったまま済む。1 回きりの口であることが型で表れる。
+- **Follow-up**: design.md の OPEN QUESTION 2。
+
+#### Decision: 組み立ては文字列の関数、状態はその上に載せる
+- **Context**: 本書 6 の 9（pasta のアクタースレッドでの組み立て）。
+- **Selected Approach**: `getproperty_request`・`setproperty_request`・`send_post`・`notify_post`・`getproperty_response`・`rejection_response`・`host_complete` は `ShioriHostHandle` を持たない。`PendingTags::register` を足し、組み立てと post を別のスレッドで行えるようにする。`Properties::get` は `getproperty_request` を使う。
+- **Rationale**: 1 つの組み立てを `Properties`・`PendingTags`・利用者の手組みで共有できる（一般化）。
+
+#### Decision: 400 の読み分けと完了通知の解析は型 1 つずつ
+- **Context**: 要件 7.3・6.2〜6.5、pasta の要望。
+- **Selected Approach**: `Rejection { Invalid, Forbidden, Unknown }`（値を持たない Copy の enum）と `HostComplete { tag, status, command, outcome, rejection }`（借用）。`outcome` は `&str` のまま（知らない語も渡す。要件 10.9）。
+- **Trade-offs**: `outcome` を enum にしないので、`completed`／`interrupted` の比べは利用者が定数で行う。
+
+#### Decision: `OnHostComplete` の必須ヘッダは `lead` で受ける
+- **Context**: areka の要望（`SecurityLevel` は ID より前）、要件 5.4。
+- **Alternatives Considered**: 必須ヘッダの値を型（構造体）で受ける。
+- **Selected Approach**: `host_complete(post, lead, status, refs, reason)` の `lead` は原文で ID より前に置く。`SENDER_TYPE_INTERNAL`・`SECURITY_LEVEL_LOCAL` を定数で出す。
+- **Rationale**: `Sender`・`SecurityOrigin` の値はホストごとに決まり、1 度組み立てれば使い回せる。型を足さない（簡約）。design.md の OPEN QUESTION 6。
+
+#### Decision: setproperty の送信は `Properties::set_on_host`
+- **Context**: 要件 10.8（キャッシュへの取り込み `set` と紛れない別の関数）、本書 6 の 5。
+- **Selected Approach**: `set_on_host(name, value) -> Result<(), SetPropertyError>`。204 でキャッシュも更新。`SetPropertyError { Offline, Rejected(Rejection), Failed(ShioriStatus) }`。
+- **Follow-up**: design.md の OPEN QUESTION 3（名前）。
+
+#### Decision: 文書は `doc/host-protocol.md`、移行の一覧はその付録
+- **Context**: 本書 6 の 6・7、要件 1.5・11.1。
+- **Selected Approach**: リポジトリの `doc/` に置き、クレートの doc・README からは GitHub の main の URL で指す。C ヘッダと `shiori4_abi` の `//!` の「post の完了通知（v4）」の末尾に 1 行。0.0.1 からの移行の表は文書の付録 A に置き、`/release` がリリースノートに写す。
+- **Trade-offs**: main の URL は版に固定されない → 文書の第 0 章で当てはまる版を書く（要件 1.4）。design.md の OPEN QUESTION 4・7。
+
+#### Decision: `Option` の語の定数を入れる
+- **Context**: 本書 6 の 8。
+- **Selected Approach**: `OPTION_NOBREAK`・`OPTION_NOTRANSLATE`・`OPTION_STRICT` を入れる（`nodescript` は読まない語なので入れない）。
+
+### Synthesis
+- **Generalization**: 「SHIORI 側の組み立て」「ホスト側の組み立て」は、どちらも `HeaderWriter` の上の数行の関数で、同じモジュールにまとめられる。`PendingTags::post` は `register` ＋ 組み立て ＋ `post_str` の特殊形。
+- **Build vs. Adopt**: ヘッダの解析は SHIORI/3.0 の行の書式だけなので std で書く（既存の `Headers` をそのまま使う）。外部のパーサは採らない（tech.md の依存最小）。
+- **Simplification**: Option C の 2 つ目のモジュールを落とした。`Host::request` の `Option` を落とした。`Completer` から解析の状態（`tag`・`command`）を落とした。v3 の逆向きの変換は足さない。
+
+### Risks & Mitigations
+- 規約 2 の門を書き替えで消す → 既存の門のテスト 2 本を残し、期待値だけを直す。
+- 芯が便利関数を参照し直す（後の変更で）→ `include_str!` の検査のテスト。
+- v3 の私的な Charset の読み取りが `Headers::get` と食い違う → v3 の Charset のテスト（大文字小文字・空白）を残す。
+- 0.0.1 の API を広く動かす → 移行の一覧を文書の付録とリリースノートに置き、2 回目の連絡で知らせる。
+
+### 参照した skill・ガイド
+- `.claude/skills/kiro-spec-design/rules/`（design-principles・design-discovery-light・design-synthesis・design-review-gate）、`.kiro/settings/templates/specs/design.md`・`research.md`、steering の product・tech・structure・roadmap。完了済み spec `abi-conventions` の design.md を書式の手本にした。
