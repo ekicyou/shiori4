@@ -42,7 +42,7 @@
 //!         let (text, done) = post.into_parts();
 //!         std::thread::spawn(move || {
 //!             // Tag の無い post は結果不要（None）
-//!             if let Some(h) = protocol::host_complete(&text, "MyBase", SHIORI_200_OK, &["result"], None) {
+//!             if let Some(h) = protocol::host_complete(&text, "MyBase", SHIORI_200_OK, &[protocol::OUTCOME_COMPLETED], None) {
 //!                 done.complete_with(Delivery::Request, &h);
 //!             }
 //!         });
@@ -55,6 +55,7 @@
 //! let exe = std::env::current_exe()?;
 //! let dir = exe.parent().expect("exe dir").join("ghost").join("master");
 //! let mut rt = GhostRuntime::load(dir.join("shiori.dll"), &dir, MyHost)?;
+//! // 実際は文書の第 2.2 節の必須ヘッダ（Sender など）も付ける
 //! let r = rt.request("ID: OnBoot\r\n").map_err(|s| format!("ABI error: {s}"))?;
 //! // ... wake されたら:
 //! for d in rt.pump() { /* d.outcome の応答（スクリプト）を再生する */ }
