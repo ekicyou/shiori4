@@ -244,3 +244,89 @@
 - **トレイトの置き場所と名前（議題 10）**: 開発者から「`Shiori`／`ShioriHost` のトレイト宣言を便利関数のクレートに入れる」案が出た。組み立ててみると、芯の 2 クレートがこのクレートに依存し（コンパイラによる境目の守りが崩れる）、`Post`・`Completer` を runtime から切り離す作り替えが要る。いっぽう今の利用者は、pasta が `shiori4_abi::Shiori` を直に実装し、areka は完了通知を `Host` の実装の無い本体で組み立てるので、トレイトを読む便利関数を使う場面が無い。そこでトレイトは動かさず、名前だけを `shiori4_helper` から `shiori4_protocol` に改めた（中身は v4 の言葉を読み書きする部品一式）。
 - **通信路への載せ方（議題 11）**: v4 は「ホスト → SHIORI の要求と応答」「SHIORI → ホストの入れ子の要求（処理中だけ）」「SHIORI → ホストの通知（post・log）」からなり、LSP と同じ形の双方向の通信路に載る。通信路に載らないのはスレッドと寿命の規約とゼロコピーだけで、通信路の上では順序の規則に置き換わる。文書の第 0 章でこのことを述べる（要件 1.8）。
 - **3 クレートに戻した（議題 1・6・10 の最終形）**: 開発者の元の意図は「トレイトを `shiori4` に集め、ホスト側に要る関数は `shiori4_host` に置く」だった。ただ `Host::on_post` が runtime の型（`Post`・`Completer`）を受けるので、`Host` は `shiori4_host` から動かせない。ホスト側で要るのは名前だけなので、`Host` に必須の `fn name(&self) -> &str` を足し、`host_complete` は名前の文字列を受ける形にした。そのうえで便利関数は `shiori4::protocol` に置き、`shiori4_host` が再エクスポートする（Option C の簡約）。公開の仕組みに手を入れず、4 つ目のクレートの初回の手元からの公開も要らない。代わりに境目はコンパイラではなく IndependenceCheck で守り、pasta は `shiori4` に依存する（外部の依存はゼロ）。
+
+## 9. 文書と要件・実装の照合（タスク 7.2、2026-10-24）
+
+### 9.1 AC と文書の章・文の対応
+要件 1.1〜7.5（要件 1〜7 の AC、計 48 個）を `doc/host-protocol.md` と 1 つずつ照らした。欠けている AC は無い。
+
+| AC | 文書の章 | 対応する文 |
+|----|----------|------------|
+| 1.1 | 第 0 章・第 1〜7 章 | 「この文書は…語彙の正本である」。日本語の 1 文書で、要件 2〜7 の語を第 1〜7 章に持つ（下の各行） |
+| 1.2 | 第 0 章 | 「芯と実装の分担」（芯は中身を解釈しない、語を守らせるのはホストと SHIORI の実装）・「便利関数は任意」（使わなくても従える） |
+| 1.3 | 第 1 章 | 1 項目（`名前: 値`・CRLF・開始行と終端の空行が無い）・2 項目（`Charset` を付けない） |
+| 1.4 | 第 0 章 | 「当てはまる版」（shiori4 0.0.2 から） |
+| 1.5 | （文書の外） | `README.md`・`shiori4/README.md`・`shiori4_host/README.md`・`shiori4/src/lib.rs`・`shiori4/src/protocol.rs`・`shiori4_host/src/lib.rs` が `doc/host-protocol.md` を指す（タスク 6.1）。「暫定」の語は README とソースに無い（grep で 0 件） |
+| 1.6 | 第 0 章・付録 B | 「ukadoc の扱い」（参照先を示し、意味を書き換えない）。各章の ukadoc へのリンクと付録 B の表 |
+| 1.7 | 第 1 章 | 3 項目（受け手は大文字小文字を区別しない、送り手は ukadoc の綴り） |
+| 1.8 | 第 0 章 | 「運び方に依存しない」（ABI に依存せず、双方向の通信路に載せてよい。通信用のプロトコルは定めない） |
+| 2.1 | 第 3.1 節 | 要求 `ID: getproperty`／`Reference0`、応答 200 ＋ `Value`／204 |
+| 2.2 | 第 3.2 節 | 要求 `ID: setproperty`／`Reference0`／`Reference1`、応答 204／400 |
+| 2.3 | 第 3.3 節・付録 A.1 | `property` を `getproperty` に改めた、互換の扱いを持たない |
+| 2.4 | 第 3.4 節 | ukadoc のプロパティシステムの名前・接頭辞（例 `areka.`）・大文字小文字を区別しない |
+| 2.5 | 第 3.5 節 | 値の CR・LF を取り除く（エスケープしない）、改行が要るものは別の名前で足す |
+| 2.6 | 第 3.6 節 | 一覧を持たず ukadoc を参照する |
+| 3.1 | 第 4.1 節 | 「同じプロセスからの SSTP」、`Command` に SSTP の語 |
+| 3.2 | 第 4.2 節 | 表の `SEND` の行（`Script`、台本を再生する） |
+| 3.3 | 第 4.2 節 | 表の `NOTIFY` の行、「イベントの名前に制限は掛けない（`\![raise]` と同じ）」「安全上の理由で拒否してよい（第 7 章）」 |
+| 3.4 | 第 4.3 節 | 宛先は post したインスタンス、`IfGhost` などを読まない |
+| 3.5 | 第 4.4 節 | `nobreak`・`notranslate`・`strict` は ukadoc どおり、`nodescript` は読まない、知らない語は無視、2 つ以上はカンマ区切り |
+| 3.6 | 第 4.5 節 | 戻り値は受付の可否だけ、結果は `Tag` 付きの post の `OnHostComplete` |
+| 3.7 | 第 4.6 節・第 1 章 | 解釈しない文字列（CR・LF なし、数でなくてよい）、一字も変えずに返す、`:` の後の空白を除いた値、送り手は前後に空白を置かない |
+| 3.8 | 第 4.7 節 | 要るのは `Command` とそのコマンドのヘッダだけ、`Sender`・`Charset` は要らない（読まない） |
+| 4.1 | 第 5.1 節 | 既定は割り込み、`nobreak` のときだけ待つ、新しいヘッダを作らない |
+| 4.2 | 第 5.2 節 | 優先度は Owned SSTP と同じ、`\t` があっても割り込める |
+| 4.3 | 第 5.3 節 | 待たせる列はホストの仕事 |
+| 4.4 | 第 5.4 節 | 表の 3 行（`Tag` 付き SEND は `interrupted`・通常の応答は何も出さない・利用者の中断は `OnBalloonBreak`） |
+| 4.5 | 第 5.5 節 | `OnBalloonBreak` を使わない、理由（ukadoc では「SSTP 以外でブレイクされた際」） |
+| 4.6 | 第 5.6 節 | NOTIFY への応答の台本にも 5.1・5.2 を当てはめる、理由（SSTP で同じ扱い） |
+| 5.1 | 第 2.1 節 | ヘッダ・イベント・応答のヘッダ（`Value`・`ValueNotify`・`Marker`・`ErrorLevel`・`ErrorDescription`）は SHIORI/3.0 と同じ、違いは開始行と `Charset` だけ |
+| 5.2 | 第 2.2 節 | 必須の 5 ヘッダの表（`SecurityLevel` は `local`・`external` だけ、`SecurityOrigin` は `null` か起点） |
+| 5.3 | 第 2.3 節 | `Status`・`BaseID`・`Reference*` の表 |
+| 5.4 | 第 2.4 節・第 6.2 節 | 先頭の語が `internal` の `SenderType` と `SecurityLevel: local`、`\![raise]` は `internal,raise`、NOTIFY と `OnHostComplete` は `internal` |
+| 5.5 | 第 2.5 節 | `ID: version`（`name`・`craftman`・`craftmanw`）に 200 ＋ `Value`、答えなければ 204 |
+| 5.6 | 第 2.6 節 | ABI の版をヘッダに載せない（`shiori_get_api` の引数と `abi_version`） |
+| 6.1 | 第 6.1 節 | 既定は request、notify でもよい、SHIORI は両方で受ける |
+| 6.2 | 第 6.2 節 | 表（`ID`・`Tag`・`Status`・`Reference0`）と例 |
+| 6.3 | 第 6.3 節 | 再生が終わった時に出す、200（`completed`／`interrupted`）・204（`Reference1` 無し）・400（拒否なら `Reason: forbidden`） |
+| 6.4 | 第 6.3 節 | 「204 になる場合の例」の 2 項目 |
+| 6.5 | 第 6.4 節 | `Reference1` 無し、200（SHIORI が答えた、再生の終わりは待たない）・204・400 |
+| 6.6 | 第 6.5 節 | `nobreak` の SEND と同じに扱う、理由（`interrupted` は割り込んだトークの再生中に届く） |
+| 6.7 | 第 6.6 節 | `Status` は結果のステータスコードで第 2.3 節の `Status` とは別、名前は変えない、ベースウェアの状態の `Status` を付けない |
+| 6.8 | 第 6.7 節・第 5.4 節 | 1 つの post に 1 つ、利用者の中断では `OnBalloonBreak` と 200 ＋ `interrupted` の両方 |
+| 6.9 | 第 6.8 節 | 204 は終了のイベントより前、間に合わない unload では出さなくてよい |
+| 7.1 | 第 7.1 節 | 拒否は 400 ＋ `Reason: forbidden`、204 と区別 |
+| 7.2 | 第 7.2 節 | 403 を足さない、理由（SHIORI/3.0 の集合に収め、v3 と v4 でコードを分けない） |
+| 7.3 | 第 7.3 節 | `Reason` は任意、語は当面 `forbidden` だけ、読み分けの表（無し＝不正（未対応を含む）・`forbidden`＝拒否・知らない語＝理由不明の拒否） |
+| 7.4 | 第 7.4 節・第 3 章冒頭 | `host->request` の応答と `OnHostComplete` の 400 の両方に当てはまる |
+| 7.5 | 第 7.5 節 | ホストの中の失敗は 500 でよい、400 と区別、芯の既定は 400 のまま |
+
+### 9.2 第 8 章と実装の定数
+`shiori4/src/protocol.rs` の `pub const` の名前と値（26 個）を抜き出し、文書の第 8 章の表の「定数名 語」（26 行）と並べて `diff` した。差分は無い。`ID_PROPERTY` は実装に無く（タスク 5.1 で削除）、第 8 章の注記と一致する。文書の直しは要らなかった。
+
+### 9.3 付録 A と実装の API
+付録 A.2 の各行を、右の列（0.0.2）は今の実装、左の列（0.0.1）は `v0.0.1` のタグのソースと照らした。食い違いは無い。文書の直しは要らなかった。
+
+- `shiori4::protocol` に `Headers`・`HeaderWriter`・`Properties`・`Lookup`・`PendingTags` があり、`shiori4` の直下には無い。`shiori4::host_protocol` は無い。
+- `Ghost::request(&mut self, req: &str)`・`notify(&mut self, _req: &str)`、`v3::parse_request(req: &str) -> Result<(Method, &str), ShioriStatus>`。
+- `Host` に `property` は無い。`fn name(&self) -> &str`（必須）、`request(&self, &str) -> ShioriResponse`（既定 `bad_request()`）、`accept_post(&self, &str) -> bool`（既定 true）。
+- `Post` は `text`・`into_completer`・`into_parts` だけ。`Completer` は `complete_with(self, Delivery, &str)` だけで、全文をそのまま `Event` に積む。`Event` は `request`・`notify` の作成と `pub headers` だけで、`parsed`・`id` は無い。
+- `shiori4_host` の再エクスポートは `pub use shiori4::protocol;`（`HeaderWriter`・`Headers`・`host_protocol` の再エクスポートは無い）。
+- `protocol::getproperty_response`・`protocol::host_complete` がある。
+
+### 9.4 2 回目の連絡の中身と実装
+送った文面そのものはリポジトリに無いので、design.md の「Integration & Migration Notes」に書いた 2 回目の連絡の中身と、design.md の Components and Interfaces のシグネチャを基準にした。食い違いは無い。`/release` の後のお知らせに入れる差分は無い。
+
+| 連絡で伝えたもの | 実装 |
+|------------------|------|
+| 正本 `doc/host-protocol.md` | ある（各 README・crate doc から指す） |
+| モジュール `shiori4::protocol`（`shiori4_host::protocol` からも使える） | `shiori4/src/lib.rs` の `pub mod protocol;`、`shiori4_host/src/lib.rs` の `pub use shiori4::protocol;` |
+| `send_post` | `pub fn send_post(script: &str, options: &[&str], tag: Option<&str>) -> String` |
+| `notify_post` | `pub fn notify_post(event: &str, refs: &[&str], options: &[&str], tag: Option<&str>) -> String` |
+| `Rejection` | `enum Rejection { Invalid, Forbidden, Unknown }`（`from_reason`・`of`） |
+| `HostComplete` | `struct HostComplete<'a> { tag, status, command, outcome, rejection }`（`parse`） |
+| `host_complete` の sender | `host_complete(post: &str, sender: &str, status, refs, reason) -> Option<String>`。sender から `Sender`・`SenderType: internal`・`SecurityLevel: local`・`SecurityOrigin: null` を `ID` より前に書く |
+| `PendingTags::register` | `pub fn register(&self, context: T) -> u64` |
+| `Host::name` が必須 | `fn name(&self) -> &str;`（既定の実装なし） |
+| pasta は `shiori4` に依存する（外部の依存はゼロ） | 便利関数は `shiori4` の中。`shiori4` の依存は `shiori4_abi` と std だけ |
+| 移行の一覧 | 付録 A（9.3 のとおり実装と一致） |
