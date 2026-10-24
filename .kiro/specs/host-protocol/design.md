@@ -425,6 +425,7 @@ impl Event {
 - 値は `HeaderWriter::push` を通し、CR・LF を取り除く。Charset を付けない（要件 10.10）。
 - 知らない `Command`・`Reason`・`Option` の語を判定しない・拒否しない（要件 10.9）。`Rejection::Unknown` は読み分けであって拒否ではない。
 - `property` の定数を残さない（要件 10.3）。
+- 本文の無い 204（setproperty の成功など）と 500（ホストの中の失敗、要件 7.5）は、`shiori4_abi` の `ShioriResponse::no_content()`・`ShioriResponse::error()` を使い、専用の関数は足さない。モジュールの doc にこの作り方を 1 行書く（areka の問い合わせ）。
 
 **Dependencies**
 - Outbound: `shiori4_abi` — `ShioriResponse`・`ShioriStatus`・`ShioriHostHandle`・`ShioriHostPoster`・ステータスの定数（P0）
