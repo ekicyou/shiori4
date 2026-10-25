@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. i686 の Windows のビルドの環境を整える
+- [x] 1. i686 の Windows のビルドの環境を整える
   - 手元の toolchain に `i686-pc-windows-msvc` の target を足し、ワークスペースを i686 で作れることを確かめる
   - 既存のコード（testghost を含む）が i686 でそのままビルドでき、警告が出ないことを確かめる
   - 完了の状態: `cargo build --workspace --target i686-pc-windows-msvc` と `cargo build --manifest-path testdata/testghost/Cargo.toml --target i686-pc-windows-msvc` が通る
