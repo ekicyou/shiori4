@@ -171,6 +171,13 @@ jobs:
         run: cargo test --all --target i686-pc-windows-msvc
       - name: Clippy
         run: cargo clippy --all-targets --workspace --target i686-pc-windows-msvc -- -D warnings
+      # legacyghost は自前の workspace なので、上の 2 つに入らない
+      - name: Test and clippy legacyghost
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path testdata/legacyghost/Cargo.toml --target-dir target/legacyghost --target i686-pc-windows-msvc
+          cargo clippy --manifest-path testdata/legacyghost/Cargo.toml --target-dir target/legacyghost --target i686-pc-windows-msvc --all-targets -- -D warnings
       - name: Build testghost, legacyghost and shiori4-testhost
         shell: bash
         run: |

@@ -118,3 +118,5 @@
 - test_dll.rs の RESPONSE_OK/NULL/NEGATIVE/ECHO（0〜3）と LegacyStats は legacyghost の手写しなので、両方を揃えて直す。
 - legacyghost を読むテストは 1 プロセスに 1 モジュールの状態を共有するので、test_dll::lock() で直列にし、前後で legacy_reset する（legacy.rs の with_legacy）。
 - タスク 8 の統合の関門（PR の CI、特に新しい job test-i686-windows が通るのを見届けてから統合する）は PR の段で守る。手元では x64・i686 の test・clippy・fmt・cargo deny・cargo package と CI の往復の段の再生が通り、Cargo.lock と 3 クレートの版は main から変わっていない。
+- 完了時にその場で解決: CI の job test-i686 が legacyghost 自身の test と clippy を回していなかったので、段「Test and clippy legacyghost」を足した（tech.md の job の説明も合わせた）。
+- 完了時にその場で解決: x86 の Windows で相対のライブラリのパスが InvalidPath になる変更（設計の「release notes に書く」）は、squash のコミットと PR の body の「動きが変わる点」に書き、/release の材料に載せる。

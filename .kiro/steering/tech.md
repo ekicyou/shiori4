@@ -77,7 +77,7 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, �
 - **package**: `cargo package --workspace` と中身の検査（`shiori4_abi` に C ヘッダが入るか、各クレートの `LICENSE` がルートと同じか）
 - **release-scripts**: リリースの補助スクリプトのテスト（`pwsh -NoProfile -File .github/scripts/release/release-scripts-test.ps1`）
 - **textbook**: ubuntu / windows / macos で、testghost・試験用のホスト（`shiori4_host/examples/shiori4-testhost.rs`）・`doc/textbook/c/` の C の例（Windows は MSVC で SHIORI の DLL を `/MT`、ほかは `cc`）をビルドし、終了の状態で往復を確かめる
-- **test-i686**（`test-i686-windows`）: windows で、i686（`i686-pc-windows-msvc`）の `cargo test --all`（doctest を含む）と clippy（`-D warnings`）。testghost・legacyghost・試験用のホストを i686 でビルドし、従来の口の往復（`--entry legacy` を含む）を終了の状態で確かめる
+- **test-i686**（`test-i686-windows`）: windows で、i686（`i686-pc-windows-msvc`）の `cargo test --all`（doctest を含む）と clippy（`-D warnings`）、legacyghost 自身の test と clippy（自前の workspace なので manifest を指定）。testghost・legacyghost・試験用のホストを i686 でビルドし、従来の口の往復（`--entry legacy` を含む）を終了の状態で確かめる
 
 `.github/workflows/release.yml` はリリースタグ `v[0-9]+.[0-9]+.[0-9]+` の push だけで走る。job は次の 5 つで、上流が失敗すると後続は走らない（`report` だけは常に走る）:
 - **verify**: タグの形・タグと `[workspace.package] version` の一致・タグのコミットが main から到達できること・見どころ `doc/release-notes/vX.Y.Z.md` の有無
