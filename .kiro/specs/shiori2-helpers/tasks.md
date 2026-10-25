@@ -56,7 +56,7 @@
   - 完了の状態: 7 つの取り出しの関数が公開され、それらのテストが通る
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 8.1, 8.2_
 
-- [ ] 4. 文書で導く
+- [x] 4. 文書で導く
 - [x] 4.1 モジュールの doc・関数の doc・crate doc の道案内を書く
   - `shiori2` のモジュールの doc に、持つもの 3 つと持たないもの（文字コードの変換・Charset の方針・出来事の移し方・DLL の読み込みと HGLOBAL）を書き、最初の要求を作る → 版を見分ける → 応答を読み分ける、の実行できる例を 1 つ置く
   - 2.1〜3.3 で付けた `///` を読み通し、版の見分けの関数の doc に、ABI のエラーはホストが「分からない」として扱うことを書き足す
@@ -65,7 +65,7 @@
   - 完了の状態: `cargo test -p shiori4_host`（doctest と `core_refers_to_protocol_only_by_its_reexport` を含む）が通り、`cargo doc` で警告が出ない
   - _Requirements: 7.6, 8.4, 8.6_
 
-- [ ] 4.2 教科書の移行の手引きと README に一言足す
+- [x] 4.2 教科書の移行の手引きと README に一言足す
   - `doc/textbook/migration.md` の「v3 互換モードと旧来の DLL」の箇条の `LegacyRuntime` の項の後に、SHIORI/2.x で話す DLL には `shiori4_host::shiori2` を使うと導く 1 行を足す。表の版 2 の行は変えず、Rust の例は足さない
   - `shiori4_host/README.md` の「使い始めの入口」の `LegacyRuntime` の段落の末尾に、要求の組み立てと応答の読み分けは `shiori2` にあるという 1 文を足す
   - まだ出ていない版の番号を書かない
