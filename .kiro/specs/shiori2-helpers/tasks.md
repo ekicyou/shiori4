@@ -10,7 +10,7 @@
   - 完了の状態: `cargo build --all`・既存の `cargo test --all`・`cargo clippy --all-targets --workspace -- -D warnings` が通り、`shiori4_host::shiori2` と `shiori4_host::SHIORI_311_NOT_ENOUGH`・`SHIORI_312_ADVICE` がホストのコードから見える
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.6, 1.7, 4.7_
 
-- [ ] 2. 要求の組み立て
+- [x] 2. 要求の組み立て
 - [x] 2.1 汎用の形で SHIORI/2.x の要求の全文を作る
   - メソッド・命令（無くてもよい）・版・ヘッダの並びから、開始行・渡した順のヘッダの行・終端の空行を CRLF で作る。ヘッダの行は `HeaderWriter` で書き、値の CR・LF を除く
   - 開始行の語に空白・CR・LF が入っているか、語が空なら、要求を作らずに失敗を返す
@@ -20,7 +20,7 @@
   - 完了の状態: それらのテストが通り、壊れた語のどれでも失敗が返る
   - _Requirements: 1.5, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 8.1, 8.2_
 
-- [ ] 2.2 命令ごとの 9 つの要求を、SSP が送る版で作る
+- [x] 2.2 命令ごとの 9 つの要求を、SSP が送る版で作る
   - `GET Version 2.6`・`GET Sentence 2.2`・`GET Word 2.0`・`GET Status 2.0`・`GET String 2.5`・`NOTIFY OwnerGhostName 2.3`・`NOTIFY OtherGhostName 2.3`・`TEACH 2.4`・`TRANSLATE Sentence 2.6` を、2.1 と同じ非公開の組み立てで作る
   - 共通のヘッダを命令に固有のヘッダより前に、渡したとおりに書く（既定の値なし）。`Reference` は 0 から番号を振り、`GhostEx` はゴーストごとに 1 行（名前・本体のサーフィス・相方のサーフィスを `\x01` でつなぐ）
   - 出来事の名前と `Reference` は変えずに書き、出来事の移し方は持たない
