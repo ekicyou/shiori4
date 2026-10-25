@@ -85,12 +85,14 @@
 
 ## 5. Recommendations for Design Phase
 - **推す案**: Option C（= brief の案 A を、Boundary Candidates の 3 つの節に分けて書く）。
+- **要件ディスカッションで決まったこと（2026-10-25）**: 版の見分けの最初の要求は SSP と同じ `GET Version SHIORI/2.6`（要件 7.1）。見分けは開始行の版だけで決める（要件 7.8）。これで根拠が実測でそろい、shiori4 の SHIORI の側（`SHIORI/3.0 400`）も開始行で SHIORI/3.0 と読める。「Research Needed」の 1 つ目（SHIORI/2.x の DLL が SHIORI/3.0 の要求に何を返すか）は必須でなくなった。
 - **設計で決めること**:
-  - 版の見分けの最初の要求の既定（Q1）。SSP と同じ `GET Version SHIORI/2.6` を既定にすると、根拠が実測でそろい、shiori4 の SHIORI の側（`SHIORI/3.0 400`）も開始行で SHIORI/3.0 と読める。
+  - 版の切り替えの手順の形（状態の無い関数を既定に。要件 7.6）。
   - 版の表し方（SHIORI/3.0・SHIORI/2.x の小さい方の番号・不明）と、読み分けの失敗の型。`#[non_exhaustive]` にするか。
   - 命令ごとの関数に共通のヘッダ（`Charset`・`Sender`・`SecurityLevel`）をどう渡すか（Q4）。
   - 応答の読み分けの戻り値の形（借用の `Headers<'a>` を持つ型にするか）。空行までの切り出しを `Headers::parse` の前に置く。
   - ヘッダの名前の定数（`Sentence`・`Word`・`String`・`Type`・`Ghost`・`GhostEx`・`Craftman`・`Version`）を `shiori2` に置くか。置くなら structure.md の命名（`HEADER_*`）に合わせる。
+  - `shiori4_host/README.md` に `shiori2` の一言を足すか。
 - **持ち越す調べ**: 上の「Research Needed」の 4 つ。
 
 ---
