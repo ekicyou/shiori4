@@ -188,7 +188,7 @@ pub fn translate_sentence(common: &[(&str, &str)], sentence: &str) -> String {
 // 応答の読み分け
 // ============================================================
 
-use shiori4::protocol::Headers;
+use shiori4::protocol::{HEADER_STATUS, HEADER_VALUE, Headers};
 use shiori4::shiori4_abi::ShioriStatus;
 
 /// SHIORI/2.x の応答を版・ステータス・ヘッダに読み分けたもの（ヘッダは応答の全文の借用）
@@ -241,6 +241,55 @@ impl<'a> Response<'a> {
             status,
             headers: Headers::parse(&rest[..end]),
         })
+    }
+
+    /// `GET Sentence`・`TRANSLATE Sentence` の応答の `Sentence`（スクリプト）。無ければ `Value`、どちらも無ければ `None`。
+    ///
+    /// ステータスを見ずに（311・312 の応答からも）取り出す。値はヘッダの借用のままで、
+    /// 文字コードの変換もさくらスクリプトのエスケープの解釈もしない。
+    pub fn sentence(&self) -> Option<&'a str> {
+        self.fixed_or_value("Sentence")
+    }
+
+    /// `GET Word` の応答の `Word`。無ければ `Value`、どちらも無ければ `None`（ステータスは見ない）
+    pub fn word(&self) -> Option<&'a str> {
+        self.fixed_or_value("Word")
+    }
+
+    /// `GET String` の応答の `String`。無ければ `Value`、どちらも無ければ `None`（ステータスは見ない）
+    pub fn string(&self) -> Option<&'a str> {
+        self.fixed_or_value("String")
+    }
+
+    /// `GET Status` の応答の `Status`（`,` で分けずに原文のまま）。無ければ `Value`、どちらも無ければ `None`。
+    ///
+    /// 欄の [`status`](Self::status)（ステータスの数）とは別のもの。
+    pub fn status_header(&self) -> Option<&'a str> {
+        self.fixed_or_value(HEADER_STATUS)
+    }
+
+    /// `GET Version` の応答の `ID`（名前）。無ければ `None`（`Value` に代えない）
+    pub fn id(&self) -> Option<&'a str> {
+        self.headers.get(HEADER_ID)
+    }
+
+    /// `GET Version` の応答の `Craftman`（作者）。無ければ `None`（`Value` に代えない）
+    pub fn craftman(&self) -> Option<&'a str> {
+        self.headers.get("Craftman")
+    }
+
+    /// `GET Version` の応答の `Version`（SHIORI の版の文字列）。無ければ `Value`、どちらも無ければ `None`。
+    ///
+    /// 欄の [`version`](Self::version)（開始行の版）とは別のもの。
+    pub fn version_header(&self) -> Option<&'a str> {
+        self.fixed_or_value("Version")
+    }
+
+    /// 決まったヘッダ、無ければ `Value`（SHIORI/3.0 の書き方で答える SHIORI/2.x の SHIORI のため）
+    fn fixed_or_value(&self, name: &str) -> Option<&'a str> {
+        self.headers
+            .get(name)
+            .or_else(|| self.headers.get(HEADER_VALUE))
     }
 }
 
@@ -704,5 +753,67 @@ mod tests {
             .collect();
         assert_eq!(got.len(), 10);
         assert!(got.contains(&Version::V2) && got.contains(&Version::V3));
+    }
+
+    // ---- 決まったヘッダの取り出し ----
+
+    #[test]
+    fn version_extractors_read_kawari_get_version() {
+        let r = Response::parse(KAWARI_VERSION).unwrap();
+        assert_eq!(r.id(), Some("KAWARI.kdt"));
+        assert_eq!(r.craftman(), Some("KawariDevelopmentTeam"));
+        assert_eq!(r.version_header(), Some("7.4.0"));
+    }
+
+    #[test]
+    fn extractors_fall_back_to_value_only_where_allowed() {
+        type Get = for<'a> fn(&Response<'a>) -> Option<&'a str>;
+        let cases: [(&str, Get, bool); 7] = [
+            ("Sentence", |r| r.sentence(), true),
+            ("Word", |r| r.word(), true),
+            ("String", |r| r.string(), true),
+            ("Status", |r| r.status_header(), true),
+            ("Version", |r| r.version_header(), true),
+            ("ID", |r| r.id(), false),
+            ("Craftman", |r| r.craftman(), false),
+        ];
+        for (name, get, falls_back) in cases {
+            let fixed = format!("SHIORI/2.6 200 OK\r\n{name}: fixed\r\n\r\n");
+            let value = "SHIORI/2.6 200 OK\r\nValue: value\r\n\r\n";
+            let both = format!("SHIORI/2.6 200 OK\r\nValue: value\r\n{name}: fixed\r\n\r\n");
+            let none = "SHIORI/2.6 200 OK\r\nCharset: UTF-8\r\n\r\n";
+            assert_eq!(
+                get(&Response::parse(&fixed).unwrap()),
+                Some("fixed"),
+                "{name}"
+            );
+            let expect = falls_back.then_some("value");
+            assert_eq!(get(&Response::parse(value).unwrap()), expect, "{name}");
+            assert_eq!(
+                get(&Response::parse(&both).unwrap()),
+                Some("fixed"),
+                "{name}"
+            );
+            assert_eq!(get(&Response::parse(none).unwrap()), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn extractors_return_raw_values() {
+        let r = Response::parse(
+            "SHIORI/2.6 200 OK\r\nStatus: neuron,neuronm\r\nSentence: \\h\\s[0]x\\e\r\n\r\n",
+        )
+        .unwrap();
+        assert_eq!(r.status_header(), Some("neuron,neuronm"));
+        assert_eq!(r.sentence(), Some("\\h\\s[0]x\\e"));
+    }
+
+    #[test]
+    fn extractors_ignore_status() {
+        let r =
+            Response::parse("SHIORI/2.4 311 Not Enough\r\nSentence: \\h\\s[0]x\r\n\r\n").unwrap();
+        assert_eq!(r.sentence(), Some("\\h\\s[0]x"));
+        let r = Response::parse("SHIORI/2.4 312 Advice\r\nValue: \\h\\s[0]y\r\n\r\n").unwrap();
+        assert_eq!(r.sentence(), Some("\\h\\s[0]y"));
     }
 }
