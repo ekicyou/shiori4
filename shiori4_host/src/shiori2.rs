@@ -9,7 +9,7 @@
 //! - 開始行の版の見分け: [`version_of`]（この後に SHIORI/3.0 と SHIORI/2.x のどちらで話すか）
 //!
 //! 持たないものは、文字コードの変換・Charset の方針・出来事の移し方（SHIORI/3.0 の出来事から
-//! SHIORI/2.x の出来事へ）・DLL の読み込みと HGLOBAL。これらは `LegacyRuntime` とホストが受け持つ。
+//! SHIORI/2.x の命令へ）・DLL の読み込みと HGLOBAL。これらは `LegacyRuntime` とホストが受け持つ。
 //! 要求を送るのも、決まった版を覚えておくのもホスト。
 //!
 //! 最初に `GET Version SHIORI/2.6` を作って送り、応答の版を見分け、SHIORI/2.x なら応答を読み分ける例。
