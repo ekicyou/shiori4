@@ -28,7 +28,7 @@
 | `testdata/testghost/`（自前の `[workspace]`・`publish = false`） | テスト用 cdylib。`shiori_get_api` はモードで v4/v3 を返し分け、ダミーの `loadu`・`load` を持つ。`shiori4_host/src/test_dll.rs` の `dll_path()` が `cargo build` で作り、`lock()` で守る | 試験用のホストの CI の相手（要件 13.8）。C のホストの例の実行の相手にもなる（Q10） |
 | `doc/host-protocol.md`（357 行） | 語彙の正本。第 8 章が語と定数名の表、付録 A が 0.0.1 からの移行 | 語の表・確定の範囲の出典（要件 5）。読み物を `doc/` に置く前例（Q1） |
 | `.github/workflows/build.yml` | test（3 OS: `cargo test --all`・clippy）・deny・package（`cargo package --workspace` と中身の検査）・release-scripts | 例の検査と試験用のホストの段を足す所（要件 13.8・14）。**Constraint**: CI を変える PR は CI の完了を見届けてから統合する（MEMORY・workflow.md） |
-| `.kiro/specs/shiori3-legacy-host/brief.md` | 「abi-textbook の試験用のホストが、従来の DLL も読めるようにするためのつなぎ」を In に持つ | 試験用のホストは従来の口を足せる形にしておく（要件 13.6）。移行の手引きのホスト側の記述が後で変わる（Q7） |
+| `.kiro/specs/completed/shiori3-legacy-host/brief.md` | 「abi-textbook の試験用のホストが、従来の DLL も読めるようにするためのつなぎ」を In に持つ | 試験用のホストは従来の口を足せる形にしておく（要件 13.6）。移行の手引きのホスト側の記述が後で変わる（Q7） |
 
 ### 守るべき規約・パターン
 - 規約と方針はクレート冒頭の `//!` に書き、README は使い方の入口だけ（structure.md）。規約を変えたら C ヘッダと `//!` の両方を直す（tech.md）。この spec は規約を変えないので、C ヘッダと `//!` の規約の節には触れない前提。
@@ -252,7 +252,7 @@
 - `doc/host-protocol.md`（語の正本。第 0・2・8 章、付録 A・B）
 - `shiori4_host/src/discover.rs`（`load_ghost`・`LoadedGhost`）、`shiori4_host/src/lib.rs`（`Host`・`GhostRuntime`・`LoadError`・`Completer`・`core_refers_to_protocol_only_by_its_reexport`）、`shiori4_host/src/test_dll.rs`（testghost の置き場所）
 - `.kiro/specs/completed/abi-conventions/`・`.kiro/specs/completed/host-protocol/brief.md`（規約の理由の出典）
-- `.kiro/specs/shiori3-legacy-host/brief.md`（試験用のホストの継ぎ目）
+- `.kiro/specs/completed/shiori3-legacy-host/brief.md`（試験用のホストの継ぎ目）
 
 ## 設計の議論 #1 の決定（2026-10-24）
 - 正本の未決 3 つ（`load`・`unload` のスレッド、`release` の期間）と、`ShioriOwnedResponse` がライブラリより長く生きて外れた DLL の `release` を呼びうる不具合を、この spec の中で直すと開発者が裁定した（先送りは無駄、のため）。

@@ -7,7 +7,7 @@
 
 ## Current State
 - `shiori4::protocol` は SHIORI/3.0 の形の便利関数（`Headers`・`HeaderWriter`・語の定数・組み立てと読み分け）を持つ。`shiori4_host::protocol` として再エクスポートされる。SHIORI/2.x の形は扱わない。
-- shiori3-legacy-host（進行中）は、x86 の Windows で従来の DLL の HGLOBAL の口を運ぶ芯を足す。芯は中身を解釈せずバイト列で運ぶので、SHIORI/2.x の要求もそのまま往復できる。足りないのは文字列の形の側だけ。
+- shiori3-legacy-host（完了・2026-10-25）は、x86 の Windows で従来の DLL の HGLOBAL の口を運ぶ芯を足した（`LegacyRuntime`）。芯は中身を解釈せずバイト列で運ぶので、SHIORI/2.x の要求もそのまま往復できる。足りないのは文字列の形の側だけ。
 - SHIORI の側の v4 は、SHIORI/2.x の要求に 400 を返す（教科書の版 2）。これは変えない。
 - SHIORI/2.x の見分けは、areka の spec `shiori2-protocol` が持つと決めていた（shiori3-legacy-host の裁定 c）。それを 2026-10-25 に改め、便利関数としてこの spec が持つ。
 
