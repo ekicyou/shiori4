@@ -192,6 +192,43 @@ pub fn translate_sentence(common: &[(&str, &str)], sentence: &str) -> String {
 // 版の見分け
 // ============================================================
 
+/// 応答の開始行の版（SHIORI/2.x か SHIORI/3.x か）。小さい方の番号は持たない
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Version {
+    /// SHIORI/3.x（開始行が `SHIORI/3` で始まる）。この後は SHIORI/3.0 の形で話す
+    V3,
+    /// SHIORI/2.x（開始行が `SHIORI/2` で始まる）。この後は SHIORI/2.x で話す
+    V2,
+}
+
+/// 応答の開始行の版を見分ける。分からなければ `None`（空の応答も `None`）。
+///
+/// 応答の先頭の 8 バイトだけを読み、ASCII の `SHIORI/2` なら [`Version::V2`]、
+/// `SHIORI/3` なら [`Version::V3`] を返す。それ以外（8 バイトに足りない・ASCII でない・
+/// 小文字・`SHIORI/1`・`SHIORI/4` など）は `None`。ステータス・ヘッダ・`Charset` は読まず、
+/// 文字コードも仮定しないので、`&str` と `&[u8]` で同じ結果になる。
+/// どの要求への応答にも当てられ、状態を持たず、DLL を呼ばない。
+///
+/// ```
+/// use shiori4_host::shiori2::{Version, version_of};
+///
+/// assert_eq!(version_of("SHIORI/2.6 200 OK\r\n\r\n"), Some(Version::V2));
+/// assert_eq!(version_of(b"SHIORI/3.0 200 OK\r\n\r\n"), Some(Version::V3));
+/// assert_eq!(version_of(""), None);
+/// ```
+pub fn version_of(response: impl AsRef<[u8]>) -> Option<Version> {
+    start_line_version(response.as_ref())
+}
+
+/// 開始行の先頭の 8 バイトを版に読む（応答の読み分けもここを通る）
+fn start_line_version(line: &[u8]) -> Option<Version> {
+    match line.get(..8)? {
+        b"SHIORI/2" => Some(Version::V2),
+        b"SHIORI/3" => Some(Version::V3),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,6 +436,74 @@ mod tests {
         assert_eq!(
             translate_sentence(C, "s"),
             r("TRANSLATE", Some("Sentence"), "2.6", &[("Sentence", "s")])
+        );
+    }
+
+    // ---- 版の見分け ----
+
+    #[test]
+    fn version_of_reads_bytes_with_shift_jis_body() {
+        let res: &[u8] = b"SHIORI/2.6 200 OK\r\nSentence: \x82\xa0\r\n\r\n";
+        assert_eq!(version_of(res), Some(Version::V2));
+    }
+
+    #[test]
+    fn version_of_str_and_bytes_agree() {
+        for s in [
+            "SHIORI/2.6 200 OK\r\n\r\n",
+            "SHIORI/3.0 200 OK\r\n\r\n",
+            "HTTP/1.0 200 OK\r\n\r\n",
+            "",
+        ] {
+            assert_eq!(version_of(s), version_of(s.as_bytes()), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn version_of_reads_only_the_first_line() {
+        let res: &[u8] = b"SHIORI/2.6 200 OK\r\nSHIORI/3.0 200 OK\r\n\xff\xfe\x00\r\n\r\n";
+        assert_eq!(version_of(res), Some(Version::V2));
+        assert_eq!(version_of(b"X\r\nSHIORI/2.6 200 OK\r\n"), None);
+    }
+
+    #[test]
+    fn version_of_reads_only_the_major_number() {
+        for s in ["SHIORI/2", "SHIORI/2.", "SHIORI/2.300", "SHIORI/2.6200 OK"] {
+            assert_eq!(version_of(s), Some(Version::V2), "{s:?}");
+        }
+        for s in ["SHIORI/3.0", "SHIORI/3.1 200 OK"] {
+            assert_eq!(version_of(s), Some(Version::V3), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn version_of_unknown_is_none() {
+        let cases: &[&[u8]] = &[
+            b"",
+            b"SHIORI/",
+            "SHIORI/２.６ 200 OK".as_bytes(),
+            b"shiori/2.6 200 OK",
+            b"\x82\xa0SHIORI/2.6",
+            b" SHIORI/2.6 200 OK",
+            b"HTTP/1.0 200 OK",
+            b"SHIORI/1.0 200 OK",
+            b"SHIORI/4.0 200 OK",
+        ];
+        for &c in cases {
+            assert_eq!(version_of(c), None, "{c:?}");
+        }
+    }
+
+    #[test]
+    fn version_of_ignores_status() {
+        assert_eq!(
+            version_of("SHIORI/2.6 400 Bad Request\r\n\r\n"),
+            Some(Version::V2)
+        );
+        // shiori4 の SHIORI の側が SHIORI/2.x の要求に返す答え
+        assert_eq!(
+            version_of("SHIORI/3.0 400 Bad Request\r\n\r\n"),
+            Some(Version::V3)
         );
     }
 }
