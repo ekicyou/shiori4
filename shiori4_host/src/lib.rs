@@ -189,7 +189,7 @@ pub use dist::{TargetArch, TargetOs, machine_matches, shiori_file_candidates};
 #[cfg(all(windows, target_arch = "x86"))]
 mod legacy;
 #[cfg(all(windows, target_arch = "x86"))]
-pub use legacy::LegacyRequestError;
+pub use legacy::{LegacyRequestError, LegacyRuntime};
 #[cfg(test)]
 mod test_dll;
 

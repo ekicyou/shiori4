@@ -40,7 +40,7 @@
   - 完了の状態: ASCII は UTF-8 と同じで表せない文字なし、サロゲート対の絵文字は（ACP が 65001 でなければ）`?` に置き換わって表せない文字ありになる、`loadu` 用は UTF-8 そのもの、の単体テストが i686 で通る
   - _Requirements: 1.4, 3.2, 3.3, 3.4_
 
-- [ ] 3.2 初期化の入口を作る
+- [x] 3.2 初期化の入口を作る
   - 発見の口が返すライブラリと口の種類と dir を受け、口・`unload`・`request` の解決、dir の検査と変換、入力の確保を済ませてから、`loadu` か `load` を 1 回だけ呼ぶ。どこかで失敗したら DLL を呼ばずにライブラリを解放する
   - 口の種類が従来の口でないか、必須の書き出しが揃わなければ `NotShiori4`。dir が不正なら `InvalidPath`。変換・確保の失敗と BOOL が 0 なら `LoadFailed`（`unload` は呼ばない）。BOOL は 32bit で 0 以外を成功と読む
   - 値を作らずに dir の表せない文字を確かめる関連関数を足す（dir の検査は初期化と同じ）
@@ -116,3 +116,4 @@
 ## Implementation Notes
 - testdata/legacyghost は kernel32 を直接リンクし cfg(windows) の guard を持たないので、Windows でだけビルドする（2.3 の補助も Windows に限る）。clippy・test はルートの workspace に入らないので manifest を指定して走らせる。
 - test_dll.rs の legacyghost の応答の種類の定数は RESPONSE_ECHO だけ。OK/NULL/NEGATIVE（0/1/2）は使うタスクで足す。LegacyStats は DLL の struct の手写しなので両方を揃えて直す。
+- legacyghost を読むテストは 1 プロセスに 1 モジュールの状態を共有するので、test_dll::lock() で直列にし、前後で legacy_reset する（legacy.rs の with_legacy）。

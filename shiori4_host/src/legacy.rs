@@ -2,11 +2,11 @@
 //!
 //! HGLOBAL の持ち主の決まり: 入力はホストが確保して DLL が解放し、応答は DLL が確保してホストが解放する。
 
-use std::ffi::c_void;
 #[cfg(test)]
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::{ffi::c_void, marker::PhantomData, path::Path};
 
-use crate::{EntryKind, LoadError};
+use crate::{EntryKind, LoadError, normalize_dir};
 
 const GMEM_FIXED: u32 = 0;
 const CP_ACP: u32 = 0;
@@ -28,6 +28,76 @@ unsafe extern "system" {
         default_char: *const u8,
         used_default_char: *mut i32,
     ) -> i32;
+}
+
+// 従来の DLL の口（ukadoc の DLL 共通仕様。x86 の __cdecl は Rust の extern "C"、long は i32）
+type LoadFn = unsafe extern "C" fn(h: *mut c_void, len: i32) -> i32;
+type RequestFn = unsafe extern "C" fn(h: *mut c_void, len: *mut i32) -> *mut c_void;
+type UnloadFn = unsafe extern "C" fn() -> i32;
+
+/// 従来の口（`loadu`・`load`・`request`・`unload`）の DLL を 1 回だけ初期化した実行時の値
+pub struct LegacyRuntime {
+    #[allow(dead_code)] // request（task 3.4）が使う
+    request: RequestFn,
+    #[allow(dead_code)] // Drop（task 3.3）が使う
+    unload: UnloadFn,
+    _not_send: PhantomData<*mut ()>,
+    // 最後に落ちる
+    _library: libloading::Library,
+}
+
+impl LegacyRuntime {
+    /// `LoadedGhost::Legacy` の entry と library を受け、entry の口で 1 回だけ初期化する。
+    /// ghost_dir には発見の口に渡したのと同じ dir を渡す
+    ///
+    /// 口・`unload`・`request` の解決、dir の検査と変換、入力の確保を済ませてから口を呼ぶ。
+    /// entry が Loadu・Load でないか書き出しが揃わなければ `NotShiori4`、dir が不正なら `InvalidPath`、
+    /// 変換・確保の失敗と口が 0 を返したときは `LoadFailed`。どの失敗でも `unload` は呼ばずにライブラリを解放する
+    pub fn from_library(
+        entry: EntryKind,
+        library: libloading::Library,
+        ghost_dir: impl AsRef<Path>,
+    ) -> Result<Self, LoadError> {
+        let name: &[u8] = match entry {
+            EntryKind::Loadu => b"loadu\0",
+            EntryKind::Load => b"load\0",
+            _ => return Err(LoadError::NotShiori4),
+        };
+        // SAFETY: 型は従来の口の ABI。関数のポインタは library を持つ間だけ使う
+        let (init, unload, request) = unsafe {
+            (
+                *library
+                    .get::<LoadFn>(name)
+                    .map_err(|_| LoadError::NotShiori4)?,
+                *library
+                    .get::<UnloadFn>(b"unload\0")
+                    .map_err(|_| LoadError::NotShiori4)?,
+                *library
+                    .get::<RequestFn>(b"request\0")
+                    .map_err(|_| LoadError::NotShiori4)?,
+            )
+        };
+        let dir = normalize_dir(ghost_dir.as_ref())?;
+        let (bytes, _) = dir_bytes(entry, &dir)?;
+        let h = global_alloc_copy(&bytes).ok_or(LoadError::LoadFailed)?;
+        // h は渡した時点で DLL のもの。x86 のスライスの長さは i32::MAX 以下
+        if unsafe { init(h, bytes.len() as i32) } == 0 {
+            return Err(LoadError::LoadFailed);
+        }
+        Ok(Self {
+            request,
+            unload,
+            _not_send: PhantomData,
+            _library: library,
+        })
+    }
+
+    /// dir を load に渡すと CP_ACP で表せない文字が置き換わるか（loadu には関わらない）。
+    /// 値を作らずに呼べるので、初期化の前にも、load が失敗した後にも確かめられる。
+    /// dir の検査は from_library と同じ（`InvalidPath`）。変換の API の失敗は `LoadFailed`
+    pub fn dir_lossy(ghost_dir: impl AsRef<Path>) -> Result<bool, LoadError> {
+        Ok(dir_bytes(EntryKind::Load, &normalize_dir(ghost_dir.as_ref())?)?.1)
+    }
 }
 
 /// 従来の DLL の要求の失敗
@@ -52,7 +122,6 @@ pub(crate) static RESPONSES_FREED: AtomicU32 = AtomicU32::new(0);
 
 /// GMEM_FIXED で max(bytes.len(), 1) バイトを確保し、bytes をちょうど len バイトだけ書く（NUL を付けない）。
 /// 返したハンドルの持ち主は呼んだ先の DLL。確保できなければ None
-#[allow(dead_code)] // LegacyRuntime（task 3.2・3.4）が使う
 fn global_alloc_copy(bytes: &[u8]) -> Option<*mut c_void> {
     // GlobalAlloc(GMEM_FIXED, 0) の振る舞いは文書で保証されないので、最低 1 バイトを確保する
     let h = unsafe { GlobalAlloc(GMEM_FIXED, bytes.len().max(1)) };
@@ -88,7 +157,6 @@ unsafe fn take_response(p: *mut c_void, len: i32) -> Result<Vec<u8>, LegacyReque
 }
 
 /// entry が Loadu なら (dir の UTF-8, false)。Load なら to_acp(dir)。変換の API の失敗は LoadFailed
-#[allow(dead_code)] // LegacyRuntime（task 3.2）が使う
 fn dir_bytes(entry: EntryKind, dir: &str) -> Result<(Vec<u8>, bool), LoadError> {
     match entry {
         EntryKind::Load => to_acp(dir).ok_or(LoadError::LoadFailed),
@@ -99,7 +167,6 @@ fn dir_bytes(entry: EntryKind, dir: &str) -> Result<(Vec<u8>, bool), LoadError> 
 /// CP_ACP のバイト列と「表せない文字があった」。GetACP() が 65001 なら (s の UTF-8, false)。
 /// それ以外は WC_NO_BEST_FIT_CHARS で best-fit をせず、表せない文字は既定の文字（`?`）にして
 /// used_default_char で知る。長さの問い合わせと変換の 2 回で呼び、NUL は出さない。0 が返れば None
-#[allow(dead_code)] // dir_bytes と LegacyRuntime::dir_lossy（task 3.2）が使う
 fn to_acp(s: &str) -> Option<(Vec<u8>, bool)> {
     // 65001 では WC_NO_BEST_FIT_CHARS と used_default_char が使えない。UTF-8 はそのまま CP_ACP のバイト列
     if unsafe { GetACP() } == CP_UTF8 {
@@ -277,6 +344,154 @@ mod tests {
         assert_eq!(
             dir_bytes(EntryKind::Load, "C:\\g\\").ok(),
             Some((b"C:\\g\\".to_vec(), false))
+        );
+    }
+
+    // ---- LegacyRuntime の初期化（legacyghost を読む）----
+
+    use crate::{Host, LoadedGhost, Post, load_ghost, load_ghost_with, test_dll};
+
+    /// ASCII でない文字を含む dir と、その正規化の後
+    const DIR: &str = "C:\\ghost\\\u{e9}";
+    const DIR_NORMALIZED: &str = "C:\\ghost\\\u{e9}\\";
+
+    struct NoHost;
+
+    impl Host for NoHost {
+        fn name(&self) -> &str {
+            "nohost"
+        }
+
+        fn on_post(&self, _post: Post) {}
+    }
+
+    /// ロックを取って legacyghost の状態を戻し、数を読むための別のハンドルを f に渡す
+    fn with_legacy(f: impl FnOnce(&libloading::Library)) {
+        let _g = test_dll::lock();
+        let stats = open_legacy();
+        test_dll::legacy_reset(&stats);
+        f(&stats);
+        test_dll::legacy_reset(&stats);
+    }
+
+    fn open_legacy() -> libloading::Library {
+        unsafe { libloading::Library::new(test_dll::legacy_dll_path()) }
+            .expect("legacyghost を開けない")
+    }
+
+    fn legacy_of(r: Result<LoadedGhost<NoHost>, LoadError>) -> (EntryKind, libloading::Library) {
+        match r {
+            Ok(LoadedGhost::Legacy { entry, library }) => (entry, library),
+            _ => panic!("Legacy に解決しない"),
+        }
+    }
+
+    #[test]
+    fn default_discovery_picks_loadu_with_utf8_dir() {
+        with_legacy(|stats| {
+            let (entry, library) = legacy_of(load_ghost(test_dll::legacy_dll_path(), DIR, NoHost));
+            assert_eq!(entry, EntryKind::Loadu);
+            assert!(LegacyRuntime::from_library(entry, library, DIR).is_ok());
+            let s = test_dll::legacy_stats(stats);
+            assert_eq!((s.loadu, s.load, s.unload), (1, 0, 0));
+            assert_eq!(
+                test_dll::legacy_last_input(stats),
+                DIR_NORMALIZED.as_bytes()
+            );
+        });
+    }
+
+    #[test]
+    fn load_only_picks_load_with_acp_dir() {
+        with_legacy(|stats| {
+            let (entry, library) = legacy_of(load_ghost_with(
+                test_dll::legacy_dll_path(),
+                DIR,
+                NoHost,
+                &[EntryKind::Load],
+            ));
+            assert_eq!(entry, EntryKind::Load);
+            assert!(LegacyRuntime::from_library(entry, library, DIR).is_ok());
+            let s = test_dll::legacy_stats(stats);
+            assert_eq!((s.loadu, s.load, s.unload), (0, 1, 0));
+            let (acp, _) = to_acp(DIR_NORMALIZED).expect("convert");
+            assert_eq!(test_dll::legacy_last_input(stats), acp);
+        });
+    }
+
+    #[test]
+    fn loadu_failure_does_not_fall_back_to_load() {
+        with_legacy(|stats| {
+            let r = LegacyRuntime::from_library(EntryKind::Loadu, open_legacy(), r"C:\ghost\fail");
+            assert!(matches!(r, Err(LoadError::LoadFailed)));
+            let s = test_dll::legacy_stats(stats);
+            assert_eq!((s.loadu, s.load, s.unload), (1, 0, 0));
+        });
+    }
+
+    #[test]
+    fn bool_is_32bit_nonzero() {
+        with_legacy(|stats| {
+            // 0x100 は下位 1 バイトが 0
+            for v in [2, 0x100, -1] {
+                test_dll::legacy_set_load_result(stats, v);
+                let r = LegacyRuntime::from_library(EntryKind::Loadu, open_legacy(), DIR);
+                assert!(r.is_ok(), "{v}");
+            }
+            test_dll::legacy_set_load_result(stats, 0);
+            let r = LegacyRuntime::from_library(EntryKind::Load, open_legacy(), DIR);
+            assert!(matches!(r, Err(LoadError::LoadFailed)));
+            let s = test_dll::legacy_stats(stats);
+            assert_eq!((s.loadu, s.load, s.unload), (3, 1, 0));
+        });
+    }
+
+    #[test]
+    fn non_legacy_entry_or_missing_exports_is_not_shiori4() {
+        with_legacy(|stats| {
+            for entry in [EntryKind::V4, EntryKind::V3] {
+                let r = LegacyRuntime::from_library(entry, open_legacy(), DIR);
+                assert!(matches!(r, Err(LoadError::NotShiori4)));
+            }
+            assert_eq!(
+                test_dll::legacy_stats(stats),
+                test_dll::LegacyStats::default()
+            );
+        });
+        // testghost には unload・request が無い。その loadu は 0 を返すので、呼ばれていれば LoadFailed になる
+        let _g = test_dll::lock();
+        let lib = unsafe { libloading::Library::new(test_dll::dll_path()) }
+            .expect("testghost を開けない");
+        let r = LegacyRuntime::from_library(EntryKind::Loadu, lib, DIR);
+        assert!(matches!(r, Err(LoadError::NotShiori4)));
+    }
+
+    #[test]
+    fn invalid_dir_is_invalid_path_without_calling() {
+        with_legacy(|stats| {
+            let r = LegacyRuntime::from_library(EntryKind::Loadu, open_legacy(), "ghost");
+            assert!(matches!(r, Err(LoadError::InvalidPath)));
+            assert_eq!(
+                test_dll::legacy_stats(stats),
+                test_dll::LegacyStats::default()
+            );
+        });
+    }
+
+    #[test]
+    fn dir_lossy_checks_like_from_library() {
+        assert_eq!(
+            LegacyRuntime::dir_lossy(r"C:\ghost\master").ok(),
+            Some(false)
+        );
+        assert!(matches!(
+            LegacyRuntime::dir_lossy("ghost"),
+            Err(LoadError::InvalidPath)
+        ));
+        let lossy = unsafe { GetACP() } != CP_UTF8;
+        assert_eq!(
+            LegacyRuntime::dir_lossy("C:\\ghost\\\u{1F600}").ok(),
+            Some(lossy)
         );
     }
 }
