@@ -94,7 +94,17 @@ pub(crate) struct LegacyStats {
     pub responses_allocated: u32,
 }
 
-/// 応答の種類: 受けた要求をそのまま返す（testdata/legacyghost/src/lib.rs と同じ値。ほかの種類は使うときに足す）
+// 応答の種類（testdata/legacyghost/src/lib.rs と同じ値）
+/// 既定の SHIORI/3.0 200 OK
+#[cfg(all(windows, target_arch = "x86"))]
+pub(crate) const RESPONSE_OK: u32 = 0;
+/// NULL を返す
+#[cfg(all(windows, target_arch = "x86"))]
+pub(crate) const RESPONSE_NULL: u32 = 1;
+/// 長さに -1 を返す
+#[cfg(all(windows, target_arch = "x86"))]
+pub(crate) const RESPONSE_NEGATIVE: u32 = 2;
+/// 受けた要求をそのまま返す
 #[cfg(all(windows, target_arch = "x86"))]
 pub(crate) const RESPONSE_ECHO: u32 = 3;
 

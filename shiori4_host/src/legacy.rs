@@ -4,7 +4,7 @@
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::{ffi::c_void, marker::PhantomData, path::Path};
+use std::{ffi::c_void, fmt, marker::PhantomData, path::Path};
 
 use crate::{EntryKind, LoadError, normalize_dir};
 
@@ -56,7 +56,6 @@ type UnloadFn = unsafe extern "C" fn() -> i32;
 /// f::<shiori4_host::LegacyRuntime>();
 /// ```
 pub struct LegacyRuntime {
-    #[allow(dead_code)] // request（task 3.4）が使う
     request: RequestFn,
     unload: UnloadFn,
     _not_send: PhantomData<*mut ()>,
@@ -123,6 +122,31 @@ impl LegacyRuntime {
     pub fn dir_lossy(ghost_dir: impl AsRef<Path>) -> Result<bool, LoadError> {
         Ok(dir_bytes(EntryKind::Load, &normalize_dir(ghost_dir.as_ref())?)?.1)
     }
+
+    /// 芯: 要求のバイト列をそのまま渡し、応答のバイト列を長さのまま受け取る（NUL を探さず、中身を解釈しない）
+    ///
+    /// 入力を確保できなければ `AllocFailed` で、DLL を呼ばない。NULL は `NullResponse`、負の長さは
+    /// `NegativeLength`（応答は解放する）。失敗の後も値は使い続けられる
+    pub fn request(&mut self, req: &[u8]) -> Result<Vec<u8>, LegacyRequestError> {
+        let h = global_alloc_copy(req).ok_or(LegacyRequestError::AllocFailed)?;
+        // x86 のスライスの長さは i32::MAX 以下
+        let mut len = req.len() as i32;
+        // SAFETY: h は渡した時点で DLL のもの。戻り値は DLL が GMEM_FIXED で確保した len バイトか NULL
+        unsafe { take_response((self.request)(h, &mut len), len) }
+    }
+
+    /// 便利な層: [`Self::request`] の応答の末尾に続く NUL をすべて落とし、UTF-8 を確かめる。
+    /// Charset を見ない（Shift_JIS などの本文は芯の口を使う）。UTF-8 でなければ `InvalidUtf8`
+    pub fn request_str(&mut self, req: &str) -> Result<String, LegacyRequestError> {
+        response_to_string(self.request(req.as_bytes())?)
+    }
+}
+
+/// 末尾に続く NUL をすべて落として UTF-8 を確かめる
+fn response_to_string(mut res: Vec<u8>) -> Result<String, LegacyRequestError> {
+    let end = res.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
+    res.truncate(end);
+    String::from_utf8(res).map_err(|_| LegacyRequestError::InvalidUtf8)
 }
 
 /// 従来の DLL の要求の失敗
@@ -137,6 +161,19 @@ pub enum LegacyRequestError {
     /// 文字列の口で、応答（末尾の NUL を落とした後）が UTF-8 でない
     InvalidUtf8,
 }
+
+impl fmt::Display for LegacyRequestError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::AllocFailed => f.write_str("failed to allocate request memory"),
+            Self::NullResponse => f.write_str("request returned NULL"),
+            Self::NegativeLength(n) => write!(f, "request returned a negative length ({n})"),
+            Self::InvalidUtf8 => f.write_str("response is not valid UTF-8"),
+        }
+    }
+}
+
+impl std::error::Error for LegacyRequestError {}
 
 /// global_alloc_copy が確保した数
 #[cfg(test)]
@@ -165,7 +202,6 @@ fn global_alloc_copy(bytes: &[u8]) -> Option<*mut c_void> {
 ///
 /// # Safety
 /// p は DLL が GMEM_FIXED で確保した、少なくとも len バイトの領域か NULL
-#[allow(dead_code)] // LegacyRuntime（task 3.4）が使う
 unsafe fn take_response(p: *mut c_void, len: i32) -> Result<Vec<u8>, LegacyRequestError> {
     if p.is_null() {
         return Err(LegacyRequestError::NullResponse);
@@ -543,6 +579,124 @@ mod tests {
         assert!(legacy_module_loaded());
         drop(rt);
         assert!(!legacy_module_loaded());
+    }
+
+    #[test]
+    fn request_error_display() {
+        use LegacyRequestError::*;
+        assert_eq!(AllocFailed.to_string(), "failed to allocate request memory");
+        assert_eq!(NullResponse.to_string(), "request returned NULL");
+        assert_eq!(
+            NegativeLength(-1).to_string(),
+            "request returned a negative length (-1)"
+        );
+        assert_eq!(InvalidUtf8.to_string(), "response is not valid UTF-8");
+        let _: &dyn std::error::Error = &InvalidUtf8;
+    }
+
+    fn init_loadu() -> LegacyRuntime {
+        let (entry, library) = legacy_of(load_ghost(test_dll::legacy_dll_path(), DIR, NoHost));
+        assert_eq!(entry, EntryKind::Loadu);
+        LegacyRuntime::from_library(entry, library, DIR).expect("init")
+    }
+
+    const REQ: &str = "GET SHIORI/3.0\r\nID: OnBoot\r\n\r\n";
+
+    #[test]
+    fn discovery_to_round_trip_ok() {
+        with_legacy(|stats| {
+            let mut rt = init_loadu();
+            let res = rt.request_str(REQ).expect("request");
+            assert!(res.starts_with("SHIORI/3.0 200 OK\r\n"), "{res}");
+            assert!(res.contains("Value: legacyghost\r\n"), "{res}");
+            let s = test_dll::legacy_stats(stats);
+            assert_eq!((s.loadu, s.load, s.request), (1, 0, 1));
+            assert_eq!(test_dll::legacy_last_input(stats), REQ.as_bytes());
+        });
+    }
+
+    #[test]
+    fn null_and_negative_are_errors_and_runtime_stays_usable() {
+        with_legacy(|stats| {
+            let _c = counters();
+            let mut rt = init_loadu();
+            test_dll::legacy_set_response(stats, test_dll::RESPONSE_NULL);
+            assert_eq!(rt.request(b"x"), Err(LegacyRequestError::NullResponse));
+            let freed = RESPONSES_FREED.load(Ordering::SeqCst);
+            let allocated = test_dll::legacy_stats(stats).responses_allocated;
+            test_dll::legacy_set_response(stats, test_dll::RESPONSE_NEGATIVE);
+            assert_eq!(
+                rt.request(b"x"),
+                Err(LegacyRequestError::NegativeLength(-1))
+            );
+            assert_eq!(
+                test_dll::legacy_stats(stats).responses_allocated - allocated,
+                RESPONSES_FREED.load(Ordering::SeqCst) - freed
+            );
+            assert_eq!(RESPONSES_FREED.load(Ordering::SeqCst) - freed, 1);
+            // 失敗の後も使える
+            test_dll::legacy_set_response(stats, test_dll::RESPONSE_OK);
+            assert!(rt.request_str(REQ).is_ok());
+        });
+    }
+
+    #[test]
+    fn echo_keeps_bytes_and_str_drops_only_trailing_nuls() {
+        with_legacy(|stats| {
+            let mut rt = init_loadu();
+            test_dll::legacy_set_response(stats, test_dll::RESPONSE_ECHO);
+            let nul = b"A\0B\r\n\0\0";
+            assert_eq!(rt.request(nul), Ok(nul.to_vec()));
+            assert_eq!(rt.request_str("A\0B\r\n\0\0").as_deref(), Ok("A\0B\r\n"));
+            assert_eq!(rt.request(b""), Ok(Vec::new()));
+            assert_eq!(rt.request_str("").as_deref(), Ok(""));
+        });
+    }
+
+    #[test]
+    fn shift_jis_passes_the_core_and_fails_the_str_layer() {
+        with_legacy(|stats| {
+            let mut rt = init_loadu();
+            test_dll::legacy_set_response(stats, test_dll::RESPONSE_ECHO);
+            // Shift_JIS の「あ」。芯は Charset を見ずにそのまま返す
+            let sjis = b"SHIORI/3.0 200 OK\r\nCharset: Shift_JIS\r\nValue: \x82\xa0\r\n\r\n";
+            let res = rt.request(sjis).expect("request");
+            assert_eq!(res, sjis);
+            // 文字列の口は &str しか受けないので、同じ応答を文字列の口の変換に通す
+            assert_eq!(
+                response_to_string(res),
+                Err(LegacyRequestError::InvalidUtf8)
+            );
+        });
+    }
+
+    #[test]
+    fn alloc_and_free_counts_match_after_round_trips_and_drop() {
+        with_legacy(|stats| {
+            let _c = counters();
+            let inputs = INPUTS_ALLOCATED.load(Ordering::SeqCst);
+            let freed = RESPONSES_FREED.load(Ordering::SeqCst);
+            let mut rt = init_loadu();
+            for kind in [
+                test_dll::RESPONSE_OK,
+                test_dll::RESPONSE_ECHO,
+                test_dll::RESPONSE_NEGATIVE,
+                test_dll::RESPONSE_NULL,
+                test_dll::RESPONSE_ECHO,
+            ] {
+                test_dll::legacy_set_response(stats, kind);
+                let _ = rt.request(REQ.as_bytes());
+            }
+            drop(rt);
+            let s = test_dll::legacy_stats(stats);
+            assert_eq!((s.request, s.unload), (5, 1));
+            // 初期化の 1 回と要求の 5 回
+            assert_eq!(INPUTS_ALLOCATED.load(Ordering::SeqCst) - inputs, 6);
+            assert_eq!(s.inputs_freed, 6);
+            // NULL の 1 回を除く 4 回
+            assert_eq!(RESPONSES_FREED.load(Ordering::SeqCst) - freed, 4);
+            assert_eq!(s.responses_allocated, 4);
+        });
     }
 
     #[test]
