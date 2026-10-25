@@ -186,6 +186,10 @@ mod discover;
 pub use discover::{EntryKind, LoadedGhost, load_ghost, load_ghost_with};
 mod dist;
 pub use dist::{TargetArch, TargetOs, machine_matches, shiori_file_candidates};
+#[cfg(all(windows, target_arch = "x86"))]
+mod legacy;
+#[cfg(all(windows, target_arch = "x86"))]
+pub use legacy::LegacyRequestError;
 #[cfg(test)]
 mod test_dll;
 

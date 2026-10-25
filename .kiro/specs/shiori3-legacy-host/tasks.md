@@ -16,7 +16,7 @@
   - _Boundary: LegacyGhost_
   - _Requirements: 8.1, 8.2, 8.4_
 
-- [ ] 2.2 (P) x86 の Windows だけのモジュールの骨組みと HGLOBAL の受け渡しを作る
+- [x] 2.2 (P) x86 の Windows だけのモジュールの骨組みと HGLOBAL の受け渡しを作る
   - x86 の Windows でだけビルドに入るモジュールを足し、公開の型の再輸出の場所を作る。ほかの環境のビルドと API には何も現れない
   - kernel32 の 4 関数を、外部の crate なしに直接宣言する
   - 要求の失敗の列挙（確保の失敗・NULL・負の長さ・UTF-8 でない）の値だけをここで足す
@@ -112,3 +112,6 @@
   - 統合の関門: この PR は CI を変えるので、PR の CI（新しい job を含む）が通るのを見届けてから統合する
   - 完了の状態: 上の各コマンドの結果が揃って成功している
   - _Requirements: 1.2, 1.3, 9.3, 9.4, 12.1, 12.2, 12.3, 12.4_
+
+## Implementation Notes
+- testdata/legacyghost は kernel32 を直接リンクし cfg(windows) の guard を持たないので、Windows でだけビルドする（2.3 の補助も Windows に限る）。clippy・test はルートの workspace に入らないので manifest を指定して走らせる。
