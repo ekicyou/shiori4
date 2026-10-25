@@ -6,7 +6,7 @@
   - 完了の状態: `cargo build --workspace --target i686-pc-windows-msvc` と `cargo build --manifest-path testdata/testghost/Cargo.toml --target i686-pc-windows-msvc` が通る
   - _Requirements: 9.1, 12.4_
 
-- [ ] 2. 土台: テスト用の DLL と HGLOBAL の受け渡し
+- [x] 2. 土台: テスト用の DLL と HGLOBAL の受け渡し
 - [x] 2.1 (P) 従来の口を持つテスト用の DLL を作る
   - 外部の crate に依存しない cdylib として、`loadu`・`load`・`request`・`unload` の本物の口を持たせる。入力は記録してから DLL の側で解放し、応答は長さ＋1 バイトを固定のグローバルメモリで確保して末尾に NUL を置く
   - dir に `fail` を含むと初期化は 0 を返し、それ以外は設定した戻り値（既定 1）を返す
@@ -25,7 +25,7 @@
   - _Boundary: HglobalTransfer, LegacyRequestError_
   - _Requirements: 1.1, 1.2, 3.5, 4.1, 4.2, 4.5, 4.6_
 
-- [ ] 2.3 テスト用の DLL をテストと同じ target で作る補助を整える
+- [x] 2.3 テスト用の DLL をテストと同じ target で作る補助を整える
   - テスト用の DLL のビルドの共通部分を 1 つにまとめ、testghost と新しい DLL で使い回す
   - x86 の Windows のテストでは target の三つ組を付けて作り、出力の場所に三つ組を入れる。ほかの環境の出力の場所と振る舞いは変えない
   - 新しい DLL の場所と、そのテスト用の書き出し（数・最後の入力・応答の種類・初期化の戻り値・既定に戻す）を呼ぶ薄い補助を、x86 の Windows のテストにだけ足す
@@ -115,3 +115,4 @@
 
 ## Implementation Notes
 - testdata/legacyghost は kernel32 を直接リンクし cfg(windows) の guard を持たないので、Windows でだけビルドする（2.3 の補助も Windows に限る）。clippy・test はルートの workspace に入らないので manifest を指定して走らせる。
+- test_dll.rs の legacyghost の応答の種類の定数は RESPONSE_ECHO だけ。OK/NULL/NEGATIVE（0/1/2）は使うタスクで足す。LegacyStats は DLL の struct の手写しなので両方を揃えて直す。
