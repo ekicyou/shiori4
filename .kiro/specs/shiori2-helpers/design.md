@@ -130,7 +130,7 @@ sequenceDiagram
 ```
 
 - 版は開始行の版の語だけで決め、ステータスは見ない（6.5・7.5）。`SHIORI/3.0 400 Bad Request`（shiori4 の SHIORI の側の答え）も `V3` と読む。
-- `LegacyRuntime::request` が `Err` を返したときは、ホストは応答を持たないので版は分からない。ホストは `version_of(&[])`（空の応答と同じ扱いで `None`）か、`Err` をそのまま「分からない」として扱う（7.4）。
+- `LegacyRuntime::request` が `Err` を返したときは、ホストは応答を持たないので版は分からない。ホストは `version_of(b"")`（空の応答と同じ扱いで `None`）か、`Err` をそのまま「分からない」として扱う（7.4）。
 - 決まった版を覚えておくのも、この後どちらで話すかを選ぶのもホスト（7.6）。最初の要求を SHIORI/3.0 の要求にするホストも、同じ `version_of` で見分けられる（7.8）。
 
 ## Requirements Traceability
