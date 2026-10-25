@@ -118,7 +118,7 @@ sequenceDiagram
     H->>L: request bytes
     L-->>H: response bytes or error
     H->>S: version_of response bytes
-    S-->>H: V3 or V2 minor or None
+    S-->>H: V3 or V2 or None
     alt V2
         H->>S: get_sentence and others
         H->>H: decode then Response parse
