@@ -58,7 +58,8 @@ pub fn load_ghost<H: Host>(
 /// 確かめてから渡すこと。ライブラリを開くと DLL の初期化コードが動く。信頼できる DLL だけを渡すこと
 ///
 /// x86 の Windows では、相対のライブラリのパスを `InvalidPath` で断る（開かない。OS の探索の順で別の DLL を
-/// 拾わないため）。開く間のエラーのダイアログは抑える
+/// 拾わないため）。開く間のエラーのダイアログは抑える。探索の場所は変えないので、SHIORI が頼る別の DLL は
+/// SHIORI の dir からは探されない（要るならホストが探索の場所を整えてから呼ぶ）
 pub fn load_ghost_with<H: Host>(
     lib_path: impl AsRef<OsStr>,
     ghost_dir: impl AsRef<Path>,

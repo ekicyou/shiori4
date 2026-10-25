@@ -1,41 +1,4 @@
-//! SHIORI/3.0 の従来の口（`load`・`loadu`・`request`・`unload`）を持つ DLL を読む部分（x86 の Windows だけ）
-//!
-//! x86 の Windows（`cfg(all(windows, target_arch = "x86"))`）でだけある。ほかの環境では `LegacyRuntime`・
-//! `LegacyRequestError` は現れず、発見の口は従来の口を [`crate::LoadedGhost::Legacy`] で返すだけになる。
-//!
-//! - 入口: `load_ghost_with`（または `load_ghost`）→ `LoadedGhost::Legacy` → `LegacyRuntime::from_library`。
-//!   ライブラリのパスから直接読む別の入口は無い。1 つのモジュールに 1 インスタンスだけ（2 体目は別のファイルか別のプロセス）
-//! - ホストに残すもの: プロセスの起こし方・IPC・待ち時間・強制終了・カレントディレクトリ・本文の文字コードの方針
-//! - `load` の dir は既定の ANSI コードページ（CP_ACP）のバイト列で渡す。ukadoc の DLL 共通仕様の字面は
-//!   「既定の OEM コードページ」だが、古い SHIORI は dir を `fopen`・`CreateFileA` などの `A` 系の API に渡し、
-//!   それらは CP_ACP で読むため。`loadu` には UTF-8 で渡す
-//! - 開いた時点で DLL の初期化のコードが動く。信頼できる DLL だけを渡すこと
-//!
-//! HGLOBAL の持ち主の決まり: 入力はホストが確保して DLL が解放し、応答は DLL が確保してホストが解放する。
-//!
-//! この例はゴーストの DLL を要するので、ビルドだけを検査する（i686 の CI の doctest でビルドされ、実行しない）。
-//!
-//! ```no_run
-//! use shiori4_host::*;
-//! # struct MyHost;
-//! # impl Host for MyHost { fn name(&self) -> &str { "MyBase" } fn on_post(&self, _post: Post) {} }
-//!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let dir = std::env::current_exe()?.parent().expect("exe dir").join("ghost").join("master");
-//! // ライブラリのパスも絶対パスで渡す（相対のパスは LoadError::InvalidPath）
-//! let path = dir.join("shiori.dll");
-//! match load_ghost_with(&path, &dir, MyHost, &[EntryKind::Loadu, EntryKind::Load])? {
-//!     LoadedGhost::Legacy { entry, library } => {
-//!         // dir には発見の口に渡したのと同じ dir を渡す
-//!         let mut rt = LegacyRuntime::from_library(entry, library, &dir)?;
-//!         let res = rt.request(b"GET SHIORI/3.0\r\nCharset: UTF-8\r\nID: OnBoot\r\n\r\n")?;
-//!         # drop(res);
-//!     }
-//!     _ => unreachable!("V4・V3 は許可していない"),
-//! }
-//! # Ok(())
-//! # }
-//! ```
+//! SHIORI/3.0 の従来の口（`load`・`loadu`・`request`・`unload`）を持つ DLL を読む部分（x86 の Windows だけ。説明は [`LegacyRuntime`] の doc。docs.rs に出るのは型の doc なので、そちらに書く）
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -77,6 +40,19 @@ type UnloadFn = unsafe extern "C" fn() -> i32;
 
 /// 従来の口（`loadu`・`load`・`request`・`unload`）の DLL を 1 回だけ初期化した実行時の値
 ///
+/// x86 の Windows（`cfg(all(windows, target_arch = "x86"))`）でだけある。ほかの環境では `LegacyRuntime`・
+/// `LegacyRequestError` は現れず、発見の口は従来の口を [`crate::LoadedGhost::Legacy`] で返すだけになる。
+///
+/// 入口は `load_ghost_with`（または `load_ghost`）→ `LoadedGhost::Legacy` → [`LegacyRuntime::from_library`]。
+/// ライブラリのパスから直接読む別の入口は無い。
+///
+/// - `load` の dir は既定の ANSI コードページ（CP_ACP）のバイト列で渡す。ukadoc の DLL 共通仕様の字面は
+///   「既定の OEM コードページ」だが、古い SHIORI は dir を `fopen`・`CreateFileA` などの `A` 系の API に渡し、
+///   それらは CP_ACP で読むため。`loadu` には UTF-8 で渡す
+/// - HGLOBAL の持ち主の決まり: 入力はホストが確保して DLL が解放し、応答は DLL が確保してホストが解放する
+/// - 開き方は探索の場所を変えない。SHIORI が頼る別の DLL は SHIORI の dir からは探されないので、要るならホストが
+///   探索の場所を整えてから発見の口を呼ぶ
+///
 /// `!Send`・`!Sync`。作ったスレッドで使うこと（[`crate::V3Runtime`] と同じ）。
 /// Drop で `unload` を 1 回呼び（戻り値は見ない）、その後でライブラリを解放する。手放した後は DLL の関数を呼ばない。
 ///
@@ -88,6 +64,30 @@ type UnloadFn = unsafe extern "C" fn() -> i32;
 /// - `ghost_dir` には、発見の口に渡したのと同じ dir を渡す（`LoadedGhost::Legacy` は dir を持たない）。
 /// - ホストに残すもの: プロセスの起こし方・IPC・待ち時間・強制終了・カレントディレクトリ・本文の文字コードの方針。
 ///   この型は要求と応答の中身を解釈しない。
+///
+/// この例はゴーストの DLL を要するので、ビルドだけを検査する（i686 の CI の doctest でビルドされ、実行しない）。
+///
+/// ```no_run
+/// use shiori4_host::*;
+/// # struct MyHost;
+/// # impl Host for MyHost { fn name(&self) -> &str { "MyBase" } fn on_post(&self, _post: Post) {} }
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let dir = std::env::current_exe()?.parent().expect("exe dir").join("ghost").join("master");
+/// // ライブラリのパスも絶対パスで渡す（相対のパスは LoadError::InvalidPath）
+/// let path = dir.join("shiori.dll");
+/// match load_ghost_with(&path, &dir, MyHost, &[EntryKind::Loadu, EntryKind::Load])? {
+///     LoadedGhost::Legacy { entry, library } => {
+///         // dir には発見の口に渡したのと同じ dir を渡す
+///         let mut rt = LegacyRuntime::from_library(entry, library, &dir)?;
+///         let res = rt.request(b"GET SHIORI/3.0\r\nCharset: UTF-8\r\nID: OnBoot\r\n\r\n")?;
+///         # drop(res);
+///     }
+///     _ => unreachable!("V4・V3 は許可していない"),
+/// }
+/// # Ok(())
+/// # }
+/// ```
 ///
 /// 別のスレッドへは送れない:
 ///
