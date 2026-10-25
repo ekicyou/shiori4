@@ -109,6 +109,8 @@
 //! - 従来の DLL の口（x86 の Windows だけ）: `LegacyRuntime`（`LoadedGhost::Legacy` のライブラリを
 //!   `LegacyRuntime::from_library` で `loadu` か `load` で 1 回だけ初期化し、要求のバイト列を往復させる）。
 //!   ほかの環境では現れない
+//! - SHIORI/2.x の文字列の形: `shiori2`（要求の組み立て・応答の読み分け・開始行の版の見分け。
+//!   文字コードの変換・出来事の移し方・DLL の読み込みは持たない）
 //!
 //! ```
 //! use shiori4_host::{shiori_file_candidates, TargetArch, TargetOs};

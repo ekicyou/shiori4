@@ -1,7 +1,38 @@
 //! SHIORI/2.x の文字列の便利関数: 要求の組み立て、応答の読み分け、開始行の版の見分け（どれも状態を持たない）
 //!
-//! 文字コードの変換・Charset の方針・出来事の移し方・DLL の読み込みと HGLOBAL は持たない
-//! （`LegacyRuntime` とホストが受け持つ）。
+//! 持つものは 3 つ。
+//! - 要求の組み立て: 汎用の形の [`request`] と、SSP が送る版の命令ごとの関数（[`get_version`]・
+//!   [`get_sentence`]・[`get_word`]・[`get_status`]・[`get_string`]・[`notify_owner_ghost_name`]・
+//!   [`notify_other_ghost_name`]・[`teach`]・[`translate_sentence`]）
+//! - 応答の読み分け: [`Response::parse`] で版・ステータス・ヘッダに分け、`sentence` などで
+//!   命令ごとの決まったヘッダを取り出す
+//! - 開始行の版の見分け: [`version_of`]（この後に SHIORI/3.0 と SHIORI/2.x のどちらで話すか）
+//!
+//! 持たないものは、文字コードの変換・Charset の方針・出来事の移し方（SHIORI/3.0 の出来事から
+//! SHIORI/2.x の出来事へ）・DLL の読み込みと HGLOBAL。これらは `LegacyRuntime` とホストが受け持つ。
+//! 要求を送るのも、決まった版を覚えておくのもホスト。
+//!
+//! 最初に `GET Version SHIORI/2.6` を作って送り、応答の版を見分け、SHIORI/2.x なら応答を読み分ける例。
+//! 応答はホストが DLL から受け取り、文字コードを変えた後の文字列とする。
+//!
+//! ```
+//! use shiori4_host::shiori2::{Response, Version, get_version, version_of};
+//!
+//! // 最初の要求を作る（ホストが DLL に送る）
+//! let req = get_version(&[("Charset", "Shift_JIS"), ("Sender", "MyBase")]);
+//! assert_eq!(req, "GET Version SHIORI/2.6\r\nCharset: Shift_JIS\r\nSender: MyBase\r\n\r\n");
+//!
+//! // 受け取った応答の版を見分ける
+//! let text = "SHIORI/2.6 200 OK\r\nID: KAWARI.kdt\r\nCraftman: KawariDevelopmentTeam\r\nVersion: 7.4.0\r\n\r\n";
+//! assert_eq!(version_of(text), Some(Version::V2));
+//!
+//! // SHIORI/2.x で話すと決まったので、応答を読み分ける
+//! let res = Response::parse(text).unwrap();
+//! assert_eq!(res.status, 200);
+//! assert_eq!(res.id(), Some("KAWARI.kdt"));
+//! assert_eq!(res.craftman(), Some("KawariDevelopmentTeam"));
+//! assert_eq!(res.version_header(), Some("7.4.0"));
+//! ```
 
 // ============================================================
 // 要求の組み立て
@@ -307,6 +338,9 @@ pub enum Version {
 }
 
 /// 応答の開始行の版を見分ける。分からなければ `None`（空の応答も `None`）。
+///
+/// 応答を得られなかったとき（ABI のエラー）はこの関数に渡すものが無いので、ホストが
+/// `None` と同じく「分からない」として扱う。分からないゴーストをどう扱うかはホストが決める。
 ///
 /// 応答の先頭の 8 バイトだけを読み、ASCII の `SHIORI/2` なら [`Version::V2`]、
 /// `SHIORI/3` なら [`Version::V3`] を返す。それ以外（8 バイトに足りない・ASCII でない・
