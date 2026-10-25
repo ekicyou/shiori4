@@ -77,3 +77,8 @@
   - 差分で、試験用のホスト（`shiori4_host/examples/`）・`shiori4` と `shiori4_abi` のクレート・芯のファイル（`v3.rs`・`legacy.rs`・`discover.rs`・`dist.rs`）に変更が無く、`lib.rs` の変更がタスク 1 と 4.1 の 3 か所だけで、芯が `shiori2` を `use` していないことを確かめる（`.kiro/` の下の spec の記録の差分は数えない）
   - 完了の状態: 2 つのコマンドが通り、上の差分の確かめに外れが無い
   - _Requirements: 1.2, 1.3, 1.6, 1.7, 8.3, 8.7_
+
+## Implementation Notes
+- 完了時にその場で解決: design.md の Allowed Dependencies に、実装が使う `shiori4::protocol::HEADER_*` の定数を足した（同じ設計の Implementation Notes が既に許していたものとの食い違い）
+- 完了時にその場で解決: `shiori2` のモジュールの doc の「出来事の移し方」の行き先を、要件 3.6 に合わせて「SHIORI/2.x の命令へ」にした
+- 完了時にその場で解決: 開始行の語にタブが入る例と、応答のヘッダの名前を大文字小文字を区別せずに読む例のテストを足した
