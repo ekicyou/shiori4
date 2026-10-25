@@ -188,6 +188,62 @@ pub fn translate_sentence(common: &[(&str, &str)], sentence: &str) -> String {
 // 応答の読み分け
 // ============================================================
 
+use shiori4::protocol::Headers;
+use shiori4::shiori4_abi::ShioriStatus;
+
+/// SHIORI/2.x の応答を版・ステータス・ヘッダに読み分けたもの（ヘッダは応答の全文の借用）
+#[derive(Debug, Clone)]
+pub struct Response<'a> {
+    /// 開始行の版
+    pub version: Version,
+    /// 開始行のステータスの数（311 は `SHIORI_311_NOT_ENOUGH`、312 は `SHIORI_312_ADVICE` と比べる）
+    pub status: ShioriStatus,
+    /// 空行までのヘッダ（`Charset` もここから読む）
+    pub headers: Headers<'a>,
+}
+
+impl<'a> Response<'a> {
+    /// 応答の全文（文字コードを変えた後の UTF-8）を読み分ける。
+    ///
+    /// 開始行は最初の LF までの 1 行（末尾の CR を除く）で、先頭を [`version_of`] と同じ決まりで
+    /// 版に読み、ASCII の空白で区切った 2 つ目の語を ASCII の数字だけのステータスの数として読む。
+    /// 理由句は読まず、知らない数（299 など）もそのまま返す。ヘッダは開始行の次の行から
+    /// 最初の空行の手前まで（CRLF と LF のどちらも）を読み、空行より後ろは読まない。
+    /// 文字コードは変えず、状態を持たない。
+    ///
+    /// 版が分からないか、ステータスの語が無い・数でない・溢れるなら `None` を返す。
+    ///
+    /// ```
+    /// use shiori4_host::shiori2::{Response, Version};
+    ///
+    /// let res = Response::parse("SHIORI/2.6 200 OK\r\nID: KAWARI.kdt\r\n\r\n").unwrap();
+    /// assert_eq!(res.version, Version::V2);
+    /// assert_eq!(res.status, 200);
+    /// assert_eq!(res.headers.get("ID"), Some("KAWARI.kdt"));
+    /// assert!(Response::parse("SHIORI/2.6 OK\r\n\r\n").is_none());
+    /// ```
+    pub fn parse(text: &'a str) -> Option<Self> {
+        let (line, rest) = text.split_once('\n').unwrap_or((text, ""));
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        let version = start_line_version(line.as_bytes())?;
+        let word = line.split_ascii_whitespace().nth(1)?;
+        if !word.bytes().all(|b| b.is_ascii_digit()) {
+            return None; // `+200`・`-1` を数に読まない
+        }
+        let status = word.parse().ok()?;
+        let end = rest
+            .split_inclusive('\n')
+            .take_while(|l| *l != "\n" && *l != "\r\n")
+            .map(str::len)
+            .sum();
+        Some(Self {
+            version,
+            status,
+            headers: Headers::parse(&rest[..end]),
+        })
+    }
+}
+
 // ============================================================
 // 版の見分け
 // ============================================================
@@ -505,5 +561,148 @@ mod tests {
             version_of("SHIORI/3.0 400 Bad Request\r\n\r\n"),
             Some(Version::V3)
         );
+    }
+
+    // ---- 応答の読み分け ----
+
+    const KAWARI_VERSION: &str = "SHIORI/2.6 200 OK\r\nCharset: Shift_JIS\r\nCraftman: KawariDevelopmentTeam\r\nID: KAWARI.kdt\r\nVersion: 7.4.0\r\n\r\n";
+
+    fn headers_of<'a>(r: &Response<'a>) -> Vec<(&'a str, &'a str)> {
+        r.headers.iter().collect()
+    }
+
+    #[test]
+    fn parse_reads_kawari_get_version() {
+        let r = Response::parse(KAWARI_VERSION).unwrap();
+        assert_eq!((r.version, r.status), (Version::V2, 200));
+        assert_eq!(
+            headers_of(&r),
+            [
+                ("Charset", "Shift_JIS"),
+                ("Craftman", "KawariDevelopmentTeam"),
+                ("ID", "KAWARI.kdt"),
+                ("Version", "7.4.0"),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_reads_lf_only_the_same() {
+        let lf = KAWARI_VERSION.replace("\r\n", "\n");
+        let a = Response::parse(KAWARI_VERSION).unwrap();
+        let b = Response::parse(&lf).unwrap();
+        assert_eq!((a.version, a.status), (b.version, b.status));
+        assert_eq!(headers_of(&a), headers_of(&b));
+    }
+
+    #[test]
+    fn parse_stops_at_blank_line() {
+        for s in [
+            "SHIORI/2.2 200 OK\r\nCharset: UTF-8\r\n\r\nSentence: x\r\n",
+            "SHIORI/2.2 200 OK\nCharset: UTF-8\n\nSentence: x\n",
+        ] {
+            let r = Response::parse(s).unwrap();
+            assert_eq!(headers_of(&r), [("Charset", "UTF-8")], "{s:?}");
+        }
+        // 空行が無ければ末尾まで
+        let r = Response::parse("SHIORI/2.2 200 OK\r\nSentence: x").unwrap();
+        assert_eq!(r.headers.get("Sentence"), Some("x"));
+        let r = Response::parse("SHIORI/2.2 204").unwrap();
+        assert_eq!(r.headers.iter().count(), 0);
+    }
+
+    #[test]
+    fn parse_ignores_reason_phrase() {
+        for s in [
+            "SHIORI/2.6 200\r\n\r\n",
+            "SHIORI/2.6 200 OK\r\n\r\n",
+            "SHIORI/2.6 200 Whatever\r\n\r\n",
+            "SHIORI/2.6 200 Not Found\r\n\r\n",
+        ] {
+            let r = Response::parse(s).unwrap();
+            assert_eq!((r.version, r.status), (Version::V2, 200), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn parse_returns_unknown_status_as_number() {
+        let r = Response::parse("SHIORI/2.6 299 X\r\n\r\n").unwrap();
+        assert_eq!(r.status, 299);
+        let r = Response::parse("SHIORI/2.6 999\r\n\r\n").unwrap();
+        assert_eq!(r.status, 999);
+    }
+
+    #[test]
+    fn parse_rejects_unreadable_start_line() {
+        for s in [
+            "",
+            "HTTP/1.0 200 OK\r\n\r\n",
+            "SHIORI/2.6 OK\r\n\r\n",
+            "SHIORI/x.y 200 OK\r\n\r\n",
+            "SHIORI/2.6\r\n\r\n",
+            "SHIORI/2.6 \r\n\r\n",
+            "SHIORI/2.6 +200 OK\r\n\r\n",
+            "SHIORI/2.6 -1 OK\r\n\r\n",
+            "SHIORI/2.6 ２００ OK\r\n\r\n",
+            "SHIORI/2.6 99999999999 OK\r\n\r\n",
+            "SHIORI/1.0 200 OK\r\n\r\n",
+            "SHIORI/4.0 200 OK\r\n\r\n",
+            "X\r\nSHIORI/2.6 200 OK\r\n\r\n",
+        ] {
+            assert!(Response::parse(s).is_none(), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn parse_reads_shiori3_as_v3() {
+        for s in ["SHIORI/3.0 200 OK\r\n\r\n", "SHIORI/3.1 200 OK\r\n\r\n"] {
+            assert_eq!(Response::parse(s).unwrap().version, Version::V3, "{s:?}");
+        }
+    }
+
+    #[test]
+    fn parse_311_312_match_reexported_constants() {
+        let r =
+            Response::parse("SHIORI/2.4 311 Not Enough\r\nSentence: \\h\\s[0]x\r\n\r\n").unwrap();
+        assert_eq!(r.status, crate::SHIORI_311_NOT_ENOUGH);
+        assert_eq!(r.headers.get("Sentence"), Some("\\h\\s[0]x"));
+        let r = Response::parse("SHIORI/2.4 312 Advice\r\n\r\n").unwrap();
+        assert_eq!(r.status, crate::SHIORI_312_ADVICE);
+    }
+
+    #[test]
+    fn parse_version_agrees_with_version_of() {
+        let lf = KAWARI_VERSION.replace("\r\n", "\n");
+        let cases = [
+            KAWARI_VERSION,
+            &lf,
+            "SHIORI/2.6 200 OK\r\n\r\n",
+            "SHIORI/2.6 299 X\r\n\r\n",
+            "SHIORI/2.6 400 Bad Request\r\n\r\n",
+            "SHIORI/3.0 200 OK\r\n\r\n",
+            "SHIORI/3.1 200 OK\r\n\r\n",
+            "SHIORI/3.0 400 Bad Request\r\n\r\n",
+            "SHIORI/2.4 311 Not Enough\r\n\r\n",
+            "SHIORI/2.4 312 Advice\r\n\r\n",
+            "",
+            "HTTP/1.0 200 OK\r\n\r\n",
+            "SHIORI/1.0 200 OK\r\n\r\n",
+            "SHIORI/4.0 200 OK\r\n\r\n",
+        ];
+        for s in cases {
+            let parsed = Response::parse(s).map(|r| r.version);
+            assert!(parsed.is_none() || parsed == version_of(s), "{s:?}");
+            // 版が読めない例は読み分けも失敗する
+            if version_of(s).is_none() {
+                assert!(parsed.is_none(), "{s:?}");
+            }
+        }
+        // 例の集まりが両方の版を含み、読み分けが空振りしていない
+        let got: Vec<_> = cases
+            .iter()
+            .filter_map(|s| Response::parse(s).map(|r| r.version))
+            .collect();
+        assert_eq!(got.len(), 10);
+        assert!(got.contains(&Version::V2) && got.contains(&Version::V3));
     }
 }
