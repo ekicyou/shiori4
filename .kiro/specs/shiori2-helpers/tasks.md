@@ -72,7 +72,7 @@
   - 完了の状態: 2 つのファイルにそれぞれ 1 行・1 文が足され、版 2 の行の差分が無い
   - _Requirements: 8.5, 8.6_
 
-- [ ] 5. 全体を確かめる
+- [x] 5. 全体を確かめる
   - `cargo clippy --all-targets --workspace -- -D warnings` と `cargo test --all` を通す。`shiori2` と、そのテストに `cfg` が付いていないことを確かめる（x86 のターゲットでのテストは、変えない CI の job `test-i686` が走らせる）
   - 差分で、試験用のホスト（`shiori4_host/examples/`）・`shiori4` と `shiori4_abi` のクレート・芯のファイル（`v3.rs`・`legacy.rs`・`discover.rs`・`dist.rs`）に変更が無く、`lib.rs` の変更がタスク 1 と 4.1 の 3 か所だけで、芯が `shiori2` を `use` していないことを確かめる（`.kiro/` の下の spec の記録の差分は数えない）
   - 完了の状態: 2 つのコマンドが通り、上の差分の確かめに外れが無い
