@@ -109,6 +109,8 @@
 //! - 従来の DLL の口（x86 の Windows だけ）: `LegacyRuntime`（`LoadedGhost::Legacy` のライブラリを
 //!   `LegacyRuntime::from_library` で `loadu` か `load` で 1 回だけ初期化し、要求のバイト列を往復させる）。
 //!   ほかの環境では現れない
+//! - SHIORI/2.x の文字列の形: `shiori2`（要求の組み立て・応答の読み分け・開始行の版の見分け。
+//!   文字コードの変換・出来事の移し方・DLL の読み込みは持たない）
 //!
 //! ```
 //! use shiori4_host::{shiori_file_candidates, TargetArch, TargetOs};
@@ -173,12 +175,12 @@ pub use shiori4;
 pub use libloading;
 pub use shiori4::protocol;
 pub use shiori4::shiori4_abi::{
-    SHIORI_200_OK, SHIORI_204_NO_CONTENT, SHIORI_400_BAD_REQUEST, SHIORI_500_INTERNAL_SERVER_ERROR,
-    SHIORI_ABI_VERSION, SHIORI_E_INVALID_ARG, SHIORI_E_INVALID_UTF8, SHIORI_E_PANIC,
-    SHIORI_E_REENTRANT, SHIORI_E_SHUTDOWN, SHIORI_E_UNSUPPORTED, SHIORI_E_WRONG_THREAD,
-    SHIORI_LOG_DEBUG, SHIORI_LOG_ERROR, SHIORI_LOG_INFO, SHIORI_LOG_WARN, ShioriApi,
-    ShioriOwnedBytes, ShioriOwnedResponse, ShioriResponse, ShioriStatus, shiori_is_abi_error,
-    shiori_is_success,
+    SHIORI_200_OK, SHIORI_204_NO_CONTENT, SHIORI_311_NOT_ENOUGH, SHIORI_312_ADVICE,
+    SHIORI_400_BAD_REQUEST, SHIORI_500_INTERNAL_SERVER_ERROR, SHIORI_ABI_VERSION,
+    SHIORI_E_INVALID_ARG, SHIORI_E_INVALID_UTF8, SHIORI_E_PANIC, SHIORI_E_REENTRANT,
+    SHIORI_E_SHUTDOWN, SHIORI_E_UNSUPPORTED, SHIORI_E_WRONG_THREAD, SHIORI_LOG_DEBUG,
+    SHIORI_LOG_ERROR, SHIORI_LOG_INFO, SHIORI_LOG_WARN, ShioriApi, ShioriOwnedBytes,
+    ShioriOwnedResponse, ShioriResponse, ShioriStatus, shiori_is_abi_error, shiori_is_success,
 };
 use shiori4::shiori4_abi::{
     SHIORI_GET_API_SYMBOL, ShioriBytes, ShioriGetApiFn, ShioriHost, ShioriHostBox, ShioriInstance,
@@ -194,6 +196,7 @@ pub use dist::{TargetArch, TargetOs, machine_matches, shiori_file_candidates};
 mod legacy;
 #[cfg(all(windows, target_arch = "x86"))]
 pub use legacy::{LegacyRequestError, LegacyRuntime};
+pub mod shiori2;
 #[cfg(test)]
 mod test_dll;
 

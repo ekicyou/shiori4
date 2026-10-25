@@ -49,6 +49,7 @@ SHIORI/3.0 の SHIORI やホストを持つ作者に向けて、shiori4 へ移�
 - v3 互換モードは、Windows 以外のベースウェアを組みたい人のために、`HGLOBAL` に依存しない SHIORI/3.0 の口を用意したものである。従来の SHIORI/3.0 の DLL を置き換えるものではない（[roadmap.md](https://github.com/ekicyou/shiori4/blob/main/.kiro/steering/roadmap.md) の「v3 互換モードの位置づけ」。版 2 の「異なる OS の互換ベースウェア向け」）。
 - Windows のホストは、旧来の DLL を今までどおり読めばよい（roadmap.md の「v3 互換モードの位置づけ」）。
 - 旧来の DLL を読む口は、x86 の Windows でだけ `shiori4_host` の `LegacyRuntime` にある（入口は `load_ghost_with` → `LoadedGhost::Legacy` → `LegacyRuntime::from_library`）。ほかの環境では現れない。`load_ghost_with` は従来の口を見つけても呼ばず（前の節）、`LegacyRuntime::from_library` が `loadu` か `load` を 1 回だけ呼んで初期化し、`request` で要求のバイト列を往復させる。
+- SHIORI/2.x で話す DLL には、`shiori4_host::shiori2` を使う。要求の組み立て・応答の読み分け・開始行の版の見分けがあり、`LegacyRuntime::request` で往復させる文字列を作り、読む（文字コードの変換と DLL の読み込みはホストと `LegacyRuntime` が受け持つ）。
 - プロセスの起こし方・IPC・待ち時間・強制終了・カレントディレクトリ・本文の文字コードの方針は、`shiori4_host` が持たず、ホストに残る（[`shiori4_host/src/legacy.rs`](https://github.com/ekicyou/shiori4/blob/main/shiori4_host/src/legacy.rs) の冒頭の `//!`）。
 
 ## 0.0.2 以前の shiori4 から
