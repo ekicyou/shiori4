@@ -9,7 +9,7 @@ shiori4_abi   … C ABI（関数テーブル・ShioriBytes・版・規約）。�
    ↑
 shiori4       … SHIORI 側の高水準層（芯: Ghost, Adapter, v3 変換。便利関数: protocol（Headers, Properties, PendingTags, 語の定数と組み立て・読み分け））
    ↑
-shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, 読み込みの口 load_ghost, post キュー, pump）
+shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, 読み込みの口 load_ghost, post キュー, pump, 従来の SHIORI/3.0 の口 LegacyRuntime（x86 の Windows だけ））
 ```
 
 - ホストと SHIORI が共有する語（`ID: getproperty`, `Command: SEND`, `Tag`, `OnHostComplete` など）は `doc/host-protocol.md`（ホスト側プロトコル仕様）が定める。その定数と組み立て・読み分けは便利関数 `shiori4::protocol` に置き、ホスト側は `shiori4_host::protocol` として再エクスポートして使う
@@ -23,7 +23,7 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, �
 
 ## Key Libraries
 
-外部依存は最小に保つ。`shiori4_abi` と `shiori4` は依存ゼロ（std のみ）、`shiori4_host` も `libloading` だけ。
+外部依存は最小に保つ。`shiori4_abi` と `shiori4` は依存ゼロ（std のみ）、`shiori4_host` も `libloading` だけ（x86 の Windows の従来の口が使う `GlobalAlloc` などは kernel32 を直接宣言し、依存を足さない）。
 
 ## Development Standards
 
@@ -58,6 +58,7 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, �
 - ホスト側のテストは `GhostRuntime::from_static` でテスト用 `Ghost` を DLL なしに直結して、往復を検証する
 - 教科書（`doc/textbook/`）とルートの README の検査: 正本の写し（規約・配布の決まり・語の表・C の断片）の一致は `shiori4_abi/tests/textbook.rs`（`exclude` でパッケージから外す。`cargo package` の「含まれないテストを無視する」の警告 1 つは受け入れる）。Rust の例は `shiori4_host/src/lib.rs` の `#[cfg(doctest)]` の項目が `include_str!` で doctest に載せる。C の例のビルドと往復は CI の job `textbook`
 - DLL を通すテストは `shiori4_host/src/test_dll.rs` の `dll_path()` が作るテスト用 cdylib（`testdata/testghost/`）を読む。DLL の状態はプロセスに 1 つなので `lock()` を取ってから使う
+- 従来の口（`LegacyRuntime`）のテストは x86 の Windows でだけ走り、従来の SHIORI/3.0 の口を書き出すテスト用 cdylib（`testdata/legacyghost/`）を読む。i686 では `cargo test --all --target i686-pc-windows-msvc` で走らせ、DLL も `--target i686-pc-windows-msvc` で作る（例: `cargo build --manifest-path testdata/legacyghost/Cargo.toml --target-dir target/legacyghost --target i686-pc-windows-msvc`）
 
 ### 公開とバージョン
 - 版はルート `Cargo.toml` の **3 か所**だけに書く: `[workspace.package] version` と、`[workspace.dependencies]` の `shiori4_abi`・`shiori4` の `version`。3 つは常に同じ値にする（`0.0.x` の版要求は完全一致なので、直し忘れると依存解決で落ちる）
@@ -70,12 +71,13 @@ shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, �
 - 手元から公開しない（`cargo publish` を手で打たない）。例外は初回の手動公開と緊急時の手動公開だけで、手順は `.github/release-ci-setup.md` に従う
 
 ### CI
-`.github/workflows/build.yml` が `main` への push・PR・手動（`workflow_dispatch`）で走り、`workflow_call` で他のワークフローからも呼べる。ジョブは 5 種:
+`.github/workflows/build.yml` が `main` への push・PR・手動（`workflow_dispatch`）で走り、`workflow_call` で他のワークフローからも呼べる。ジョブは 6 種:
 - **test**: ubuntu / windows / macos で `cargo test --all` と `cargo clippy --all-targets --workspace -- -D warnings`
 - **deny**: `cargo deny check`（設定はルートの `deny.toml`。ライセンスの許可・勧告・取得元）
 - **package**: `cargo package --workspace` と中身の検査（`shiori4_abi` に C ヘッダが入るか、各クレートの `LICENSE` がルートと同じか）
 - **release-scripts**: リリースの補助スクリプトのテスト（`pwsh -NoProfile -File .github/scripts/release/release-scripts-test.ps1`）
 - **textbook**: ubuntu / windows / macos で、testghost・試験用のホスト（`shiori4_host/examples/shiori4-testhost.rs`）・`doc/textbook/c/` の C の例（Windows は MSVC で SHIORI の DLL を `/MT`、ほかは `cc`）をビルドし、終了の状態で往復を確かめる
+- **test-i686**（`test-i686-windows`）: windows で、i686（`i686-pc-windows-msvc`）の `cargo test --all`（doctest を含む）と clippy（`-D warnings`）、legacyghost 自身の test と clippy（自前の workspace なので manifest を指定）。testghost・legacyghost・試験用のホストを i686 でビルドし、従来の口の往復（`--entry legacy` を含む）を終了の状態で確かめる
 
 `.github/workflows/release.yml` はリリースタグ `v[0-9]+.[0-9]+.[0-9]+` の push だけで走る。job は次の 5 つで、上流が失敗すると後続は走らない（`report` だけは常に走る）:
 - **verify**: タグの形・タグと `[workspace.package] version` の一致・タグのコミットが main から到達できること・見どころ `doc/release-notes/vX.Y.Z.md` の有無

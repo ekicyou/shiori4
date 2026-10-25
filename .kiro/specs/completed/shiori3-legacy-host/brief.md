@@ -52,6 +52,7 @@ DLL に触る芯だけを shiori4_host に置く。プロセスの起こし方�
   - Win32 の文字コードの変換を使うのは、`load` に渡す dir（CP_ACP）だけになる。
 - **b. 応答の末尾の NUL**: 芯の口は長さのまま返す。文字列の層で、末尾の NUL を落とす。
 - **c. SHIORI/2.x の見分け**: この spec の外にする（areka の spec `shiori2-protocol` が持つ）。
+  - 2026-10-25 に改めた: SHIORI/2.x の文字列の形（組み立て・読み分け・版の見分けと切り替え）は、spec `shiori2-helpers` が便利関数として `shiori4_host::shiori2` に持つ。この spec の外であることは変わらない。
 - **d. load／loadu の戻り値（BOOL）**: 元の C ABI に準拠する。BOOL は 32bit の int で、0 以外を真と読む。
   - Rust の `bool` を返す DLL（直す前の pasta など）は、上位 24bit が不定なので誤読されうる。これは SHIORI の側の不具合で、SHIORI が直す（pasta は自分の spec で i32 に直す予定）。
   - areka と pasta が勧めた「下位 1 バイトで読む」守りは採らない。

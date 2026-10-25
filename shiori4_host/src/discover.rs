@@ -28,7 +28,8 @@ pub enum LoadedGhost<H: Host> {
     V4(GhostRuntime<H>),
     /// v3 互換モードで読んだ
     V3(V3Runtime),
-    /// 従来の口で解決した。entry は Loadu か Load。この spec では初期化しない（`loadu`・`load` は呼んでいない）
+    /// 従来の口で解決した。entry は Loadu か Load。`loadu`・`load` は呼んでいない。
+    /// x86 の Windows では `LegacyRuntime::from_library` で初期化する（ほかの環境ではこのクレートでは読めない）
     Legacy {
         entry: EntryKind,
         library: libloading::Library,
@@ -55,6 +56,10 @@ pub fn load_ghost<H: Host>(
 ///
 /// 機械の種類は確かめない（合わない DLL は `Library` になる）。ホストは [`crate::machine_matches`] で
 /// 確かめてから渡すこと。ライブラリを開くと DLL の初期化コードが動く。信頼できる DLL だけを渡すこと
+///
+/// x86 の Windows では、相対のライブラリのパスを `InvalidPath` で断る（開かない。OS の探索の順で別の DLL を
+/// 拾わないため）。開く間のエラーのダイアログは抑える。探索の場所は変えないので、SHIORI が頼る別の DLL は
+/// SHIORI の dir からは探されない（要るならホストが探索の場所を整えてから呼ぶ）
 pub fn load_ghost_with<H: Host>(
     lib_path: impl AsRef<OsStr>,
     ghost_dir: impl AsRef<Path>,
@@ -64,7 +69,10 @@ pub fn load_ghost_with<H: Host>(
     let dir = ghost_dir.as_ref();
     normalize_dir(dir)?;
     let allows = |k: EntryKind| allowed.contains(&k);
+    #[cfg(all(windows, target_arch = "x86"))]
+    let mut lib = crate::legacy::open_library(lib_path.as_ref())?;
     // SAFETY: ライブラリの初期化コードが実行される。信頼できる SHIORI だけを読み込むこと
+    #[cfg(not(all(windows, target_arch = "x86")))]
     let mut lib = unsafe { libloading::Library::new(lib_path) }.map_err(LoadError::Library)?;
 
     if allows(EntryKind::V4) {
@@ -227,15 +235,45 @@ mod tests {
 
     #[test]
     fn os_library_is_not_shiori4() {
+        // x86 の Windows の発見の口は相対のライブラリのパスを断るので、絶対パスで渡す
         #[cfg(windows)]
-        const OS_LIB: &str = "kernel32.dll";
+        let os_lib = std::path::PathBuf::from(std::env::var_os("SystemRoot").expect("SystemRoot"))
+            .join(r"System32\kernel32.dll");
         #[cfg(target_os = "macos")]
-        const OS_LIB: &str = "/usr/lib/libSystem.B.dylib";
+        let os_lib = "/usr/lib/libSystem.B.dylib";
         #[cfg(all(unix, not(target_os = "macos")))]
-        const OS_LIB: &str = "libc.so.6";
+        let os_lib = "libc.so.6";
         assert!(matches!(
-            load_ghost(OS_LIB, GHOST_DIR, NoHost),
+            load_ghost(os_lib, GHOST_DIR, NoHost),
             Err(LoadError::NotShiori4)
+        ));
+    }
+
+    #[cfg(all(windows, target_arch = "x86"))]
+    #[test]
+    fn relative_library_path_is_invalid_path() {
+        for rel in [
+            "legacyghost.dll",
+            "kernel32.dll",
+            r"\Windows\System32\kernel32.dll",
+            "C:kernel32.dll",
+        ] {
+            assert!(
+                matches!(
+                    load_ghost(rel, GHOST_DIR, NoHost),
+                    Err(LoadError::InvalidPath)
+                ),
+                "{rel}"
+            );
+        }
+    }
+
+    #[cfg(all(windows, target_arch = "x86"))]
+    #[test]
+    fn missing_absolute_library_is_library() {
+        assert!(matches!(
+            load_ghost(r"C:\no-such-dir\no-such-library.dll", GHOST_DIR, NoHost),
+            Err(LoadError::Library(_))
         ));
     }
 

@@ -179,7 +179,8 @@ match load_ghost_with(&path, &dir, MyHost, &[EntryKind::V4, EntryKind::V3])? {
         let res = rt.request("GET SHIORI/3.0\r\nID: OnBoot\r\n\r\n").map_err(|s| format!("ABI error: {s}"))?;
         # drop(res);
     }
-    LoadedGhost::Legacy { entry, .. } => println!("従来の口 {entry:?} はこのクレートでは読まない"),
+    // x86 の Windows では LegacyRuntime::from_library で読める（この例では許可していない）
+    LoadedGhost::Legacy { entry, .. } => println!("従来の口 {entry:?} は許可していない"),
 }
 # Ok(())
 # }
@@ -211,4 +212,4 @@ Rust の cdylib は、既定でパッケージ名（`-` は `_` になる）か�
 
 この手順は、SHIORI/3.0 と v4 の両方のファイルに使える（配布の決まり 5）。選んだファイルが v4・v3 互換モード・旧来の SHIORI/3.0 のどの口で読まれるかは、選んだ後に DLL の口と発見の順で決まる（DLL の口と発見の順 2）。1 つの DLL が、SHIORI/3.0 の書き出しと `shiori_get_api` の両方を持ってもよい（DLL の口と発見の順 1）。
 
-旧来の DLL を読む口は `shiori4_host` にまだ無い。従来の口（`loadu`・`load`）で解決したときは、開いたライブラリを `LoadedGhost::Legacy` で返すだけで、`loadu`・`load` を呼ばない。SHIORI/3.0 と v4 の違いは[移行の手引き](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/migration.md)にある。
+旧来の DLL を読む口は、x86 の Windows でだけ `shiori4_host` の `LegacyRuntime` にある（入口は `load_ghost_with` → `LoadedGhost::Legacy` → `LegacyRuntime::from_library`）。ほかの環境では現れない。従来の口（`loadu`・`load`）で解決したときは、`load_ghost_with` は開いたライブラリを `LoadedGhost::Legacy` で返すだけで `loadu`・`load` を呼ばず、x86 の Windows では `LegacyRuntime::from_library` がその口で初期化する。SHIORI/3.0 と v4 の違いは[移行の手引き](https://github.com/ekicyou/shiori4/blob/main/doc/textbook/migration.md)にある。

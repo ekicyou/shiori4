@@ -14,7 +14,7 @@ SHIORI（v4）を読み込んで動かすホストを作るためのクレート
 
 `Host` trait を実装し（`name` は必須です。`request` は原文を受け、既定ではどの要求にも 400 を返します。getproperty には `protocol::getproperty_response` で答えます）、`GhostRuntime::load` で SHIORI を読み込みます（ゴーストのディレクトリは絶対パスで渡します）。`Host::wake` が呼ばれたら、イベントループから `GhostRuntime::pump` を呼びます。
 
-v4 と v3 互換モードの DLL を同じ手順で読みたいときは `load_ghost` を、v3 互換モードの DLL だけを読むときは `V3Runtime` を使います。
+v4 と v3 互換モードの DLL を同じ手順で読みたいときは `load_ghost` を、v3 互換モードの DLL だけを読むときは `V3Runtime` を使います。x86 の Windows では、従来の SHIORI/3.0 の DLL（`load`・`loadu`・`request`・`unload`）も `load_ghost_with` で見つけ、`LegacyRuntime` で読めます（ライブラリのパスも絶対パスで渡します）。
 
 ## 他の 2 クレートとの関係
 

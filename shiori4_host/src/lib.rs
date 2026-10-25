@@ -106,6 +106,9 @@
 //! - 読み終えたライブラリからの入口: `GhostRuntime::from_library`。`NotShiori4`・`Unsupported`・`InvalidPath`
 //!   では `FromLibraryError` がライブラリを返すので、別の版で読み直せる
 //! - v3 互換モードの口: `V3Runtime`（SHIORI/3.0 の全文を文字列で渡し、応答の全文を受け取る。post は無い）
+//! - 従来の DLL の口（x86 の Windows だけ）: `LegacyRuntime`（`LoadedGhost::Legacy` のライブラリを
+//!   `LegacyRuntime::from_library` で `loadu` か `load` で 1 回だけ初期化し、要求のバイト列を往復させる）。
+//!   ほかの環境では現れない
 //!
 //! ```
 //! use shiori4_host::{shiori_file_candidates, TargetArch, TargetOs};
@@ -138,7 +141,8 @@
 //!         let res = rt.request("GET SHIORI/3.0\r\nID: OnBoot\r\n\r\n").map_err(|s| format!("ABI error: {s}"))?;
 //!         # drop(res);
 //!     }
-//!     LoadedGhost::Legacy { entry, .. } => println!("従来の口 {entry:?} はこのクレートでは読まない"),
+//!     // x86 の Windows では LegacyRuntime::from_library で読める（この例では許可していない）
+//!     LoadedGhost::Legacy { entry, .. } => println!("従来の口 {entry:?} は許可していない"),
 //! }
 //! # Ok(())
 //! # }
@@ -186,6 +190,10 @@ mod discover;
 pub use discover::{EntryKind, LoadedGhost, load_ghost, load_ghost_with};
 mod dist;
 pub use dist::{TargetArch, TargetOs, machine_matches, shiori_file_candidates};
+#[cfg(all(windows, target_arch = "x86"))]
+mod legacy;
+#[cfg(all(windows, target_arch = "x86"))]
+pub use legacy::{LegacyRequestError, LegacyRuntime};
 #[cfg(test)]
 mod test_dll;
 
@@ -1023,7 +1031,8 @@ pub enum LoadError {
     NotShiori4,
     /// 要求した版に対応していない
     Unsupported(ShioriStatus),
-    /// ゴーストディレクトリが絶対パスでない、または UTF-8 で表せない
+    /// dir かライブラリのパスが絶対パスでない、または dir が UTF-8 で表せない。
+    /// ライブラリのパスを検査するのは x86 の Windows の発見の口（[`load_ghost_with`]）だけ
     InvalidPath,
     /// SHIORI の load が失敗した
     LoadFailed,
@@ -1035,6 +1044,11 @@ impl fmt::Display for LoadError {
             Self::Library(e) => write!(f, "failed to open SHIORI library: {e}"),
             Self::NotShiori4 => f.write_str("no allowed SHIORI entry point found"),
             Self::Unsupported(s) => write!(f, "unsupported SHIORI ABI version (status {s})"),
+            #[cfg(all(windows, target_arch = "x86"))]
+            Self::InvalidPath => f.write_str(
+                "ghost directory or library path is not an absolute path, or the directory is not valid UTF-8",
+            ),
+            #[cfg(not(all(windows, target_arch = "x86")))]
             Self::InvalidPath => {
                 f.write_str("ghost directory is not an absolute path or not valid UTF-8")
             }
@@ -2224,6 +2238,22 @@ mod tests {
     #[test]
     fn invalid_path_display_mentions_absolute() {
         assert!(LoadError::InvalidPath.to_string().contains("absolute"));
+    }
+
+    #[test]
+    fn invalid_path_display_by_target() {
+        let s = LoadError::InvalidPath.to_string();
+        if cfg!(all(windows, target_arch = "x86")) {
+            assert_eq!(
+                s,
+                "ghost directory or library path is not an absolute path, or the directory is not valid UTF-8"
+            );
+        } else {
+            assert_eq!(
+                s,
+                "ghost directory is not an absolute path or not valid UTF-8"
+            );
+        }
     }
 
     #[test]

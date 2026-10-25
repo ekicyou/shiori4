@@ -1,0 +1,12 @@
+# shiori4_host のテストが従来の口（loadu・load・request・unload）を読むためのテスト用 cdylib（公開しない）
+# 外部の crate に依存しない。自前の [workspace] でルートのワークスペースの外に置く。Windows でだけビルドする
+[package]
+name = "legacyghost"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[workspace]
