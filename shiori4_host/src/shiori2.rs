@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn request_rejects_broken_or_empty_words() {
-        for bad in ["", "a b", "a\rb", "a\nb", " ", "\r", "\n"] {
+        for bad in ["", "a b", "a\tb", "a\rb", "a\nb", " ", "\r", "\n"] {
             assert_eq!(
                 request(bad, Some("Sentence"), "2.2", &[]),
                 None,
@@ -676,6 +676,12 @@ mod tests {
         let b = Response::parse(&lf).unwrap();
         assert_eq!((a.version, a.status), (b.version, b.status));
         assert_eq!(headers_of(&a), headers_of(&b));
+    }
+
+    #[test]
+    fn parse_reads_header_names_ignoring_case() {
+        let r = Response::parse("SHIORI/2.2 200 OK\r\nsentence: \\h\\s[0]x\\e\r\n\r\n").unwrap();
+        assert_eq!(r.sentence(), Some("\\h\\s[0]x\\e"));
     }
 
     #[test]
