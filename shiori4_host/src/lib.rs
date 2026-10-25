@@ -106,6 +106,9 @@
 //! - 読み終えたライブラリからの入口: `GhostRuntime::from_library`。`NotShiori4`・`Unsupported`・`InvalidPath`
 //!   では `FromLibraryError` がライブラリを返すので、別の版で読み直せる
 //! - v3 互換モードの口: `V3Runtime`（SHIORI/3.0 の全文を文字列で渡し、応答の全文を受け取る。post は無い）
+//! - 従来の DLL の口（x86 の Windows だけ）: `LegacyRuntime`（`LoadedGhost::Legacy` のライブラリを
+//!   `LegacyRuntime::from_library` で `loadu` か `load` で 1 回だけ初期化し、要求のバイト列を往復させる）。
+//!   ほかの環境では現れない
 //!
 //! ```
 //! use shiori4_host::{shiori_file_candidates, TargetArch, TargetOs};
@@ -138,7 +141,8 @@
 //!         let res = rt.request("GET SHIORI/3.0\r\nID: OnBoot\r\n\r\n").map_err(|s| format!("ABI error: {s}"))?;
 //!         # drop(res);
 //!     }
-//!     LoadedGhost::Legacy { entry, .. } => println!("従来の口 {entry:?} はこのクレートでは読まない"),
+//!     // x86 の Windows では LegacyRuntime::from_library で読める（この例では許可していない）
+//!     LoadedGhost::Legacy { entry, .. } => println!("従来の口 {entry:?} は許可していない"),
 //! }
 //! # Ok(())
 //! # }

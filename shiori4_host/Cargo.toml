@@ -14,6 +14,10 @@ keywords.workspace = true
 shiori4.workspace = true
 libloading = "0.8"
 
+# docs.rs: 最初が既定の頁。従来の DLL の口（x86 の Windows だけ）を i686 の頁に出す
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "i686-pc-windows-msvc"]
+
 # 試験用のホスト。引数の解析の検査を cargo test で走らせる
 [[example]]
 name = "shiori4-testhost"

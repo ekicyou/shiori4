@@ -28,7 +28,8 @@ pub enum LoadedGhost<H: Host> {
     V4(GhostRuntime<H>),
     /// v3 互換モードで読んだ
     V3(V3Runtime),
-    /// 従来の口で解決した。entry は Loadu か Load。この spec では初期化しない（`loadu`・`load` は呼んでいない）
+    /// 従来の口で解決した。entry は Loadu か Load。`loadu`・`load` は呼んでいない。
+    /// x86 の Windows では `LegacyRuntime::from_library` で初期化する（ほかの環境ではこのクレートでは読めない）
     Legacy {
         entry: EntryKind,
         library: libloading::Library,
@@ -55,6 +56,9 @@ pub fn load_ghost<H: Host>(
 ///
 /// 機械の種類は確かめない（合わない DLL は `Library` になる）。ホストは [`crate::machine_matches`] で
 /// 確かめてから渡すこと。ライブラリを開くと DLL の初期化コードが動く。信頼できる DLL だけを渡すこと
+///
+/// x86 の Windows では、相対のライブラリのパスを `InvalidPath` で断る（開かない。OS の探索の順で別の DLL を
+/// 拾わないため）。開く間のエラーのダイアログは抑える
 pub fn load_ghost_with<H: Host>(
     lib_path: impl AsRef<OsStr>,
     ghost_dir: impl AsRef<Path>,

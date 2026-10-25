@@ -85,7 +85,7 @@
   - _Requirements: 9.1, 9.2, 9.3, 10.6, 11.7, 12.4_
 
 - [ ] 7. 文書
-- [ ] 7.1 (P) コードの doc と docs.rs の設定を直す
+- [x] 7.1 (P) コードの doc と docs.rs の設定を直す
   - モジュールの `//!` に、x86 の Windows でだけあること・ほかの環境では現れないこと・入口（発見の口 → `Legacy` → 初期化）・ホストに残すもの・`load` の dir が CP_ACP である理由を書き、例は `no_run` で i686 の doctest でビルドされる形にする（型の doc は 3.3 のまま）
   - crate doc の「DLL の選び方と読み方」に従来の DLL の口の項目を足し、例の `Legacy` の枝の文を x86 の Windows では読めることに合わせる。全環境でビルドされる所に x86 だけの型への intra-doc link を書かない
   - `LoadedGhost::Legacy` と発見の口の doc を、x86 の Windows の初期化と開き方（相対のパスは `InvalidPath`）に合わせる（`InvalidPath` 自体の doc はタスク 4 で済んでいる）
