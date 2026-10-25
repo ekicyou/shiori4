@@ -120,3 +120,130 @@
   - areka の helper（`shiori_proxy.rs`）の今の作法: load の失敗のときに unload を呼ぶか・スレッドの使い方・CP_ACP の知らせ方（Q3・Q4・Q6）。
   - `dtolnay/rust-toolchain` で i686 の toolchain をホストとして入れる書き方と、`Swatinem/rust-cache` の鍵の分け方。
   - docs.rs で i686 の Windows の頁を出す設定（Q18）。
+
+---
+
+# 設計フェーズの調査と決定（2026-10-25）
+
+ギャップ分析（上）の「6. Recommendations for Design Phase」と、要件ディスカッションで設計に回した事項を調べて決めた記録。発見の種類は **Extension**（light discovery）。使ったスキルは kiro-spec-design（規則 design-principles・design-discovery-light・design-synthesis・design-review-gate）と kiro-validate-design（design-review）だけで、ほかの分野のスキルは当てはまらない（UI・アクセシビリティの面が無い）。
+
+## Summary（設計フェーズ）
+- **Discovery Scope**: Extension。継ぎ目（発見の口・`LoadedGhost::Legacy`・`normalize_dir`）は上流で揃っている。新しいのは x86 の Windows だけの FFI と HGLOBAL の受け渡し、テスト用の DLL、i686 の CI。
+- **Key Findings**:
+  - `libloading::Error` は外から作れない（`WindowsError` のフィールドが `pub(crate)`）。自前の `LoadLibraryW` が失敗したとき、`LoadError` に値を足さずに `LoadError::Library` を返すには、libloading にもう一度開かせてエラーを得るしかない。
+  - `WideCharToMultiByte(CP_ACP, 0, ..)` は best-fit で黙って似た文字に写す（手元の CP932 で `é` → `e`、`lpUsedDefaultChar` は 0）。`WC_NO_BEST_FIT_CHARS` を付けると `?` に置き換え、`lpUsedDefaultChar` が 1 になる。ACP が 65001（UTF-8）のプロセスではこの旗と `lpUsedDefaultChar` が使えない（`ERROR_INVALID_PARAMETER`）ので、分岐が要る。
+  - cargo 1.99 は `--target i686-pc-windows-msvc` でも doctest を走らせる（手元で 22 件が通った）。x86 だけの例は i686 の CI の `cargo test` で検査される。
+
+## Research Log（設計フェーズ）
+
+### `libloading` のエラーの型と `from_raw`
+- **Context**: 要件 7.1（ダイアログを両方止める）と 12.1（`LoadError` を変えない）を両立できるか。
+- **Sources Consulted**: `libloading-0.8.9/src/error.rs`・`src/os/windows/mod.rs`・`src/safe.rs`。0.9.0 も同じ所を確かめた。
+- **Findings**:
+  - `pub struct WindowsError(pub(crate) std::io::Error)`（0.9.0 は `pub(crate) i32`）。`Error::LoadLibraryExW { source: WindowsError }` は外から作れない。`From` の実装も無い。
+  - `ErrorModeGuard::new()` は `SetThreadErrorMode(SEM_FAILCRITICALERRORS, &prev)` で置き換え、Drop で `prev` に戻す（0.9.0 も同じ）。外で両方の旗を立てても、`LoadLibraryExW` の間は `SEM_FAILCRITICALERRORS` だけになる。
+  - `os::windows::Library::from_raw(handle: isize)` は公開。`impl From<os::windows::Library> for Library` がある。
+  - MS の文書では `SEM_NOOPENFILEERRORBOX` は `OpenFile` 関数のダイアログを止める旗で、`LoadLibrary` が出す窓（正しくないイメージ・依存の DLL が無い）は `SEM_FAILCRITICALERRORS` が止める。
+- **Implications**: 自前で `SetThreadErrorMode(両方)` → `LoadLibraryW` → 戻す → `from_raw` で包む。失敗したときだけ、同じ旗の中で `libloading::Library::new` にもう一度開かせ、そのエラーを `LoadError::Library` にする（設計の `open_library`）。代わりに「libloading を両方の旗で包むだけ」でも窓の実害は同じだが、要件 7.1 の字面（開く間に両方を止める）から外れる（設計の Open Question 3）。
+
+### `GlobalAlloc(GMEM_FIXED, 0)`
+- **Context**: 空の要求（0 バイト）を渡すとき、確保が NULL を返して失敗と取り違えないか。
+- **Sources Consulted**: MS の `GlobalAlloc` の文書（0 バイトについては `GMEM_MOVEABLE` のときの「破棄済みのハンドル」しか書いていない）。手元の Windows 11 で PowerShell から P/Invoke して確かめた。
+- **Findings**: `GlobalAlloc(0, 0)` は NULL でないポインタを返し、`GlobalSize` は 1。`GMEM_FIXED` で 0 バイトのときの振る舞いは文書に保証が無い。
+- **Implications**: 確保の大きさは `max(len, 1)` にし、長さの引数には本当の長さ（0）を渡す。文書に頼らずに済み、実際の振る舞い（1 バイト）とも同じになる。dir は正規化で必ず 1 バイト以上あるので、0 になり得るのは要求だけ。
+
+### `WideCharToMultiByte` と best-fit
+- **Context**: 要件 3.3・3.4（CP_ACP のバイト列・表せない文字を知らせる）。
+- **Sources Consulted**: MS の `WideCharToMultiByte` の文書。手元（ACP 932）で P/Invoke して確かめた。
+- **Findings**（`cchWideChar` に長さを渡し NUL を出さない形で）:
+
+  | 入力 | 旗 | 出力 | `lpUsedDefaultChar` |
+  |------|----|------|---------------------|
+  | `C:\é\` | 0 | `43 3A 5C 65 5C`（`e` に写る） | 0 |
+  | `C:\é\` | `WC_NO_BEST_FIT_CHARS` | `43 3A 5C 3F 5C`（`?`） | 1 |
+  | `C:\☃\` | 同 | `?` | 1 |
+  | `C:\😀\`（サロゲート対） | 同 | `??` | 1 |
+  | `C:\①\` | 同 | `87 40`（CP932 にある） | 0 |
+
+  - 文書: CP_UTF8（65001）では `dwFlags` は 0 か `WC_ERR_INVALID_CHARS` だけで、`lpDefaultChar`・`lpUsedDefaultChar` は NULL でなければならない。ACP は、システムの「ベータ: ワールドワイド言語サポートで Unicode UTF-8 を使用」か、ホストの exe のマニフェストの `activeCodePage` が UTF-8 のとき 65001 になる。
+- **Implications**: `GetACP() == 65001` なら正規化した dir の UTF-8 をそのまま渡す（表せない文字は無い）。それ以外は `WC_NO_BEST_FIT_CHARS` と `lpUsedDefaultChar` で変換と検出を 1 度に行う。best-fit を許すと、別の（在るかもしれない）ディレクトリの名前に黙って写るので許さない。
+
+### areka の helper（`shiori_proxy.rs`）の今の作法
+- **Context**: ギャップ分析の持ち越し（Q3・Q4・Q6）。areka が乗り換えるときの差。
+- **Sources Consulted**: `areka/crates/shiori-host32-helper/src/shiori_proxy.rs`（手元の写し）。
+- **Findings**:
+  - `LoadLibraryW` を `SetThreadErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX)` で包む（`load_library_quiet`）。依存は `windows` crate。
+  - `loadu` → `load` の順に引き、続けて `unload`・`request` を必須で引く。確立の途中の失敗は `unload` を呼ばずに `FreeLibrary`（議題 3 と同じ）。BOOL は 0 以外を成功（`unload` の戻りは `u8` と宣言し、捨てる）。
+  - `load` の dir は `WideCharToMultiByte(CP_ACP, 0, ..)`（best-fit を許す）で変換し、`MultiByteToWideChar` で戻して元と比べて表せない字を見つける。見つけたら `eprintln!` で警告を 1 行出す。
+  - 初期化の結果の型は helper の自前の `ProxyError`。
+- **Implications**: 振る舞いの芯（選び方・必須の書き出し・失敗のときの後始末・BOOL）は同じ。違うのは (1) best-fit を許すか（この設計は許さない）、(2) 知らせ方（helper は stderr。ライブラリの shiori4_host は stderr に書かず、ホストが読める値で返す）。乗り換えた helper は、返った値を見て自分で 1 行を出せばよい。
+
+### i686 の doctest
+- **Context**: 要件 11.7（x86 だけの例をどこで検査するか）。
+- **Sources Consulted**: 手元で `cargo test -p shiori4_host --doc --target i686-pc-windows-msvc`（cargo 1.99.1）。
+- **Findings**: 22 件の doctest がビルドされ、走って通った（cross の doctest が既定で走る）。
+- **Implications**: `legacy.rs` の doc の例は、i686 の CI の `cargo test --all --target i686-pc-windows-msvc` でビルド（`no_run`）と検査がされる。ほかの環境ではモジュールごと無いので検査されない。crate doc の例は全環境でビルドされるので、x86 だけの型を書かない。
+
+### CI と docs.rs
+- **Context**: 要件 9・11.8。
+- **Sources Consulted**: `dtolnay/rust-toolchain` の入力（`targets`・`components`）、`Swatinem/rust-cache`（既定で job の id を鍵に含む）、docs.rs の `[package.metadata.docs.rs]`（`targets` を書くと、その中だけを作る。`default-target` が無ければ最初の要素が既定）。
+- **Findings**: x64 の runner に x64 の toolchain と `i686-pc-windows-msvc` の target を入れて `--target` で作るのが、手元の開発（x64 の toolchain）と同じ形になる。i686 の toolchain をホストとして入れる道は、rustup の「ホストでない toolchain」の扱いに左右される。rust-cache は job ごとに鍵が分かれるので `key` は要らない。
+- **Implications**: CI は `--target i686-pc-windows-msvc` で回す。そのために `test_dll::dll_path()` が x86 のテストでは testghost を同じ target で作る（設計の Open Question 4）。docs.rs は `targets = ["x86_64-unknown-linux-gnu", "i686-pc-windows-msvc"]`。
+
+## Architecture Pattern Evaluation（設計フェーズ）
+| Option | Description | Strengths | Risks / Limitations | Notes |
+|--------|-------------|-----------|---------------------|-------|
+| B: `legacy.rs`（x86 の Windows だけの mod） | FFI・HGLOBAL・dir の変換・実行時の値・開く口を 1 ファイルに置く。discover.rs は x86 の Windows でだけ開く所を差し替える | cfg が 1 ファイルと 1 か所の呼び出しに閉じる。v3.rs と同じ並び。依存を足さない | discover.rs に cfg の枝が 1 つ残る | 採用（ギャップ分析の推す道） |
+| A: discover.rs を伸ばす | 発見の口のファイルに FFI を足す | ファイルが増えない | 発見の順だけの役割に unsafe の FFI が混ざる（structure.md に反する） | 不採用 |
+| `windows-sys` を足す | 宣言を crate から取る | 宣言の誤りが減る | tech.md の「`libloading` だけ」が崩れる。依存の木の管理が増える。使う関数は 6 つだけ | 不採用。kernel32 を直接宣言する（lib.rs の doc の例に前例） |
+
+## Design Decisions（設計フェーズ）
+
+### Decision: 初期化の入口の形
+- **Context**: 要件 2.1・6.2・12.1（議題 1）。
+- **Alternatives Considered**: (1) `LoadedGhost<H>` を丸ごと受ける、(2) `entry`・`library`・dir を受ける、(3) パスから読む入口も足す。
+- **Selected Approach**: (2) `LegacyRuntime::from_library(entry, library, ghost_dir)`。`entry` が `Loadu`・`Load` でなければ `NotShiori4`。
+- **Rationale**: `LoadedGhost::Legacy` は dir を持たないので dir はもう一度要る。`LoadedGhost<H>` は `H` を持つ型で、従来の口には `Host` が要らない（host-protocol の Adjacent）。ライブラリを値で受けるので 2 回初期化する手段が型で消える。(3) は議題 1 で退けた。
+- **Trade-offs**: 利用者が自分で `Library::new` したライブラリも渡せる（そのときダイアログの抑止と絶対パスの検査は効かない）。doc に書く。
+
+### Decision: 要求の失敗の型
+- **Context**: 要件 4.3・4.4・4.6・5.3・10.4。
+- **Alternatives Considered**: (1) `ShioriStatus` の ABI のエラーの値を使い回す、(2) 新しい値を `SHIORI_E_*` に足す、(3) 専用の列挙を足す。
+- **Selected Approach**: (3) `LegacyRequestError { AllocFailed, NullResponse, NegativeLength(i32), InvalidUtf8 }`。
+- **Rationale**: NULL の応答・負の長さに合う `SHIORI_E_*` は無い。足すと ABI の規約（shiori4_abi と C ヘッダ）が変わり、この spec の外になる。要件 10.4 も「`abi error:` の代わりの行」を求めている。
+- **Trade-offs**: `V3Runtime::request` と型が揃わない（従来の DLL は ABI のエラーを返さないので、揃える意味が薄い）。
+
+### Decision: CP_ACP で表せない文字の知らせ方
+- **Context**: 要件 3.4（決定 2）。
+- **Alternatives Considered**: (1) `log` crate、(2) コールバックを入口の引数にする、(3) `eprintln!`、(4) 実行時の値に旗を持たせて読ませる。
+- **Selected Approach**: (4) `LegacyRuntime::dir_lossy() -> bool`。
+- **Rationale**: 依存を足さない（tech.md）。ライブラリが勝手に stderr に書かない。ホストが自分の log に 1 行で流せる。
+- **Trade-offs**: `load` が失敗したときは値が返らないので旗も読めない（その失敗が表せない文字のせいかは、ホストが dir を見て判断する）。
+
+### Decision: テスト用の DLL
+- **Context**: 要件 8.1〜8.4。
+- **Selected Approach**: 依存なしの cdylib `testdata/legacyghost/` を新しく作る（`loadu`・`load`・`request`・`unload` と、テストのための書き出し）。testghost は変えず、「`unload`・`request` が無い DLL」の試験にそのまま使う（ダミーの `loadu`・`load` だけを持つ）。「`loadu` が無い DLL」は、発見の口の「許可しない口は無いものとして扱う」で `EntryKind::Load` だけを許可して作る。
+- **Rationale**: `shiori_get_api` を持たないので、既定の発見の順で `Legacy` に解決する（試験用のホストの CI に素直）。1 本で済み、cargo の feature で作り分けない。
+
+### Decision: i686 のテストの DLL の作り方
+- **Selected Approach**: `test_dll` が、x86 の Windows のテストでは `--target i686-pc-windows-msvc` を付けて testghost・legacyghost を作り、`target/<名前>/i686-pc-windows-msvc/debug/` から読む。ほかの環境は今のまま。
+- **Rationale**: 手元の x64 の toolchain から `cargo test --target i686-pc-windows-msvc` で試せる。CI も同じ形で、toolchain の入れ方に頼らない。
+
+## Synthesis（設計フェーズ）
+- **Generalization**: `load`・`loadu`・`request` の入力はどれも「GMEM_FIXED にちょうど len バイトを書き、所有を DLL に渡す」同じ操作なので、1 つの内部の関数（`global_alloc_copy`）にまとめる。応答の受け取り（NULL・負の長さ・写す・解放）も 1 か所。`loadu` と `load` の違いは dir のバイト列だけ（UTF-8 か CP_ACP か）なので、呼ぶ関数の型は 1 つ（`LoadFn`）にする。
+- **Build vs. Adopt**: 動的読み込みは libloading を使い続ける（`from_raw` で包むだけ）。Win32 の宣言は `windows-sys`・`windows` を採らず kernel32 を直接宣言する（6 関数・tech.md）。ANSI の変換器は抱えず `WideCharToMultiByte` に任せる（要件 1.4）。
+- **Simplification**: 毒（poisoned）の状態は持たない（従来の DLL はパニックを ABI のエラーで知らせない。クラッシュはプロセスごと落ちる）。確保と解放の数は公開しない（`#[cfg(test)]` だけ）。`LegacyRuntime` に `entry()` の読み出しは足さない（呼び出し側が `LoadedGhost::Legacy` で既に知っている）。CI の新しい job は 1 つにまとめ（test・clippy・往復）、C の例の x86 のビルドは足さない（要件に無い）。
+
+## Risks & Mitigations（設計フェーズ）
+- 失敗した DLL をもう一度開くと、`DllMain` が失敗の原因なら初期化のコードが 2 回動く — 失敗のときだけで、成功の道には無い。doc に書く。Open Question 3 で代わりの道を議論する。
+- `LoadLibraryW` は絶対パスでも、依存の DLL を DLL のディレクトリからは探さない（アプリのディレクトリと標準の順）— 今の libloading（フラグ 0）と同じ振る舞いで、この spec では変えない（`SetDllDirectory` も使わない。決定 6）。doc に書く。
+- x86 の Windows で相対のライブラリのパスが `InvalidPath` になる — 既存の x86 の利用者の振る舞いが変わる（議題 8 で受け入れた）。discover.rs の既存のテスト `os_library_is_not_shiori4`（`kernel32.dll` を相対で渡す）を絶対パスに直す。
+- i686 の CI を手元で確かめきれない — 手元にも i686 の target があり、`cargo test --target i686-pc-windows-msvc` で同じものを走らせられる。CI を変える PR なので見届けてから統合する（workflow.md・要件 9.4）。
+
+## References（設計フェーズ）
+- [GlobalAlloc](https://learn.microsoft.com/windows/win32/api/winbase/nf-winbase-globalalloc) — GMEM_FIXED とハンドル＝ポインタ
+- [WideCharToMultiByte](https://learn.microsoft.com/windows/win32/api/stringapiset/nf-stringapiset-widechartomultibyte) — `WC_NO_BEST_FIT_CHARS`・`lpUsedDefaultChar`・CP_UTF8 の制約
+- [SetThreadErrorMode](https://learn.microsoft.com/windows/win32/api/errhandlingapi/nf-errhandlingapi-setthreaderrormode) — `SEM_FAILCRITICALERRORS`・`SEM_NOOPENFILEERRORBOX`
+- [Use the Windows UTF-8 code page](https://learn.microsoft.com/windows/apps/design/globalizing/use-utf8-code-page) — マニフェストの `activeCodePage` で ACP が 65001 になる
+- ukadoc「DLL 共通仕様」（spec_dll）— HGLOBAL の持ち主・`__cdecl`・`loadu`
+- docs.rs の [Metadata](https://docs.rs/about/metadata) — `targets`・`default-target`
