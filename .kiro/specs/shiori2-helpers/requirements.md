@@ -114,7 +114,7 @@
    | 状態の問い合わせ（`GET Status`） | `Status`（値は分けずに原文のまま） |
    | 版の問い合わせ（`GET Version`） | `ID`・`Craftman`・`Version`（どれも無くてよい） |
 2. If 応答に決まったヘッダが無い, the shiori2 shall 値が無いことを返す（失敗にしない）。
-3. If 決まったヘッダが無く `Value` ヘッダがある, the shiori2 shall `Value` の値を代わりに返す。決まったヘッダと `Value` の両方があるときは、決まったヘッダを返す（SHIORI/3.0 の書き方で答える SHIORI/2.x の SHIORI を取りこぼさない。議題 4）。
+3. If 決まったヘッダが無く `Value` ヘッダがある, the shiori2 shall `Value` の値を代わりに返す。決まったヘッダと `Value` の両方があるときは、決まったヘッダを返す（SHIORI/3.0 の書き方で答える SHIORI/2.x の SHIORI を取りこぼさない。議題 4）。`GET Version` の `ID`・`Craftman` には `Value` を当てない（`Value` 1 つを名前・作者・版として取り違えないため。設計議題 2）。
 4. The shiori2 shall 決まったヘッダを、ステータスが 200 のときだけでなく、渡された応答のステータスによらず取り出せるようにする（311・312 の応答もスクリプトを持つため。どのステータスで使うかはホストが決める）。
 5. The shiori2 shall 決まったヘッダの値を、取り出したまま（文字コードの変換・エスケープの解釈をせずに）返す。
 

@@ -165,7 +165,7 @@ sequenceDiagram
 | 4.7 | 311・312 を見分けられる | Response・LibWiring | `status` と再エクスポートした定数 | — |
 | 5.1 | 決まったヘッダの取り出し | Response | `sentence`・`word`・`string`・`status_header`・`id`・`craftman`・`version_header` | — |
 | 5.2 | 無ければ値なし | Response | `Option::None` | — |
-| 5.3 | 無ければ `Value`・両方なら決まったヘッダ | Response | 取り出しのメソッド（`id`・`craftman` を除く。仮定 A3） | — |
+| 5.3 | 無ければ `Value`・両方なら決まったヘッダ | Response | 取り出しのメソッド（`id`・`craftman` を除く。設計議題 2） | — |
 | 5.4 | ステータスによらず取り出す | Response | メソッドは `status` を見ない | — |
 | 5.5 | 取り出したまま返す | Response | `Headers::get` の値の借用 | — |
 | 6.1 | バイト列の開始行の ASCII から版 | VersionDetector | `version_of` | 版の見分け |
@@ -212,7 +212,7 @@ sequenceDiagram
 **Responsibilities & Constraints**
 - 全文は `<開始行>\r\n` ＋ ヘッダの行（`HeaderWriter::push` で `Name: Value\r\n`。値の CR・LF を除く）＋ `\r\n`。
 - 開始行は `<method> <command> SHIORI/<version>`、命令が無ければ `<method> SHIORI/<version>`。
-- 開始行の語（`method`・`command`・`version`）に空白（ASCII の空白）・CR・LF が含まれるか、語が空なら `None`（2.5。空の語は仮定 A1）。取り除いて続けない。
+- 開始行の語（`method`・`command`・`version`）に空白（ASCII の空白）・CR・LF が含まれるか、語が空なら `None`（2.5。空の語も失敗にする。設計議題 4）。取り除いて続けない。
 - ヘッダの名前は検査しない（`HeaderWriter` と同じ）。渡されないヘッダ（`Charset` を含む）は書かない（2.6）。
 - 命令ごとの関数は、開始行の語を定数で持ち、`common` を先に、命令に固有のヘッダを後に書く。汎用の形と同じ非公開の組み立てを通るので、同じ引数の `request(..).unwrap()` と同じ全文になる（3.5）。語は定数なので失敗せず `String` を返す。
 
@@ -244,7 +244,7 @@ pub fn translate_sentence(common: &[(&str, &str)], sentence: &str) -> String;   
 - Invariants: 戻り値の開始行は 1 行（値に CR・LF が入っても行は増えない）。`notify_other_ghost_name` の 1 行の値は `名前\x01本体のサーフィス\x01相方のサーフィス`（3.4）。
 
 **Implementation Notes**
-- Integration: ヘッダの名前は非公開の定数（または綴りそのまま）で持ち、公開の定数は足さない（仮定 A4）。`ID`・`Event`・`Status`・`Value` は `protocol::HEADER_*` を使い回してよい。
+- Integration: ヘッダの名前は非公開の定数（または綴りそのまま）で持ち、公開の定数は足さない（設計議題 4）。`ID`・`Event`・`Status`・`Value` は `protocol::HEADER_*` を使い回してよい。
 - Validation: `request` の検査だけが失敗を返す。命令ごとの関数は検査を通らない語を持たないので、非公開の組み立てを直に呼ぶ。
 - Risks: `GET Sentence` の `Status`・`BaseEvent` は SSP では `Event` と `Reference` の間に入るが、`common` は常に先に書く。ヘッダの順に決まりは無い（一次資料 [P2]）ので往復は変わらない。順まで SSP に合わせたいホストは `request` を使う。
 
@@ -305,8 +305,8 @@ impl<'a> Response<'a> {
 
 **Implementation Notes**
 - Integration: 311・312 の見分けは `status` の数で行い、`TEACH` の続きを送るかはホストが決める（4.7）。比べる定数をルートで再エクスポートする（LibWiring）。
-- Validation: `status_header`・`version_header` の名前は、欄の `status`・`version` と取り違えないための接尾辞（仮定 A5）。
-- Risks: `id`・`craftman` に `Value` の代わりを当てない（仮定 A3）。当てると `Value` 1 つが 3 つのメソッドから同じ値で返り、名前と作者の取り違えになる。
+- Validation: `status_header`・`version_header` の名前は、欄の `status`・`version` と取り違えないための接尾辞（設計議題 4）。
+- Risks: `id`・`craftman` に `Value` の代わりを当てない（設計議題 2）。当てると `Value` 1 つが 3 つのメソッドから同じ値で返り、名前と作者の取り違えになる。
 
 #### VersionDetector
 
@@ -345,7 +345,7 @@ pub fn version_of(response: impl AsRef<[u8]>) -> Option<Version>;
 
 **Implementation Notes**
 - Integration: 版の切り替えの手順は `get_version`（7.1）と `version_of`（7.2〜7.4）の 2 つの関数で、手順の型・状態は持たない（7.6）。ホストは `LegacyRuntime::request` が `Err` を返したら「分からない」として扱う（7.4）。
-- Validation: `#[non_exhaustive]` を付けない（仮定 A6）。
+- Validation: `#[non_exhaustive]` を付けない（設計議題 4）。
 - Risks: 版の語の後ろに空白が無く理由句が続く壊れた開始行（`SHIORI/2.6200 OK`）は小さい方を 6200 と読みかけるが、`u8` に入らないので `None`。
 
 ### lib.rs と文書
@@ -365,7 +365,7 @@ pub fn version_of(response: impl AsRef<[u8]>) -> Option<Version>;
 ## Error Handling
 
 ### Error Strategy
-- 失敗は `Option::None` の 1 種類で返し、失敗の型（enum）は持たない（仮定 A6）。`protocol` の `HostComplete::parse` と同じ形。
+- 失敗は `Option::None` の 1 種類で返し、失敗の型（enum）は持たない（設計議題 4）。`protocol` の `HostComplete::parse` と同じ形。
   - `request`: 開始行の語が壊れている（作りの誤り）→ `None`。ホストは定数を渡すので、`expect` で落としてよい。
   - `Response::parse`: 開始行が読めない（`SHIORI/` で始まらない・版かステータスが読めない・版が `V3`／`V2` に入らない）→ `None`。
   - `version_of`: 版が分からない（空の応答を含む）→ `None`。ホストはそのゴーストの扱いを決める（7.4）。
@@ -400,7 +400,7 @@ pub fn version_of(response: impl AsRef<[u8]>) -> Option<Version>;
 - `version_of` と `Response::parse(..).map(|r| r.version)` が同じ例の集まりで一致する（Invariant）。
 
 ### 既存の環境
-- `cargo test --all`・`cargo clippy --all-targets --workspace -- -D warnings` を今の CI の job（`test`・`test-i686`）のまま通す（8.7）。`shiori2.rs` の `//!` の例は doctest で走る。`core_refers_to_protocol_only_by_its_reexport` が通ったままであることを確かめる（1.3・1.6）。
+- `cargo test --all`・`cargo clippy --all-targets --workspace -- -D warnings` を今の CI の job（`test`・`test-i686`）のまま通す（8.7）。`shiori2.rs` の `//!` の例は doctest で走る。`core_refers_to_protocol_only_by_its_reexport` が通ったままであることを確かめる（1.3）。芯が `shiori2` を使わないこと（1.6）はレビューで確かめ、テストは足さない（`shiori2` は末端のモジュールで、芯から使えば `use` の行が差分に出るため。設計議題 3）。
 
 ## Security Considerations
 - 値の CR・LF を除き、開始行の語の CR・LF・空白を失敗にするので、要求に行を差し込まれない（2.4・2.5）。ヘッダの名前は検査しない（`HeaderWriter` と同じ。名前はホストの定数）。
@@ -410,14 +410,18 @@ pub fn version_of(response: impl AsRef<[u8]>) -> Option<Version>;
 - 既存の利用者は何も変わらない（足すだけ）。areka は SHIORI/2.x の口を、`get_version`・`version_of`・命令ごとの関数・`Response` に乗り換えられる（areka の spec `shiori2-protocol` と突き合わせるのは下流の作業）。
 - 実装の後、kiro-complete の段で `tech.md`・`structure.md` の `shiori4_host` の中身の一覧に `shiori2` を足す。
 
-## Open Questions / Risks（設計ディスカッションで決める）
-設計の下書きは次の仮定で書いた。どれも要件からは決め切れないもの。
+## 設計ディスカッションで決めたこと（2026-10-25）
+- **設計議題 2（`Value` の代わりを当てる範囲）**: `sentence`・`word`・`string`・`status_header`・`version_header` に当て、`id`・`craftman` には当てない。`Value` 1 つが名前・作者・版の 3 つとして返るのを防ぐため。要件 5.3 に明記した。
+- **設計議題 3（1.6 の確かめ方）**: レビューで確かめ、自動のテストは足さない。
+- **設計議題 4（細かい形）**: 次の 8 つは下書きのとおりにする。
+  - 空の開始行の語も失敗にする。
+  - 公開のヘッダ名の定数を足さない。
+  - 取り出しのメソッドを `status_header`・`version_header` と名付ける。
+  - 失敗の enum を持たず `Option` で返し、`Version` に `#[non_exhaustive]` を付けない。
+  - `SHIORI_311_NOT_ENOUGH`・`SHIORI_312_ADVICE` をルートから再エクスポートする。
+  - `README.md` に 1 文足す。
+  - `common` を常に先に書く。
+  - ABI のエラーはホストが「分からない」として扱い、関数の doc に書く。
 
-- **A1 空の開始行の語**: `request` は空白・CR・LF に加えて、空の `method`・`command`・`version`（`Some("")`）も失敗にする。2.5 は空を挙げていないが、空の語は壊れた開始行（`GET  SHIORI/2.4`）を作るため。
-- **A2 `Version` の範囲**: `SHIORI/3.0` だけを `V3`、`SHIORI/2.n`（`n` は `u8`）を `V2(n)` とし、`SHIORI/3.1`・`SHIORI/1.x`・`SHIORI/4.0` は `None`（分からない）にする。要件は 3.0 と 2.x だけを挙げ、6.4 は推測で埋めないことを求めるため。
-- **A3 `Value` の代わりを当てる範囲**: `sentence`・`word`・`string`・`status_header`・`version_header` に当て、`id`・`craftman` には当てない。5.3 を GET Version の 3 つすべてに当てると、`Value` 1 つが名前・作者・版の 3 つとして返るため。
-- **A4 ヘッダの名前の定数**: `shiori2` に公開の定数を足さない。命令ごとの関数と取り出しのメソッドが名前を隠し、ホストが書く共通のヘッダは `protocol::HEADER_SENDER` などか綴りで足りるため。
-- **A5 取り出しのメソッドの名前**: 欄 `status`・`version` と重なる 2 つを `status_header`・`version_header` にする。
-- **A6 失敗と版の型の形**: 失敗の enum を持たず `Option` で返す。`Version` に `#[non_exhaustive]` を付けない（コードベースの公開の enum に前例が無く、0.0.x の版はどれも互換を崩せるため）。
-- **A7 311・312 の定数**: ルートの再エクスポートに `SHIORI_311_NOT_ENOUGH`・`SHIORI_312_ADVICE` を足す（今は `shiori4_host::shiori4::` からしか届かない）。
-- **A8 README**: `shiori4_host/README.md` に 1 文足す（crates.io の顔に新しい公開のモジュールを載せる。要件 8 は求めていない）。
+## Open Questions / Risks（設計ディスカッションで決める）
+- **A2 `Version` の範囲**（設計議題 1。議論中）: 下書きは `SHIORI/3.0` だけを `V3`、`SHIORI/2.n`（`n` は `u8`）を `V2(n)` とし、`SHIORI/3.1`・`SHIORI/1.x`・`SHIORI/4.0` は `None` にしている。
