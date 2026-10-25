@@ -4,7 +4,12 @@
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::{ffi::c_void, fmt, marker::PhantomData, path::Path};
+use std::{
+    ffi::{OsStr, c_void},
+    fmt,
+    marker::PhantomData,
+    path::Path,
+};
 
 use crate::{EntryKind, LoadError, normalize_dir};
 
@@ -140,6 +145,17 @@ impl LegacyRuntime {
     pub fn request_str(&mut self, req: &str) -> Result<String, LegacyRequestError> {
         response_to_string(self.request(req.as_bytes())?)
     }
+}
+
+/// 発見の口の開き方: 絶対パスでなければ `InvalidPath`（開かない。OS の探索の順で別の DLL を拾わないため）。
+/// 絶対パスなら `libloading::Library::new` で開く（開く間のダイアログの抑止は libloading が持つ。探索の旗は付けない）。
+/// 失敗は `LoadError::Library`
+pub(crate) fn open_library(lib_path: &OsStr) -> Result<libloading::Library, LoadError> {
+    if !Path::new(lib_path).is_absolute() {
+        return Err(LoadError::InvalidPath);
+    }
+    // SAFETY: ライブラリの初期化コードが実行される。信頼できる SHIORI だけを読み込むこと
+    unsafe { libloading::Library::new(lib_path) }.map_err(LoadError::Library)
 }
 
 /// 末尾に続く NUL をすべて落として UTF-8 を確かめる

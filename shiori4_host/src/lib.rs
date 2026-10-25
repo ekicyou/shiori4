@@ -1027,7 +1027,8 @@ pub enum LoadError {
     NotShiori4,
     /// 要求した版に対応していない
     Unsupported(ShioriStatus),
-    /// ゴーストディレクトリが絶対パスでない、または UTF-8 で表せない
+    /// dir かライブラリのパスが絶対パスでない、または dir が UTF-8 で表せない。
+    /// ライブラリのパスを検査するのは x86 の Windows の発見の口（[`load_ghost_with`]）だけ
     InvalidPath,
     /// SHIORI の load が失敗した
     LoadFailed,
@@ -1039,6 +1040,11 @@ impl fmt::Display for LoadError {
             Self::Library(e) => write!(f, "failed to open SHIORI library: {e}"),
             Self::NotShiori4 => f.write_str("no allowed SHIORI entry point found"),
             Self::Unsupported(s) => write!(f, "unsupported SHIORI ABI version (status {s})"),
+            #[cfg(all(windows, target_arch = "x86"))]
+            Self::InvalidPath => f.write_str(
+                "ghost directory or library path is not an absolute path, or the directory is not valid UTF-8",
+            ),
+            #[cfg(not(all(windows, target_arch = "x86")))]
             Self::InvalidPath => {
                 f.write_str("ghost directory is not an absolute path or not valid UTF-8")
             }
@@ -2228,6 +2234,22 @@ mod tests {
     #[test]
     fn invalid_path_display_mentions_absolute() {
         assert!(LoadError::InvalidPath.to_string().contains("absolute"));
+    }
+
+    #[test]
+    fn invalid_path_display_by_target() {
+        let s = LoadError::InvalidPath.to_string();
+        if cfg!(all(windows, target_arch = "x86")) {
+            assert_eq!(
+                s,
+                "ghost directory or library path is not an absolute path, or the directory is not valid UTF-8"
+            );
+        } else {
+            assert_eq!(
+                s,
+                "ghost directory is not an absolute path or not valid UTF-8"
+            );
+        }
     }
 
     #[test]
