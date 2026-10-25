@@ -6,10 +6,14 @@ use std::ffi::c_void;
 #[cfg(test)]
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use crate::{EntryKind, LoadError};
+
 const GMEM_FIXED: u32 = 0;
+const CP_ACP: u32 = 0;
+const CP_UTF8: u32 = 65001;
+const WC_NO_BEST_FIT_CHARS: u32 = 0x400;
 
 #[link(name = "kernel32")]
-#[allow(dead_code)] // GetACP・WideCharToMultiByte は dir の CP_ACP の変換（task 3.1）が使う
 unsafe extern "system" {
     fn GlobalAlloc(flags: u32, bytes: usize) -> *mut c_void;
     fn GlobalFree(h: *mut c_void) -> *mut c_void;
@@ -81,6 +85,56 @@ unsafe fn take_response(p: *mut c_void, len: i32) -> Result<Vec<u8>, LegacyReque
     #[cfg(test)]
     RESPONSES_FREED.fetch_add(1, Ordering::SeqCst);
     out
+}
+
+/// entry が Loadu なら (dir の UTF-8, false)。Load なら to_acp(dir)。変換の API の失敗は LoadFailed
+#[allow(dead_code)] // LegacyRuntime（task 3.2）が使う
+fn dir_bytes(entry: EntryKind, dir: &str) -> Result<(Vec<u8>, bool), LoadError> {
+    match entry {
+        EntryKind::Load => to_acp(dir).ok_or(LoadError::LoadFailed),
+        _ => Ok((dir.as_bytes().to_vec(), false)),
+    }
+}
+
+/// CP_ACP のバイト列と「表せない文字があった」。GetACP() が 65001 なら (s の UTF-8, false)。
+/// それ以外は WC_NO_BEST_FIT_CHARS で best-fit をせず、表せない文字は既定の文字（`?`）にして
+/// used_default_char で知る。長さの問い合わせと変換の 2 回で呼び、NUL は出さない。0 が返れば None
+#[allow(dead_code)] // dir_bytes と LegacyRuntime::dir_lossy（task 3.2）が使う
+fn to_acp(s: &str) -> Option<(Vec<u8>, bool)> {
+    // 65001 では WC_NO_BEST_FIT_CHARS と used_default_char が使えない。UTF-8 はそのまま CP_ACP のバイト列
+    if unsafe { GetACP() } == CP_UTF8 {
+        return Some((s.as_bytes().to_vec(), false));
+    }
+    // 長さ 0 では WideCharToMultiByte が失敗する
+    if s.is_empty() {
+        return Some((Vec::new(), false));
+    }
+    let wide: Vec<u16> = s.encode_utf16().collect();
+    let wide_len = i32::try_from(wide.len()).ok()?;
+    let convert = |out: *mut u8, out_len: i32, used: *mut i32| unsafe {
+        WideCharToMultiByte(
+            CP_ACP,
+            WC_NO_BEST_FIT_CHARS,
+            wide.as_ptr(),
+            wide_len,
+            out,
+            out_len,
+            std::ptr::null(),
+            used,
+        )
+    };
+    let n = convert(std::ptr::null_mut(), 0, std::ptr::null_mut());
+    if n <= 0 {
+        return None;
+    }
+    let mut out = vec![0u8; n as usize];
+    let mut used = 0i32;
+    let written = convert(out.as_mut_ptr(), n, &mut used);
+    if written <= 0 {
+        return None;
+    }
+    out.truncate(written as usize);
+    Some((out, used != 0))
 }
 
 #[cfg(test)]
@@ -175,5 +229,54 @@ mod tests {
             Err(LegacyRequestError::NegativeLength(-1))
         );
         assert_eq!(RESPONSES_FREED.load(Ordering::SeqCst), before + 1);
+    }
+
+    #[test]
+    fn to_acp_ascii_is_utf8_and_not_lossy() {
+        let s = r"C:\ghost\master\";
+        assert_eq!(to_acp(s), Some((s.as_bytes().to_vec(), false)));
+    }
+
+    #[test]
+    fn to_acp_empty_is_empty() {
+        assert_eq!(to_acp(""), Some((Vec::new(), false)));
+    }
+
+    #[test]
+    fn to_acp_surrogate_pair_emoji_is_question_and_lossy() {
+        let s = "a\u{1F600}b";
+        let (bytes, lossy) = to_acp(s).expect("convert");
+        if unsafe { GetACP() } == CP_UTF8 {
+            assert_eq!((bytes, lossy), (s.as_bytes().to_vec(), false));
+            return;
+        }
+        assert!(lossy);
+        // 写った所は `?` だけ（best-fit の似た文字にならない）
+        let (first, rest) = bytes.split_first().expect("non-empty");
+        let (last, middle) = rest.split_last().expect("at least 2 bytes");
+        assert_eq!((*first, *last), (b'a', b'b'));
+        assert!(
+            !middle.is_empty() && middle.iter().all(|&c| c == b'?'),
+            "{bytes:?}"
+        );
+    }
+
+    #[test]
+    fn dir_bytes_loadu_is_utf8_itself() {
+        let s = "C:\\ghost\\\u{1F600}\u{3042}\\";
+        assert_eq!(
+            dir_bytes(EntryKind::Loadu, s).ok(),
+            Some((s.as_bytes().to_vec(), false))
+        );
+    }
+
+    #[test]
+    fn dir_bytes_load_is_to_acp() {
+        let s = "C:\\ghost\\\u{1F600}\\";
+        assert_eq!(dir_bytes(EntryKind::Load, s).ok(), to_acp(s));
+        assert_eq!(
+            dir_bytes(EntryKind::Load, "C:\\g\\").ok(),
+            Some((b"C:\\g\\".to_vec(), false))
+        );
     }
 }
