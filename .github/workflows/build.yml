@@ -156,3 +156,59 @@ jobs:
           expect 0 "$testhost" --entry v3 "$versioned" "$ws"
           expect 0 "$testhost" --entry v3 "$testghost" "$ws"
           exit "$failed"
+
+  test-i686:
+    name: test-i686-windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-pc-windows-msvc
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --all --target i686-pc-windows-msvc
+      - name: Clippy
+        run: cargo clippy --all-targets --workspace --target i686-pc-windows-msvc -- -D warnings
+      - name: Build testghost, legacyghost and shiori4-testhost
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --manifest-path testdata/testghost/Cargo.toml --target-dir target/testghost --target i686-pc-windows-msvc
+          cargo build --manifest-path testdata/legacyghost/Cargo.toml --target-dir target/legacyghost --target i686-pc-windows-msvc
+          cargo build -p shiori4_host --example shiori4-testhost --target i686-pc-windows-msvc
+      - name: Round trips
+        shell: bash
+        run: |
+          set -euo pipefail
+          # ghost dir: absolute, OS form, trailing separator (relative paths are InvalidPath)
+          ws="$(cygpath -w "$GITHUB_WORKSPACE")\\"; s='\'
+          t=i686-pc-windows-msvc
+          testhost="${ws}target${s}$t${s}debug${s}examples${s}shiori4-testhost.exe"
+          testghost="${ws}target${s}testghost${s}$t${s}debug${s}testghost.dll"
+          legacyghost="${ws}target${s}legacyghost${s}$t${s}debug${s}legacyghost.dll"
+          faildir="${ws}fail${s}"
+          failed=0
+          # expect <exit status> <command...>: runs it, prints its output, keeps the output in $out
+          expect() {
+            local want=$1; shift
+            echo "::group::$* (expect $want)"
+            set +e; out=$("$@" 2>&1); rc=$?; set -e
+            printf '%s\n' "$out"
+            echo "::endgroup::"
+            if [ "$rc" -ne "$want" ]; then
+              echo "::error::exit $rc (expected $want): $*"
+              failed=1
+            fi
+          }
+          expect 0 "$testhost" "$legacyghost" "$ws"
+          if ! grep -q 'Value: legacyghost' <<<"$out"; then
+            echo "::error::testhost x legacyghost: output has no 'Value: legacyghost'"
+            failed=1
+          fi
+          expect 0 "$testhost" --entry legacy "$legacyghost" "$ws"
+          expect 3 "$testhost" "$legacyghost" "$faildir"
+          expect 0 "$testhost" "$testghost" "$ws"
+          expect 3 "$testhost" --entry legacy "$testghost" "$ws"
+          exit "$failed"

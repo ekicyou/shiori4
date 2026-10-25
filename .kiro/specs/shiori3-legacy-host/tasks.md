@@ -77,7 +77,7 @@
   - 完了の状態: i686 で新しい DLL を絶対パスで読むと終了の状態 0 で `Value: legacyghost` を表示し、`fail` の dir で 3、testghost に `--entry legacy` で 3、相対のパスで 3 になる。引数の読み取りのテスト（x86 では `--entry legacy` が `loadu`・`load` を許可する）が通り、x64 の既存の振る舞いは変わらない
   - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
 
-- [ ] 6. i686 の Windows の CI の job を足す
+- [x] 6. i686 の Windows の CI の job を足す
   - windows の runner に i686 の target と clippy を入れ、ワークスペースのテスト（doctest を含む）と clippy（`-D warnings`）を i686 で走らせる
   - テスト用の 2 つの DLL と試験用のホストを i686 で作り、既存の job と同じ形で、絶対パスを渡して終了の状態を確かめる（新しい DLL で 0・`--entry legacy` で 0・`fail` の dir で 3・testghost で 0・testghost に `--entry legacy` で 3）。往復の出力に `Value: legacyghost` があることも確かめる
   - 既存の job は変えない
