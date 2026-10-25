@@ -1,15 +1,19 @@
 //! 試験用のホスト `shiori4-testhost`: ベースウェア無しで SHIORI のライブラリを読み、要求を 1 回投げて、結果を表示して unload する
 //!
 //! ```text
-//! shiori4-testhost [--entry v3] [-H "名前: 値"]... <SHIORI のファイル> <ゴーストのディレクトリ> [ID]
+//! shiori4-testhost [--entry v3|legacy] [-H "名前: 値"]... <SHIORI のファイル> <ゴーストのディレクトリ> [ID]
 //! ```
 //!
-//! - 口は発見の順（v4 → v3 → `loadu` → `load`）で探す。`--entry v3` は v3 互換モードだけを試す
-//! - v4 は 5 つの必須ヘッダ（`doc/host-protocol.md` 第 2.2 節）に `-H` のヘッダを続けて要求する。v3 は SHIORI/3.0 の全文で要求する
+//! - 口は発見の順（v4 → v3 → `loadu` → `load`）で探す。`--entry v3` は v3 互換モードだけを試す。
+//!   `--entry legacy` は従来の口（`loadu`・`load`）だけを試す（x86 の Windows だけ。ほかでは引数の誤り）
+//! - v4 は 5 つの必須ヘッダ（`doc/host-protocol.md` 第 2.2 節）に `-H` のヘッダを続けて要求する。v3 と従来の口は SHIORI/3.0 の全文で要求する
+//! - 従来の口は x86 の Windows でだけ読む。応答は末尾の NUL を落とし、読めないバイトを置換文字にして表示する。
+//!   ほかの環境では読まずに終了の状態 4。x86 の Windows では SHIORI のファイルを絶対パスで渡す
 //! - post は表示するだけで実行せず、完了通知も返さない
 //! - 信頼できる SHIORI だけを渡す（ライブラリを開くと、その初期化のコードが動く）
 //!
-//! 終了の状態: 0 = 2xx、1 = 2xx 以外、2 = ABI エラー、3 = 読み込みの失敗、4 = 従来の口だけ、64 = 引数の誤り。
+//! 終了の状態: 0 = 2xx、1 = 2xx 以外、2 = ABI エラー（従来の口では `request error:`）、3 = 読み込みの失敗、
+//! 4 = 従来の口だけ（x86 の Windows では出ない）、64 = 引数の誤り。
 //! 名前・引数・終了の状態は他のリポジトリの CI の契約なので、変えるときは `doc/textbook/testhost.md` も直す。
 //! 依存は `shiori4_host` と std だけ（`cargo install --example` は dev-dependencies を使わない）
 
@@ -21,8 +25,13 @@ use shiori4_host::{
     SHIORI_E_UNSUPPORTED, SHIORI_E_WRONG_THREAD, ShioriStatus, V3Runtime, load_ghost,
     load_ghost_with, protocol::HeaderWriter, shiori_is_success,
 };
+#[cfg(all(windows, target_arch = "x86"))]
+use shiori4_host::{LegacyRequestError, LegacyRuntime};
 
 const NAME: &str = "shiori4-testhost";
+#[cfg(all(windows, target_arch = "x86"))]
+const USAGE: &str = "usage: shiori4-testhost [--entry v3|legacy] [-H \"名前: 値\"]... <SHIORI のファイル（絶対パス）> <ゴーストのディレクトリ> [ID]\n信頼できる SHIORI だけを渡す（ライブラリを開くと、その初期化のコードが動く）";
+#[cfg(not(all(windows, target_arch = "x86")))]
 const USAGE: &str = "usage: shiori4-testhost [--entry v3] [-H \"名前: 値\"]... <SHIORI のファイル> <ゴーストのディレクトリ> [ID]\n信頼できる SHIORI だけを渡す（ライブラリを開くと、その初期化のコードが動く）";
 
 // 終了の状態
@@ -30,14 +39,15 @@ const EXIT_OK: u8 = 0;
 const EXIT_NOT_2XX: u8 = 1;
 const EXIT_ABI_ERROR: u8 = 2;
 const EXIT_LOAD_ERROR: u8 = 3;
+#[cfg(not(all(windows, target_arch = "x86")))]
 const EXIT_LEGACY: u8 = 4;
 const EXIT_USAGE: u8 = 64;
 
 /// 解析した引数
 #[derive(Debug, PartialEq)]
 struct Args {
-    /// `--entry v3`: v3 互換モードだけを試す
-    v3_only: bool,
+    /// 許可する口。`None` = すべて、`--entry v3` = V3、`--entry legacy` = Loadu・Load（x86 の Windows だけ）
+    entries: Option<&'static [EntryKind]>,
     /// `-H` で与えたヘッダ（与えた順）
     headers: Vec<(String, String)>,
     lib: OsString,
@@ -48,13 +58,18 @@ struct Args {
 /// 引数（プログラム名を除く）を解析する。Err は使い方の前に出す理由
 fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Args, String> {
     let mut args = args.into_iter();
-    let mut v3_only = false;
+    let mut entries = None;
     let mut headers = Vec::new();
     let mut positional = Vec::new();
     while let Some(arg) = args.next() {
         match arg.to_str() {
             Some("--entry") => match args.next().as_ref().and_then(|v| v.to_str()) {
-                Some("v3") => v3_only = true,
+                Some("v3") => entries = Some(&[EntryKind::V3][..]),
+                #[cfg(all(windows, target_arch = "x86"))]
+                Some("legacy") => entries = Some(&[EntryKind::Loadu, EntryKind::Load][..]),
+                #[cfg(all(windows, target_arch = "x86"))]
+                _ => return Err("--entry に与えられるのは v3 と legacy だけ".into()),
+                #[cfg(not(all(windows, target_arch = "x86")))]
                 _ => return Err("--entry に与えられるのは v3 だけ".into()),
             },
             Some("-H") => {
@@ -87,7 +102,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Args, String> 
         return Err("引数が多すぎる".into());
     }
     Ok(Args {
-        v3_only,
+        entries,
         headers,
         lib,
         dir,
@@ -210,18 +225,64 @@ fn run_v3(mut rt: V3Runtime, args: &Args) -> u8 {
     code
 }
 
-/// 従来の口: shiori3-legacy-host がこの枝を差し替えて従来の DLL を読む
-fn run_legacy(library: shiori4_host::libloading::Library) -> u8 {
+/// 従来の口の応答を表示用の文字列にする: 末尾に続く NUL を落とし、読めないバイトを置換文字にする
+#[cfg(all(windows, target_arch = "x86"))]
+fn legacy_text(response: &[u8]) -> String {
+    let end = response.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
+    String::from_utf8_lossy(&response[..end]).into_owned()
+}
+
+#[cfg(all(windows, target_arch = "x86"))]
+fn legacy_request_error_name(e: &LegacyRequestError) -> &'static str {
+    match e {
+        LegacyRequestError::AllocFailed => "AllocFailed",
+        LegacyRequestError::NullResponse => "NullResponse",
+        LegacyRequestError::NegativeLength(_) => "NegativeLength",
+        // バイト列の口（request）は返さない。文字列の口だけの値
+        LegacyRequestError::InvalidUtf8 => "InvalidUtf8",
+    }
+}
+
+/// 従来の口: その口で初期化し、v3 互換モードと同じ全文を 1 回往復させて unload する
+#[cfg(all(windows, target_arch = "x86"))]
+fn run_legacy(entry: EntryKind, library: shiori4_host::libloading::Library, args: &Args) -> u8 {
+    let mut rt = match LegacyRuntime::from_library(entry, library, &args.dir) {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("load error: {}: {e}", load_error_name(&e));
+            return EXIT_LOAD_ERROR;
+        }
+    };
+    let req = v3_request(&request_headers(&args.id, &args.headers));
+    println!("request:\n{req}");
+    let code = match rt.request(req.as_bytes()) {
+        Ok(bytes) => {
+            let text = legacy_text(&bytes);
+            // 開始行が読めない応答は 0 として 2xx 以外に数える
+            finish(Ok((v3_status(&text).unwrap_or(0), &text)))
+        }
+        Err(e) => {
+            println!("request error: {}: {e}", legacy_request_error_name(&e));
+            EXIT_ABI_ERROR
+        }
+    };
+    drop(rt);
+    println!("unloaded");
+    code
+}
+
+/// 従来の口: x86 の Windows でないので読まない
+#[cfg(not(all(windows, target_arch = "x86")))]
+fn run_legacy(_entry: EntryKind, library: shiori4_host::libloading::Library, _args: &Args) -> u8 {
     println!("従来の口は読まない（shiori3-legacy-host が足す）");
     drop(library);
     EXIT_LEGACY
 }
 
 fn run(args: Args) -> u8 {
-    let loaded = if args.v3_only {
-        load_ghost_with(&args.lib, &args.dir, TestHostImpl, &[EntryKind::V3])
-    } else {
-        load_ghost(&args.lib, &args.dir, TestHostImpl)
+    let loaded = match args.entries {
+        Some(allowed) => load_ghost_with(&args.lib, &args.dir, TestHostImpl, allowed),
+        None => load_ghost(&args.lib, &args.dir, TestHostImpl),
     };
     match loaded {
         Ok(LoadedGhost::V4(rt)) => {
@@ -239,7 +300,7 @@ fn run(args: Args) -> u8 {
                 "load"
             };
             println!("entry: {name}");
-            run_legacy(library)
+            run_legacy(entry, library, &args)
         }
         Err(e) => {
             eprintln!("load error: {}: {e}", load_error_name(&e));
@@ -273,7 +334,7 @@ mod tests {
         assert_eq!(
             a,
             Args {
-                v3_only: false,
+                entries: None,
                 headers: vec![],
                 lib: "a.dll".into(),
                 dir: "/g".into(),
@@ -296,7 +357,7 @@ mod tests {
             "Status:  y ",
         ])
         .unwrap();
-        assert!(a.v3_only);
+        assert_eq!(a.entries, Some(&[EntryKind::V3][..]));
         assert_eq!(a.id, "OnClose");
         assert_eq!(
             a.headers,
@@ -322,6 +383,29 @@ mod tests {
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
+    }
+
+    #[cfg(all(windows, target_arch = "x86"))]
+    #[test]
+    fn entry_legacy_allows_loadu_and_load() {
+        let a = parse(&["--entry", "legacy", "a.dll", "/g"]).unwrap();
+        assert_eq!(a.entries, Some(&[EntryKind::Loadu, EntryKind::Load][..]));
+    }
+
+    #[cfg(not(all(windows, target_arch = "x86")))]
+    #[test]
+    fn entry_legacy_is_usage_error_elsewhere() {
+        assert!(parse(&["--entry", "legacy", "a.dll", "/g"]).is_err());
+    }
+
+    #[cfg(all(windows, target_arch = "x86"))]
+    #[test]
+    fn legacy_text_drops_trailing_nul_and_replaces_bad_bytes() {
+        assert_eq!(
+            legacy_text(b"SHIORI/3.0 200 OK\r\n\0\0"),
+            "SHIORI/3.0 200 OK\r\n"
+        );
+        assert_eq!(legacy_text(b"a\xffb"), "a\u{FFFD}b");
     }
 
     #[test]
