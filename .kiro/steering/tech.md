@@ -9,7 +9,7 @@ shiori4_abi   … C ABI（関数テーブル・ShioriBytes・版・規約）。�
    ↑
 shiori4       … SHIORI 側の高水準層（芯: Ghost, Adapter, v3 変換。便利関数: protocol（Headers, Properties, PendingTags, 語の定数と組み立て・読み分け））
    ↑
-shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, 読み込みの口 load_ghost, post キュー, pump, 従来の SHIORI/3.0 の口 LegacyRuntime（x86 の Windows だけ））
+shiori4_host  … ホスト側の高水準層（Host, GhostRuntime, V3Runtime, 読み込みの口 load_ghost, post キュー, pump, 従来の SHIORI/3.0 の口 LegacyRuntime（x86 の Windows だけ）, 芯から独立した SHIORI/2.x の文字列の形の便利関数 shiori2（どの OS・arch でも））
 ```
 
 - ホストと SHIORI が共有する語（`ID: getproperty`, `Command: SEND`, `Tag`, `OnHostComplete` など）は `doc/host-protocol.md`（ホスト側プロトコル仕様）が定める。その定数と組み立て・読み分けは便利関数 `shiori4::protocol` に置き、ホスト側は `shiori4_host::protocol` として再エクスポートして使う

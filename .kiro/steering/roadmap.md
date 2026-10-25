@@ -42,7 +42,7 @@ pasta（`C:\home\maz\git\pasta`）のリリースの仕組みを下敷きにし�
 - [x] host-protocol -- 暫定の `host_protocol` を、ホスト側プロトコル仕様として確定させる（getproperty / setproperty・post の語彙 SEND / NOTIFY と宛先・割り込み・拒否の返し方・プロパティ名の決まり・v4 の要求ヘッダの語彙・version・OnHostComplete の届け方と Reference の並び）。pasta と areka が上流として参照する正本。Dependencies: none
 - [x] abi-textbook -- ABI の教科書を作る。中身は README.md（全体図・最小の例・道案内）、docs.rs の利用方法（SHIORI 側とホスト側の例）、C ヘッダの説明（所有権・版の判定・最小の C のホスト）、規約の理由、移行の手引き、ゴーストの配布の決まりの章。あわせて、DLL だけを読んで要求を投げる試験用のホストを作る。要望は pasta と areka に聞いた（`.kiro/specs/completed/abi-textbook/hearing.md`）。Dependencies: abi-conventions, host-protocol
 - [x] shiori3-legacy-host -- x86 の Windows だけで、shiori4_host を従来の SHIORI/3.0 の DLL（HGLOBAL の load・loadu・unload・request）のホストとしても使えるようにする。DLL に触る芯（HGLOBAL の受け渡し・loadu と load の選び方・CP_ACP の dir・ダイアログの抑止・unload の順）を置き、プロセス・IPC・待ち時間・文字コードの方針はホストに残す。i686 の Windows の CI を足す。Dependencies: abi-conventions
-- [ ] shiori2-helpers -- ホストの側の便利関数として、SHIORI/2.x の要求の組み立て（汎用の形と命令ごと）・応答の読み分け・版の見分けと切り替えの手順を `shiori4_host::shiori2` に置く。全環境で使え、文字コードには触れない。SHIORI の側と試験用のホストは変えない。Dependencies: none（shiori3-legacy-host の芯と組み合わせて使う）
+- [x] shiori2-helpers -- ホストの側の便利関数として、SHIORI/2.x の要求の組み立て（汎用の形と命令ごと）・応答の読み分け・版の見分けと切り替えの手順を `shiori4_host::shiori2` に置く。全環境で使え、文字コードには触れない。SHIORI の側と試験用のホストは変えない。Dependencies: none（shiori3-legacy-host の芯と組み合わせて使う）
 
 ## Phase 2: v4 の規約とホスト側プロトコルの確定
 
