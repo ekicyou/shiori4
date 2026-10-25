@@ -156,3 +156,75 @@ brief の Constraints（「SHIORI/2.x の一次資料が伺かの文書の索引
 
 ### 足りない所
 2.6 の一次資料が無い。SHIORI/2.x の DLL が `GET SHIORI/3.0` にどう答えるかの一次資料が無い。SSP が送る `TEACH`・`GET Word`・会話の形は逆アセンブル（[D1]）だけで、記録では確かめていない。SSP の BTS #503 は [O2] を通して引いた。
+
+---
+
+## 設計の段の調べと決定（2026-10-25）
+
+### 使った手引き
+- kiro-spec-design の `design-principles.md`・`design-discovery-light.md`（Extension として軽い調べ）・`design-synthesis.md`・`design-review-gate.md`、テンプレートの `design.md`・`research.md`。
+- steering の `product.md`・`tech.md`・`structure.md`。外部の調べ（WebSearch）はしない（新しい依存が無く、SHIORI/2.x の形は要件の段の調べで足りる）。
+
+### Research Log
+
+#### 継ぎ目の確かめ（コードの読み直し）
+- **Context**: 要件の段の Key Findings が今のコードのままかを確かめる。
+- **Sources Consulted**: `shiori4/src/protocol.rs`（`Headers`・`HeaderWriter`・`HEADER_*`・`HostComplete::parse`）、`shiori4/src/lib.rs` の `v3::parse_request`、`shiori4_host/src/lib.rs`（`mod` の並び・ルートの再エクスポート・crate doc・`protocol_lines`）、`shiori4_host/src/legacy.rs`（`request(&[u8]) -> Result<Vec<u8>, LegacyRequestError>`）、`shiori4_abi/src/lib.rs`（`ShioriStatus = i32`・`SHIORI_311_NOT_ENOUGH`・`SHIORI_312_ADVICE`）。
+- **Findings**:
+  - `protocol_lines` は注釈（`//!`・`///`）を数えないので、crate doc に `shiori2` の道案内を書いても `core_refers_to_protocol_only_by_its_reexport` は落ちない。コードの行に `protocol` の語を足さなければよい。
+  - `SHIORI_311_NOT_ENOUGH`・`SHIORI_312_ADVICE` は `shiori4_abi` にあり `shiori4` が `pub use shiori4_abi::*` で出すが、`shiori4_host` のルートの再エクスポートには無い（200・204・400・500 だけ）。
+  - 読み分けが読めないときに `Option` を返すのが `protocol` の形（`HostComplete::parse`・`Rejection::of`）。公開の enum に `#[non_exhaustive]` の前例は無い。
+  - `LegacyRuntime::request` の戻り値 `Vec<u8>` は `AsRef<[u8]>` なので、版の見分けにそのまま渡せる。
+- **Implications**: 失敗の型を足さずに `Option` で返す。版の見分けは `impl AsRef<[u8]>` を受ける 1 つの関数にする。311・312 の定数をルートで再エクスポートする。
+
+### Architecture Pattern Evaluation
+
+| Option | Description | Strengths | Risks / Limitations | Notes |
+|--------|-------------|-----------|---------------------|-------|
+| 状態の無い関数（採用） | `get_version` と `version_of` の 2 つで切り替えの手順を表す | 7.6 にそのまま合う。テストが入出力だけで済む | ホストが「送る → 読む → 覚える」を書く（数行） | 要件の段の推奨（Option C）どおり |
+| 手順の型（`Handshake` など） | 最初の要求を持ち、応答を受けて決まった版を返す値 | 手順を型で示せる | 状態を持つ型が増え、7.6（状態を持たない）に反する | 採らない |
+| 失敗の enum | `request`・`parse` の失敗を種類で分ける | 失敗の理由を返せる | 要件は失敗と分かることだけを求める。`Display`・`Error` の実装が増える | 採らない（仮定 A6） |
+
+### Synthesis
+- **Generalization**: 9 つの命令ごとの関数は、すべて「開始行の定数 ＋ `common` ＋ 命令に固有のヘッダ」の同じ組み立ての特別な場合。非公開の組み立てを 1 つにし、`request`（検査あり）と命令ごとの関数（定数なので検査なし）が共有する。これで 3.5（同じ全文）が作りで保たれる。版の見分けも、`version_of` と `Response::parse` が同じ非公開の版の語の読み分けを共有し、6.2 と 4.6 を作りで揃える。
+- **Build vs. Adopt**: ヘッダの行は `HeaderWriter`、ヘッダの読み分けは `Headers` を使い回す（要件の隣接の期待どおり）。開始行・空行までの切り出し・版の見分けは公開のものが無いので書く（数十行）。`shiori4::v3::parse_request` の切り出しは非公開で SHIORI/3.0 の要求専用なので使わない。外部の crate は足さない。
+- **Simplification**:
+  - 版の切り替えの手順に専用の型を作らない。最初の要求は命令ごとの `get_version` がそのまま兼ねる（7.1 と 3.1 の同じ行）。
+  - 失敗の型を作らない（`Option`）。共通のヘッダの引数の構造体を作らない（`&[(&str, &str)]`）。ヘッダの名前の公開の定数を足さない。
+  - 文字列とバイト列の 2 つの版の見分けの関数を作らず、`impl AsRef<[u8]>` の 1 つにする。
+
+### Design Decisions
+
+#### Decision: 版の表し方
+- **Context**: 4.1・4.6・6.1・7.2〜7.4 は SHIORI/3.0・SHIORI/2.x（小さい方の番号）・分からない、の 3 つを返すことを求める。
+- **Alternatives Considered**:
+  1. `enum Version { V3, V2(u8) }` と `Option`
+  2. `struct Version { major, minor }` と、切り替えの結果の別の enum
+- **Selected Approach**: 1。`Response::version` と `version_of` の両方が同じ `Version` を使い、分からないは `None`。
+- **Rationale**: 1 つの型で読み分けと切り替えの両方を表せる。2 は型が 2 つになり、3.0 と 2.x 以外の版の扱いをホストに押しつける。
+- **Trade-offs**: `SHIORI/3.1` などを表せない（`None` にする。仮定 A2）。
+- **Follow-up**: 設計ディスカッションで A2 を確かめる。
+
+#### Decision: 共通のヘッダの渡し方
+- **Context**: 3.2（既定なし・渡したものだけ・命令に固有のヘッダより前）。research の Q4。
+- **Selected Approach**: 命令ごとの関数の最初の引数 `common: &[(&str, &str)]`。汎用の形の `headers` と同じ形。
+- **Rationale**: 名前も順も渡したとおりに書け、`SecurityOrigin` のような「など」も受ける。構造体にすると既定の値や欄の選び方を設計で決めることになり、3.2 の「既定を持たない」と合わない。
+
+#### Decision: 応答の戻り値の形
+- **Context**: 4.1・5.1。research の「戻り値の形」。
+- **Selected Approach**: `Response<'a> { version, status, headers: Headers<'a> }` を `Response::parse(&'a str) -> Option<Self>` で作り、決まったヘッダはメソッドで取り出す。
+- **Rationale**: `protocol` の借用の形（`Headers<'a>`・`HostComplete<'a>`）に揃う。`headers` を公開の欄にするので、`Charset` など決まったヘッダの外もホストが読める（7.7）。
+
+#### Decision: `Value` の代わりの範囲（仮定 A3）
+- **Context**: 5.3 は決まったヘッダが無いとき `Value` を返すことを求めるが、GET Version は決まったヘッダが 3 つある。
+- **Selected Approach**: `Version` には当て、`ID`・`Craftman` には当てない。
+- **Rationale**: SHIORI/3.0 の書き方の `Value` は 1 つの値で、版の問い合わせなら版の文字列に当たる。3 つすべてに当てると名前と作者に同じ値が返る。
+
+#### Decision: README とヘッダの名前の定数
+- README（`shiori4_host/README.md`）に 1 文足す（仮定 A8）。crates.io の顔は役割と入口を書く所（structure.md）で、新しい公開のモジュールは入口の 1 つになるため。
+- ヘッダの名前の公開の定数は足さない（仮定 A4）。命令ごとの関数とメソッドが名前を隠すので、公開すると使われない API が増える。
+
+### Risks & Mitigations
+- SSP が送る `GET Word`・`TEACH`・会話の形は逆アセンブル（[D1]）だけが根拠 — 命令ごとの関数は一次資料の開始行と固有のヘッダに合わせ、テストは一次資料の形で書く。
+- SSP は `Value` を先に読む（[D1]）が、この設計は決まったヘッダを先に読む（要件 5.3 の決定）— 両方を返す SHIORI で SSP と違う値を読みうる。要件の段で決めたことなので変えない。
+- `common` を常に先に書くので、SSP と同じ順（`Event` の後に `Status`）にはならない — ヘッダの順に決まりは無い（[P2]）。順を合わせたいホストは `request` を使う。
