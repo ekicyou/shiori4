@@ -108,7 +108,7 @@
 **Objective:** As a ベースウェア実装者（無人の helper を含む）, I want DLL を開くときに OS のエラーのダイアログが出ず、決まった場所の DLL だけが読まれること, so that 依存の DLL が無いときにも helper が止まらず、探索の順で別の DLL を拾わない（決定 6）
 
 #### Acceptance Criteria
-1. While x86 の Windows で発見の口がライブラリを開いている, the shiori4_host shall OS のエラーのダイアログ（重大なエラーのダイアログとファイルを開けないダイアログ）をそのスレッドで止め、開き終えたら元の設定に戻す。止めるのは x86 の Windows で発見の口がライブラリを開く間だけとし、v4・v3 の DLL を開くときも同じに扱う（開く時点では口の種類が分からないため）。ほかの環境と、x86 の Windows の `GhostRuntime::load`・`V3Runtime::load` の扱いは変えない（議題 7）。
+1. While x86 の Windows で発見の口がライブラリを開いている, the shiori4_host shall OS の重大なエラーのダイアログ（依存の DLL が無いときなど。`SEM_FAILCRITICALERRORS`）をそのスレッドで止め、開き終えたら元の設定に戻す。止めるのは `libloading` が開く間に立てる旗に任せてよい。`SEM_NOOPENFILEERRORBOX` は `OpenFile` 関数にしか効かないので要件にしない（設計の議題 1。brief の決定 6 の旗の組み合わせを、効く所に絞った）。止めるのは x86 の Windows で発見の口がライブラリを開く間だけとし、v4・v3 の DLL を開くときも同じに扱う（開く時点では口の種類が分からないため）。ほかの環境と、x86 の Windows の `GhostRuntime::load`・`V3Runtime::load` の扱いは変えない（議題 7）。
 2. The shiori4_host shall DLL の探索の場所を変える OS の設定（`SetDllDirectory`）を使わない。
 3. If x86 の Windows で発見の口に渡されたライブラリのパスが絶対パスでない, the shiori4_host shall ライブラリを開かずに `LoadError::InvalidPath` を返し、`InvalidPath` の doc を「dir かライブラリのパスが絶対パスでない」に広げる。相対パスを OS の探索の順に任せると別の DLL を拾うおそれがあるため、決定 6「DLL は絶対パスで読み」を、相対パスを断る要件として読む（議題 8）。
 

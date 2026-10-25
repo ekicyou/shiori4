@@ -144,7 +144,7 @@
   - `ErrorModeGuard::new()` は `SetThreadErrorMode(SEM_FAILCRITICALERRORS, &prev)` で置き換え、Drop で `prev` に戻す（0.9.0 も同じ）。外で両方の旗を立てても、`LoadLibraryExW` の間は `SEM_FAILCRITICALERRORS` だけになる。
   - `os::windows::Library::from_raw(handle: isize)` は公開。`impl From<os::windows::Library> for Library` がある。
   - MS の文書では `SEM_NOOPENFILEERRORBOX` は `OpenFile` 関数のダイアログを止める旗で、`LoadLibrary` が出す窓（正しくないイメージ・依存の DLL が無い）は `SEM_FAILCRITICALERRORS` が止める。
-- **Implications**: 自前で `SetThreadErrorMode(両方)` → `LoadLibraryW` → 戻す → `from_raw` で包む。失敗したときだけ、同じ旗の中で `libloading::Library::new` にもう一度開かせ、そのエラーを `LoadError::Library` にする（設計の `open_library`）。代わりに「libloading を両方の旗で包むだけ」でも窓の実害は同じだが、要件 7.1 の字面（開く間に両方を止める）から外れる（設計の Open Question 3）。
+- **Implications**（設計の議題 1 で改めた。今は下の Decision「ライブラリの開き方とダイアログの抑止」のとおり、libloading のまま開く）: 当初の案は、自前で `SetThreadErrorMode(両方)` → `LoadLibraryW` → 戻す → `from_raw` で包む。失敗したときだけ、同じ旗の中で `libloading::Library::new` にもう一度開かせ、そのエラーを `LoadError::Library` にする（設計の `open_library`）。代わりに「libloading を両方の旗で包むだけ」でも窓の実害は同じだが、要件 7.1 の字面（開く間に両方を止める）から外れる（設計の Open Question 3）。
 
 ### `GlobalAlloc(GMEM_FIXED, 0)`
 - **Context**: 空の要求（0 バイト）を渡すとき、確保が NULL を返して失敗と取り違えないか。
@@ -188,14 +188,14 @@
 - **Context**: 要件 9・11.8。
 - **Sources Consulted**: `dtolnay/rust-toolchain` の入力（`targets`・`components`）、`Swatinem/rust-cache`（既定で job の id を鍵に含む）、docs.rs の `[package.metadata.docs.rs]`（`targets` を書くと、その中だけを作る。`default-target` が無ければ最初の要素が既定）。
 - **Findings**: x64 の runner に x64 の toolchain と `i686-pc-windows-msvc` の target を入れて `--target` で作るのが、手元の開発（x64 の toolchain）と同じ形になる。i686 の toolchain をホストとして入れる道は、rustup の「ホストでない toolchain」の扱いに左右される。rust-cache は job ごとに鍵が分かれるので `key` は要らない。
-- **Implications**: CI は `--target i686-pc-windows-msvc` で回す。そのために `test_dll::dll_path()` が x86 のテストでは testghost を同じ target で作る（設計の Open Question 4）。docs.rs は `targets = ["x86_64-unknown-linux-gnu", "i686-pc-windows-msvc"]`。
+- **Implications**: CI は `--target i686-pc-windows-msvc` で回す。そのために `test_dll::dll_path()` が x86 のテストでは testghost を同じ target で作る（設計の議題 4）。docs.rs は `targets = ["x86_64-unknown-linux-gnu", "i686-pc-windows-msvc"]`。
 
 ## Architecture Pattern Evaluation（設計フェーズ）
 | Option | Description | Strengths | Risks / Limitations | Notes |
 |--------|-------------|-----------|---------------------|-------|
 | B: `legacy.rs`（x86 の Windows だけの mod） | FFI・HGLOBAL・dir の変換・実行時の値・開く口を 1 ファイルに置く。discover.rs は x86 の Windows でだけ開く所を差し替える | cfg が 1 ファイルと 1 か所の呼び出しに閉じる。v3.rs と同じ並び。依存を足さない | discover.rs に cfg の枝が 1 つ残る | 採用（ギャップ分析の推す道） |
 | A: discover.rs を伸ばす | 発見の口のファイルに FFI を足す | ファイルが増えない | 発見の順だけの役割に unsafe の FFI が混ざる（structure.md に反する） | 不採用 |
-| `windows-sys` を足す | 宣言を crate から取る | 宣言の誤りが減る | tech.md の「`libloading` だけ」が崩れる。依存の木の管理が増える。使う関数は 6 つだけ | 不採用。kernel32 を直接宣言する（lib.rs の doc の例に前例） |
+| `windows-sys` を足す | 宣言を crate から取る | 宣言の誤りが減る | tech.md の「`libloading` だけ」が崩れる。依存の木の管理が増える。使う関数は 4 つだけ | 不採用。kernel32 を直接宣言する（lib.rs の doc の例に前例） |
 
 ## Design Decisions（設計フェーズ）
 
@@ -216,9 +216,16 @@
 ### Decision: CP_ACP で表せない文字の知らせ方
 - **Context**: 要件 3.4（決定 2）。
 - **Alternatives Considered**: (1) `log` crate、(2) コールバックを入口の引数にする、(3) `eprintln!`、(4) 実行時の値に旗を持たせて読ませる。
-- **Selected Approach**: (4) `LegacyRuntime::dir_lossy() -> bool`。
-- **Rationale**: 依存を足さない（tech.md）。ライブラリが勝手に stderr に書かない。ホストが自分の log に 1 行で流せる。
-- **Trade-offs**: `load` が失敗したときは値が返らないので旗も読めない（その失敗が表せない文字のせいかは、ホストが dir を見て判断する）。
+- **Selected Approach**: (5) 関連関数 `LegacyRuntime::dir_lossy(ghost_dir) -> Result<bool, LoadError>`（設計の議題 2 で (4) の値の旗から改めた。2026-10-25）。
+- **Rationale**: 依存を足さない（tech.md）。ライブラリが勝手に stderr に書かない。ホストが自分の log に 1 行で流せる。値を作らずに呼べるので、`load` が失敗した後にも確かめられる（値の旗では、失敗のときに読めなかった。設計の検証の指摘 2）。
+- **Trade-offs**: dir の正規化と変換を、初期化と別にもう一度行う（どちらも安い）。
+
+### Decision: ライブラリの開き方とダイアログの抑止
+- **Context**: 要件 7.1・7.3・12.1（設計の議題 1・設計の検証の指摘 1 と 3）。
+- **Alternatives Considered**: (1) 自前の `SetThreadErrorMode(両方の旗)` → `LoadLibraryW` → `Library::from_raw`。失敗のときは libloading でもう一度開いてエラーを得る、(2) 今の `libloading::Library::new` のまま、相対パスを断るだけを足す。
+- **Selected Approach**: (2)。要件 7.1 の字面を、`SEM_FAILCRITICALERRORS`（libloading が開く間に立てる）に絞って直した。
+- **Rationale**: `SEM_NOOPENFILEERRORBOX` は `OpenFile` 関数にしか効かない（Microsoft の `SetErrorMode` の文書）。依存の DLL が無いときなどの `LoadLibrary` のダイアログを止めるのは `SEM_FAILCRITICALERRORS`。(1) は `libloading::Error` を外から作れないので、失敗のときにもう一度開く要があり、`DllMain` が 2 回動く。(2) なら kernel32 の宣言が 2 つ減り、エラーモードを戻す試験も要らない。
+- **Trade-offs**: ダイアログの抑止を libloading の振る舞いに頼る（版を上げるときに確かめる。Revalidation Triggers）。brief の決定 6 の旗の組み合わせ（areka の helper の作法）とは字面が違う。
 
 ### Decision: テスト用の DLL
 - **Context**: 要件 8.1〜8.4。
@@ -231,12 +238,12 @@
 
 ## Synthesis（設計フェーズ）
 - **Generalization**: `load`・`loadu`・`request` の入力はどれも「GMEM_FIXED にちょうど len バイトを書き、所有を DLL に渡す」同じ操作なので、1 つの内部の関数（`global_alloc_copy`）にまとめる。応答の受け取り（NULL・負の長さ・写す・解放）も 1 か所。`loadu` と `load` の違いは dir のバイト列だけ（UTF-8 か CP_ACP か）なので、呼ぶ関数の型は 1 つ（`LoadFn`）にする。
-- **Build vs. Adopt**: 動的読み込みは libloading を使い続ける（`from_raw` で包むだけ）。Win32 の宣言は `windows-sys`・`windows` を採らず kernel32 を直接宣言する（6 関数・tech.md）。ANSI の変換器は抱えず `WideCharToMultiByte` に任せる（要件 1.4）。
+- **Build vs. Adopt**: 動的読み込みは libloading を今のまま使い続ける（開き方も変えない。設計の議題 1）。Win32 の宣言は `windows-sys`・`windows` を採らず kernel32 を直接宣言する（4 関数・tech.md）。ANSI の変換器は抱えず `WideCharToMultiByte` に任せる（要件 1.4）。
 - **Simplification**: 毒（poisoned）の状態は持たない（従来の DLL はパニックを ABI のエラーで知らせない。クラッシュはプロセスごと落ちる）。確保と解放の数は公開しない（`#[cfg(test)]` だけ）。`LegacyRuntime` に `entry()` の読み出しは足さない（呼び出し側が `LoadedGhost::Legacy` で既に知っている）。CI の新しい job は 1 つにまとめ（test・clippy・往復）、C の例の x86 のビルドは足さない（要件に無い）。
 
 ## Risks & Mitigations（設計フェーズ）
-- 失敗した DLL をもう一度開くと、`DllMain` が失敗の原因なら初期化のコードが 2 回動く — 失敗のときだけで、成功の道には無い。doc に書く。Open Question 3 で代わりの道を議論する。
-- `LoadLibraryW` は絶対パスでも、依存の DLL を DLL のディレクトリからは探さない（アプリのディレクトリと標準の順）— 今の libloading（フラグ 0）と同じ振る舞いで、この spec では変えない（`SetDllDirectory` も使わない。決定 6）。doc に書く。
+- ダイアログの抑止を libloading の開く間のエラーモードに頼る — libloading の版を上げるときに確かめる（設計の Revalidation Triggers）。
+- ライブラリは絶対パスで開いても、依存の DLL を DLL のディレクトリからは探さない（アプリのディレクトリと標準の順）— 今の libloading（フラグ 0）と同じ振る舞いで、この spec では変えない（`SetDllDirectory` も使わない。決定 6）。doc に書く。
 - x86 の Windows で相対のライブラリのパスが `InvalidPath` になる — 既存の x86 の利用者の振る舞いが変わる（議題 8 で受け入れた）。discover.rs の既存のテスト `os_library_is_not_shiori4`（`kernel32.dll` を相対で渡す）を絶対パスに直す。
 - i686 の CI を手元で確かめきれない — 手元にも i686 の target があり、`cargo test --target i686-pc-windows-msvc` で同じものを走らせられる。CI を変える PR なので見届けてから統合する（workflow.md・要件 9.4）。
 

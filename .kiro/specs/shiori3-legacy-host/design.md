@@ -5,7 +5,7 @@
 
 **Users**: 32bit の helper を書くベースウェアの作者（areka の `shiori_proxy.rs` の置き換え）、自分の HGLOBAL の入口を CI で試したい SHIORI の作者（pasta）、試験用のホスト `shiori4-testhost` の利用者。
 
-**Impact**: x86 の Windows のビルドにだけ、新しいモジュール `legacy`（公開の型 `LegacyRuntime`・`LegacyRequestError`）が加わる。同じ環境で、発見の口はライブラリを自前の `LoadLibraryW` でダイアログを止めて開き、相対のライブラリのパスを断る。ほかの環境のビルド・API・振る舞いは変わらない。
+**Impact**: x86 の Windows のビルドにだけ、新しいモジュール `legacy`（公開の型 `LegacyRuntime`・`LegacyRequestError`）が加わる。同じ環境で、発見の口は相対のライブラリのパスを開かずに断る（開き方そのものは今の `libloading` のまま）。ほかの環境のビルド・API・振る舞いは変わらない。
 
 ### Goals
 - x86 の Windows で、従来の DLL を 1 回だけ初期化し（`loadu` を先に・無ければ `load`）、バイト列で往復させ、`unload` → 解放の順で後始末する。
@@ -24,8 +24,8 @@
 ## Boundary Commitments
 
 ### This Spec Owns
-- `shiori4_host/src/legacy.rs`（x86 の Windows だけ）: kernel32 の宣言、HGLOBAL の受け渡し、`load` の dir の CP_ACP の変換と表せない文字の検出、従来の DLL の実行時の値 `LegacyRuntime`、要求の失敗の型 `LegacyRequestError`、ダイアログを止めてライブラリを開く内部の口 `open_library`。
-- 発見の口（`load_ghost_with`）の、x86 の Windows でのライブラリの開き方（ダイアログの抑止・相対のライブラリのパスの拒否）。発見の順そのものは持たない。
+- `shiori4_host/src/legacy.rs`（x86 の Windows だけ）: kernel32 の宣言、HGLOBAL の受け渡し、`load` の dir の CP_ACP の変換と表せない文字の検出、従来の DLL の実行時の値 `LegacyRuntime`、要求の失敗の型 `LegacyRequestError`、相対のライブラリのパスを断ってから開く内部の口 `open_library`。
+- 発見の口（`load_ghost_with`）の、x86 の Windows での相対のライブラリのパスの拒否。ダイアログの抑止は今の `libloading` が開く間に立てる `SEM_FAILCRITICALERRORS` に任せる（設計の議題 1）。発見の順そのものは持たない。
 - `LoadError::InvalidPath` の意味の拡張（x86 の Windows で「ライブラリのパスが絶対パスでない」も含む）。
 - テスト用の DLL `testdata/legacyghost/` と、確保と解放を数えるテストの内部の口（`#[cfg(test)]` だけ）。
 - `test_dll` の x86 の Windows でのテスト用の DLL の作り方（`--target`）。
@@ -43,8 +43,8 @@
 - x86 の C の例のビルド（CI の job `textbook` の C の例は今のまま x64）。
 
 ### Allowed Dependencies
-- 外部の crate は今の `libloading`（0.8）だけ。`libloading::os::windows::Library::from_raw` と `From<os::windows::Library> for Library` を使う。
-- Win32 は kernel32 の 6 関数（`GlobalAlloc`・`GlobalFree`・`GetACP`・`WideCharToMultiByte`・`SetThreadErrorMode`・`LoadLibraryW`）を `#[link(name = "kernel32")] unsafe extern "system"` で直接宣言する。`windows-sys`・`windows`・`log` は足さない。
+- 外部の crate は今の `libloading`（0.8）だけ。ライブラリは今のまま `libloading::Library::new` で開く。
+- Win32 は kernel32 の 4 関数（`GlobalAlloc`・`GlobalFree`・`GetACP`・`WideCharToMultiByte`）を `#[link(name = "kernel32")] unsafe extern "system"` で直接宣言する。`windows-sys`・`windows`・`log` は足さない。
 - crate の中の依存の向き（下の Architecture）: `legacy.rs` が使ってよいのは `crate::LoadError`・`crate::EntryKind`（型）・`crate::normalize_dir` だけ。`load_ghost`・`load_ghost_with`・`GhostRuntime`・`V3Runtime` を使わない。`discover.rs` は x86 の Windows でだけ `legacy::open_library` を呼んでよい。
 - テスト用の DLL `legacyghost` は外部の crate に依存しない（kernel32 を直接宣言する）。
 
@@ -52,8 +52,8 @@
 - `LegacyRuntime`・`LegacyRequestError` の公開の形（関数の名前・引数・戻り値・列挙の値）を変える → areka の helper・pasta の CI・`doc/textbook/testhost.md` を確かめ直す。
 - 試験用のホストの x86 の Windows の表示・`--entry legacy`・終了の状態を変える → `testhost.md`・example の `//!`・CI の job `test-i686` と下流の CI。
 - `load` の dir の変換の作法（CP_ACP・best-fit・65001 の扱い）を変える → 古い SHIORI の dir の受け取り、`migration.md` の記述。
-- 発見の口の開き方（ダイアログ・相対パス）を変える → x86 の Windows の既存の利用者（相対パスの `InvalidPath`）。
-- `libloading` の版を上げる → `from_raw` の引数の型（今は `isize`）と、失敗のときのエラーの取り方。
+- 発見の口の開き方（相対パス）を変える → x86 の Windows の既存の利用者（相対パスの `InvalidPath`）。
+- `libloading` の版を上げる → 開く間のエラーモード（今は `SEM_FAILCRITICALERRORS` を立てる）が変わっていないか。変わればダイアログの抑止（要件 7.1）を自前で持つ要がある。
 - 発見の順・`LoadedGhost::Legacy` の形が上流（abi-conventions）で変わる → 初期化の入口。
 
 ## Architecture
@@ -63,7 +63,7 @@
 - 実行時の値の手本は `V3Runtime`（`v3.rs`）: `!Send`、Drop で unload → ライブラリの解放、UTF-8 でない応答はエラー。`LegacyRuntime` はこれに揃える。
 - `normalize_dir`（`lib.rs` の非公開の関数）がそのまま要件 3.1 になる。子のモジュールから `crate::normalize_dir` で使える（`v3.rs` と同じ）。
 - Win32 を外部の crate なしに宣言する前例は `lib.rs` の doc の例（`#[link(name = "kernel32")] unsafe extern "system"`）。
-- `libloading` の `Library::new` は開く間だけエラーモードを `SEM_FAILCRITICALERRORS` に置き換え、`SEM_NOOPENFILEERRORBOX` を落とす。`libloading::Error` は外から作れない（research.md の設計フェーズ）。
+- `libloading` の `Library::new` は開く間だけエラーモードを `SEM_FAILCRITICALERRORS` に置き換え、`SEM_NOOPENFILEERRORBOX` を落とす。ただし `SEM_NOOPENFILEERRORBOX` が効くのは `OpenFile` 関数だけで、`LoadLibrary` の「依存の DLL が無い」などのダイアログを止めるのは `SEM_FAILCRITICALERRORS` なので、今の開き方で要件 7.1 を満たす。`libloading::Error` は外から作れない（research.md の設計フェーズ）ので、自前の `LoadLibraryW` に替えると失敗のときのエラーを作れない（設計の議題 1）。
 
 ### Architecture Pattern & Boundary Map
 
@@ -87,7 +87,6 @@ graph TB
     Host --> Discover
     Discover --> Open
     Discover --> Types
-    Open --> Kernel32
     Open --> Libloading
     Host --> Runtime
     Runtime --> Types
@@ -110,8 +109,8 @@ graph TB
 | Layer | Choice / Version | Role in Feature | Notes |
 |-------|------------------|-----------------|-------|
 | 言語 | Rust 1.85 以上・edition 2024 | 全体 | 変更なし |
-| 動的読み込み | `libloading` 0.8 | `from_raw` でハンドルを包む。開けなかったときのエラーの取得 | 新しい依存なし |
-| OS の API | kernel32（直接宣言） | HGLOBAL・CP_ACP の変換・エラーモード・`LoadLibraryW` | x86 の Windows だけ。呼び出し規約は `extern "system"`（x86 では stdcall） |
+| 動的読み込み | `libloading` 0.8 | ライブラリを開く（開く間の `SEM_FAILCRITICALERRORS` でダイアログを止める）・書き出しの解決 | 新しい依存なし・使い方も今のまま |
+| OS の API | kernel32（直接宣言） | HGLOBAL・CP_ACP の変換 | x86 の Windows だけ。呼び出し規約は `extern "system"`（x86 では stdcall） |
 | 従来の DLL の口 | `extern "C"`（x86 の `__cdecl`） | `loadu`・`load`・`request`・`unload` | ukadoc の DLL 共通仕様 |
 | CI | GitHub Actions・`dtolnay/rust-toolchain@stable`（`targets: i686-pc-windows-msvc`）・`Swatinem/rust-cache@v2` | i686 の job | runner は `windows-latest`（x64）で `--target` |
 | 文書 | docs.rs の `[package.metadata.docs.rs]` | i686 の Windows の頁 | `targets` の最初が既定の頁 |
@@ -130,8 +129,8 @@ testdata/
 ```
 
 ### Modified Files
-- `shiori4_host/src/lib.rs` — `#[cfg(all(windows, target_arch = "x86"))] mod legacy;` と `pub use legacy::{LegacyRequestError, LegacyRuntime};`。crate doc の「DLL の選び方と読み方」に従来の DLL の口の項目を足し、例の `Legacy` の枝の文を直す（要件 11.1）。`LoadError::InvalidPath` の doc を広げ、x86 の Windows でだけ Display の文を広げる（要件 7.3・Open Question 7）。
-- `shiori4_host/src/discover.rs` — x86 の Windows でだけ `libloading::Library::new` を `legacy::open_library` に替える（要件 7）。`LoadedGhost::Legacy` と `load_ghost_with` の doc を直す（要件 11.1）。テスト `os_library_is_not_shiori4` の Windows の `kernel32.dll` を絶対パス（`%SystemRoot%\System32\kernel32.dll`）にする（要件 7.3 で相対が断られるため）。
+- `shiori4_host/src/lib.rs` — `#[cfg(all(windows, target_arch = "x86"))] mod legacy;` と `pub use legacy::{LegacyRequestError, LegacyRuntime};`。crate doc の「DLL の選び方と読み方」に従来の DLL の口の項目を足し、例の `Legacy` の枝の文を直す（要件 11.1）。`LoadError::InvalidPath` の doc を広げ、x86 の Windows でだけ Display の文を広げる（要件 7.3・設計の議題 7）。
+- `shiori4_host/src/discover.rs` — x86 の Windows でだけ `libloading::Library::new` を `legacy::open_library`（相対パスを断ってから `Library::new`）に替える（要件 7.3）。`LoadedGhost::Legacy` と `load_ghost_with` の doc を直す（要件 11.1）。テスト `os_library_is_not_shiori4` の Windows の `kernel32.dll` を絶対パス（`%SystemRoot%\System32\kernel32.dll`）にする（要件 7.3 で相対が断られるため）。
 - `shiori4_host/src/test_dll.rs` — x86 の Windows のテストでは `--target i686-pc-windows-msvc` を付けて作り、出力の場所に三つ組を入れる。legacyghost を作る `legacy_dll_path()` と、その書き出しを呼ぶ補助（`legacy_reset`・`legacy_set_response`・`legacy_set_load_result`・`legacy_stats`・`legacy_last_input`）を足す（後者は x86 の Windows だけ）。
 - `shiori4_host/examples/shiori4-testhost.rs` — x86 の Windows の `run_legacy`（往復）、`--entry legacy`、`request error:` の行、冒頭の `//!` と `USAGE`（要件 10）。
 - `shiori4_host/Cargo.toml` — `[package.metadata.docs.rs] targets = ["x86_64-unknown-linux-gnu", "i686-pc-windows-msvc"]`（要件 11.8）。
@@ -157,9 +156,7 @@ sequenceDiagram
     D->>D: normalize_dir で dir を検査
     D->>O: lib_path
     O->>O: 絶対パスか検査
-    O->>O: SetThreadErrorMode 両方の旗
-    O->>O: LoadLibraryW
-    O->>O: SetThreadErrorMode 元に戻す
+    O->>O: libloading Library new で開く 開く間は SEM_FAILCRITICALERRORS
     O-->>D: Library
     D->>D: v4 v3 を試し従来の口の有無を見る
     D-->>H: LoadedGhost Legacy entry library
@@ -226,7 +223,7 @@ graph TB
 | 3.1 | dir の検査と正規化 | LegacyRuntime・normalize_dir | `from_library` | — |
 | 3.2 | loadu に UTF-8 | AcpEncoding | `dir_bytes` | — |
 | 3.3 | load に CP_ACP | AcpEncoding | `dir_bytes`・`to_acp` | — |
-| 3.4 | 表せない文字を知らせて続ける | AcpEncoding・LegacyRuntime | `dir_lossy()` | — |
+| 3.4 | 表せない文字を知らせて続ける | AcpEncoding・LegacyRuntime | `LegacyRuntime::dir_lossy(ghost_dir)` | — |
 | 3.5 | dir を GMEM_FIXED に NUL なしで | HglobalTransfer | `global_alloc_copy` | 発見から往復 |
 | 4.1 | 要求を GMEM_FIXED に NUL なしで | HglobalTransfer | `global_alloc_copy` | 発見から往復 |
 | 4.2 | 入力を解放しない | HglobalTransfer | `global_alloc_copy` | 発見から往復 |
@@ -244,7 +241,7 @@ graph TB
 | 6.2 | 2 回初期化する手段なし | LegacyRuntime | `from_library` がライブラリを値で受ける | — |
 | 6.3 | 1 モジュール 1 インスタンスを doc に | LegacyRuntime の doc | — | — |
 | 6.4 | unload の後に呼ばない | LegacyRuntime | `Drop` が値を消費 | — |
-| 7.1 | 開く間ダイアログを止める | OpenLibrary・discover.rs | `open_library` | 発見から往復 |
+| 7.1 | 開く間ダイアログを止める | OpenLibrary（`libloading` に任せる） | `open_library` | 発見から往復 |
 | 7.2 | SetDllDirectory を使わない | OpenLibrary | — | — |
 | 7.3 | 相対のライブラリのパスは InvalidPath | OpenLibrary・LoadError の doc | `open_library` | 発見から往復 |
 | 8.1 | 本物の口を持つテスト用 DLL | LegacyGhost・test_dll | legacyghost の書き出し | — |
@@ -282,7 +279,7 @@ graph TB
 | LegacyRequestError | `legacy.rs` | 要求の失敗の値 | 4.3, 4.4, 4.6, 5.3, 10.4 | — | Service |
 | HglobalTransfer | `legacy.rs`（非公開） | 入力の確保と書き込み、応答の写しと解放 | 3.5, 4.1–4.6, 8.2 | kernel32 (P0) | Service |
 | AcpEncoding | `legacy.rs`（非公開） | dir を `loadu`・`load` 用のバイト列にする | 1.4, 3.2–3.4 | kernel32 (P0) | Service |
-| OpenLibrary | `legacy.rs`（`pub(crate)`）と `discover.rs` の呼び出し | ダイアログを止め、絶対パスだけを開く | 1.3, 2.6, 7.1–7.3 | kernel32 (P0), libloading (P0) | Service |
+| OpenLibrary | `legacy.rs`（`pub(crate)`）と `discover.rs` の呼び出し | 絶対パスだけを開く（ダイアログは libloading が止める） | 1.3, 2.6, 7.1–7.3 | libloading (P0) | Service |
 | LegacyGhost | `testdata/legacyghost` | 従来の口と数を持つテスト用 DLL | 8.1–8.4, 9.2 | kernel32 (P0) | Service |
 | TestDllSupport | `test_dll.rs`（`#[cfg(test)]`） | テスト用 DLL を同じ target で作り、書き出しを呼ぶ | 8.1, 9.1 | cargo (P0) | Service |
 | TesthostLegacy | `examples/shiori4-testhost.rs` | x86 の Windows で従来の口を往復する枝 | 10.1–10.6 | LegacyRuntime (P0) | Batch |
@@ -325,7 +322,6 @@ pub struct LegacyRuntime {
     // Drop の本体で unload を呼んだ後、宣言の順に落ちる。library は最後
     request: RequestFn,
     unload: UnloadFn,
-    dir_lossy: bool,
     _not_send: PhantomData<*mut ()>,
     library: libloading::Library,
 }
@@ -338,8 +334,10 @@ impl LegacyRuntime {
         ghost_dir: impl AsRef<Path>,
     ) -> Result<Self, LoadError>;
 
-    /// load に渡した dir に CP_ACP で表せない文字があり、置き換えて渡したか（loadu では常に false）
-    pub fn dir_lossy(&self) -> bool;
+    /// dir を load に渡すと CP_ACP で表せない文字が置き換わるか（loadu には関わらない）。
+    /// 値を作らずに呼べるので、初期化の前にも、load が失敗した後にも確かめられる。
+    /// dir の検査は from_library と同じ（InvalidPath）。変換の API の失敗は LoadFailed
+    pub fn dir_lossy(ghost_dir: impl AsRef<Path>) -> Result<bool, LoadError>;
 
     /// 芯: 要求のバイト列を渡し、応答のバイト列を長さのまま受け取る
     pub fn request(&mut self, req: &[u8]) -> Result<Vec<u8>, LegacyRequestError>;
@@ -472,37 +470,30 @@ fn WideCharToMultiByte(
     out: *mut u8, out_len: i32, default_char: *const u8, used_default_char: *mut i32,
 ) -> i32;
 ```
-- `WC_NO_BEST_FIT_CHARS`（0x400）で、表せない文字は既定の文字（`?`）になり `used_default_char` が立つ。best-fit（`é` → `e` のような似た文字への写し）はしない（Open Question 6）。
+- `WC_NO_BEST_FIT_CHARS`（0x400）で、表せない文字は既定の文字（`?`）になり `used_default_char` が立つ。best-fit（`é` → `e` のような似た文字への写し）はしない（設計の議題 6）。
 - ACP が 65001 のとき（システムの UTF-8 の設定か、ホストの exe のマニフェストの `activeCodePage`）は、この旗と `used_default_char` が使えないので変換しない。正規化した dir は UTF-8 なので、そのまま CP_ACP のバイト列でもある。
 - ANSI の変換表は持たない（要件 1.4）。
-- 表せない文字があっても止めない。`LegacyRuntime::dir_lossy()` で読めるようにして `load` を呼ぶ（要件 3.4・Open Question 1）。
+- 表せない文字があっても止めない。`load` はそのまま呼び、ホストは関連関数 `LegacyRuntime::dir_lossy(ghost_dir)`（`normalize_dir` と `to_acp` を使い回す）でいつでも確かめられる（要件 3.4・設計の議題 2）。
 
 #### OpenLibrary（`pub(crate)`）
 
 | Field | Detail |
 |-------|--------|
-| Intent | x86 の Windows の発見の口で、OS のエラーのダイアログを止めて絶対パスのライブラリだけを開く |
+| Intent | x86 の Windows の発見の口で、絶対パスのライブラリだけを開く |
 | Requirements | 1.3, 2.6, 7.1, 7.2, 7.3 |
 
 **Contracts**: Service [x]
 
 ##### Service Interface
 ```rust
-/// 絶対パスでなければ InvalidPath（開かない）。
-/// SetThreadErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX, &mut old) → LoadLibraryW → SetThreadErrorMode(old, NULL)。
-/// 成功は libloading::os::windows::Library::from_raw(h).into()。
-/// 失敗は、同じエラーモードの中で libloading::Library::new(lib_path) にもう一度開かせ、
-/// そのエラーを LoadError::Library にする（成功したらそのライブラリを返す）
+/// 絶対パスでなければ InvalidPath（開かない）。絶対パスなら libloading::Library::new(lib_path)、
+/// 失敗は LoadError::Library（今の発見の口と同じ）
 pub(crate) fn open_library(lib_path: &OsStr) -> Result<libloading::Library, LoadError>;
-
-// kernel32
-fn SetThreadErrorMode(new_mode: u32, old_mode: *mut u32) -> i32;
-fn LoadLibraryW(file_name: *const u16) -> isize; // HMODULE。libloading の from_raw は isize を受ける
 ```
 - `discover.rs` の `load_ghost_with` は、`#[cfg(all(windows, target_arch = "x86"))]` で `crate::legacy::open_library(lib_path.as_ref())?`、それ以外で今の `libloading::Library::new(..).map_err(LoadError::Library)?` を使う。発見の順と残りの手順は変えない（要件 2.6・1.3）。
-- 止めるのは開く間だけで、戻した後は元の設定（要件 7.1）。v4・v3 の DLL を開くときも同じ（開く時点では口の種類が分からない）。`GhostRuntime::load`・`V3Runtime::load` は変えない。
-- `SetDllDirectory` を使わない。`LoadLibraryW` の探索の旗も付けない（今の libloading のフラグ 0 と同じ。要件 7.2）。
-- `LoadError::Library` の値は `libloading::Error` で、外から作れない。もう一度開くのはそのため（Open Question 3）。
+- ダイアログの抑止（要件 7.1）は `libloading::Library::new` に任せる。libloading 0.8 は開く間だけスレッドのエラーモードを `SEM_FAILCRITICALERRORS` にし、開き終えたら元に戻す。依存の DLL が無いときなどのダイアログを止めるのはこの旗で、`SEM_NOOPENFILEERRORBOX` は `OpenFile` 関数にしか効かない（設計の議題 1）。v4・v3 の DLL を開くときも同じ。`GhostRuntime::load`・`V3Runtime::load` は変えない。
+- 自前の `LoadLibraryW` は使わない。使うと、失敗のときに `LoadError::Library` の `libloading::Error` を外から作れず、もう一度開く（`DllMain` が 2 回動く）要が出るため（設計の議題 1）。
+- `SetDllDirectory` を使わない。探索の旗も付けない（今の libloading のフラグ 0 のまま。要件 7.2）。
 
 ### テスト用の DLL とテストの補助
 
@@ -580,7 +571,7 @@ pub(crate) fn legacy_stats(lib: &libloading::Library) -> LegacyStats; // ほか�
 ##### Batch / Job Contract
 - Trigger: `shiori4-testhost [--entry v3|legacy] [-H "名前: 値"]... <SHIORI のファイル> <ゴーストのディレクトリ> [ID]`（`legacy` は x86 の Windows だけ）。
 - Input / validation:
-  - `--entry legacy` は x86 の Windows でだけ受け付け、許可する口を `[EntryKind::Loadu, EntryKind::Load]` にする。ほかの環境では今のまま引数の誤り（64）。`Args` の `v3_only: bool` は、許可する口（`None` = すべて・`Some(&[V3])`・`Some(&[Loadu, Load])`）を持つフィールドに替える（Open Question 8）。
+  - `--entry legacy` は x86 の Windows でだけ受け付け、許可する口を `[EntryKind::Loadu, EntryKind::Load]` にする。ほかの環境では今のまま引数の誤り（64）。`Args` の `v3_only: bool` は、許可する口（`None` = すべて・`Some(&[V3])`・`Some(&[Loadu, Load])`）を持つフィールドに替える（設計の議題 8）。
   - 要求は `v3_request(&request_headers(id, headers))`（v3 互換モードと同じ全文。`Charset: UTF-8`）のバイト列（要件 10.1）。
 - Output / destination（stdout。x86 の Windows の `Legacy` の枝）:
   1. `entry: loadu`（または `load`）— 今のまま。
@@ -666,7 +657,7 @@ pub(crate) fn legacy_stats(lib: &libloading::Library) -> LegacyStats; // ほか�
 | `entry` の口・`unload`・`request` が無い | `NotShiori4` | 呼ばない | ライブラリを解放 | 2.3 |
 | dir が相対か UTF-8 でない | `InvalidPath` | 呼ばない | ライブラリを解放 | 3.1 |
 | dir の CP_ACP の変換の API が失敗 | `LoadFailed` | 呼ばない | ライブラリを解放 | 3.3 |
-| dir に CP_ACP で表せない文字 | 成功し `dir_lossy() == true` | `load` を呼ぶ | — | 3.4 |
+| dir に CP_ACP で表せない文字 | 置き換えた dir で `load` の結果のまま（`LegacyRuntime::dir_lossy(dir)` が `true`） | `load` を呼ぶ | — | 3.4 |
 | 入力の確保に失敗（初期化） | `LoadFailed` | 呼ばない | ライブラリを解放 | 4.3 |
 | `loadu`・`load` が 0 | `LoadFailed` | 1 回呼んだ | `unload` なしでライブラリを解放 | 2.5 |
 | 入力の確保に失敗（要求） | `AllocFailed` | 呼ばない | — | 4.3 |
@@ -674,10 +665,10 @@ pub(crate) fn legacy_stats(lib: &libloading::Library) -> LegacyStats; // ほか�
 | 応答の長さが負 | `NegativeLength(n)` | 呼んだ | 応答を `GlobalFree` | 4.6 |
 | 文字列の口で UTF-8 でない | `InvalidUtf8` | 呼んだ | 応答は解放済み | 5.3 |
 
-- `LoadError::InvalidPath` の doc は「dir が絶対パスでないか UTF-8 で表せない。x86 の Windows の発見の口では、ライブラリのパスが絶対パスでないときも」に広げる。Display は x86 の Windows でだけ `ghost directory or library path is not an absolute path, or the directory is not valid UTF-8` にし、ほかの環境は今の文のまま（要件 1.3・7.3・Open Question 7）。
+- `LoadError::InvalidPath` の doc は「dir が絶対パスでないか UTF-8 で表せない。x86 の Windows の発見の口では、ライブラリのパスが絶対パスでないときも」に広げる。Display は x86 の Windows でだけ `ghost directory or library path is not an absolute path, or the directory is not valid UTF-8` にし、ほかの環境は今の文のまま（要件 1.3・7.3・設計の議題 7）。
 
 ### Monitoring
-- 芯は log を出さない。表せない文字はホストが `dir_lossy()` を読んで自分の log に出す。試験用のホストは往復の表示だけで、`dir_lossy` は表示しない（CI の契約を増やさない）。
+- 芯は log を出さない。表せない文字はホストが `LegacyRuntime::dir_lossy(dir)` を呼んで自分の log に出す（初期化の前でも、`load` が失敗した後でもよい）。試験用のホストは往復の表示だけで、`dir_lossy` は表示しない（CI の契約を増やさない）。
 
 ## Testing Strategy
 
@@ -695,7 +686,7 @@ pub(crate) fn legacy_stats(lib: &libloading::Library) -> LegacyStats; // ほか�
 - 応答: NULL → `NullResponse`。NEGATIVE → `NegativeLength(-1)` で、`responses_allocated` と `RESPONSES_FREED` の増えた数が一致。ECHO で `b"A\0B\r\n\0\0"` → 芯は 7 バイトのまま、`request_str` は `"A\0B\r\n"`。ECHO で Shift_JIS のバイト列 → 芯はそのまま返し、`request_str` は `InvalidUtf8`。ECHO で空の要求 → 空の応答（要件 4.4〜4.8・5.2・5.3・8.3）。
 - 確保と解放の数: 初期化と数回の往復と drop の後に、`INPUTS_ALLOCATED` の増分 == `inputs_freed` の増分、`responses_allocated` の増分 == `RESPONSES_FREED` の増分（要件 4.2・8.2）。
 - unload と解放の順: 別のハンドルを持って drop → `unload == 1`。別のハンドルを持たずに drop → `libloading::os::windows::Library::open_already_loaded(path)` が失敗する（モジュールが外れた）（要件 6.1・8.3）。
-- 開き方: 相対のライブラリのパス（`legacyghost.dll`）→ `InvalidPath`。在らない絶対パス → `Library`。`os_library_is_not_shiori4` は絶対パスの kernel32 で `NotShiori4`（要件 7.1・7.3）。
+- 開き方: 相対のライブラリのパス（`legacyghost.dll`）→ `InvalidPath`。在らない絶対パス → `Library`。`os_library_is_not_shiori4` は絶対パスの kernel32 で `NotShiori4`（要件 7.3）。エラーモードは libloading が持つので、このクレートでは試験しない（要件 7.1）。
 - `!Send`: `legacy.rs` の doc の `compile_fail` の例（要件 2.7）。
 
 ### E2E（CI の job `test-i686` と試験用のホスト）
@@ -716,23 +707,23 @@ pub(crate) fn legacy_stats(lib: &libloading::Library) -> LegacyStats; // ほか�
 ## Integration & Migration Notes
 - この spec の PR は CI を変える（job `test-i686`）。PR の CI が通るのを見届けてから統合する（workflow.md・要件 9.4）。
 - x86 の Windows の既存の利用者: 発見の口に相対のライブラリのパスを渡していたら `InvalidPath` になる（議題 8）。release notes に書く。
-- areka の helper の乗り換え: `LoadLibraryW` から `request` までが `load_ghost_with(.., &[Loadu, Load])` と `LegacyRuntime` に置き換わる。違いは (1) dir の変換で best-fit をしない、(2) 表せない文字の警告は `dir_lossy()` を見て helper が出す、(3) 失敗の型が `LoadError`・`LegacyRequestError`。
+- areka の helper の乗り換え: ライブラリを開く所から `request` までが `load_ghost_with(.., &[Loadu, Load])` と `LegacyRuntime` に置き換わる。違いは (1) dir の変換で best-fit をしない、(2) 表せない文字の警告は `LegacyRuntime::dir_lossy(dir)` を見て helper が出す、(3) 失敗の型が `LoadError`・`LegacyRequestError`。
 - 版は上げない（`/release` が上げる）。
 
-## Open Questions / Risks
-設計の議論で決める事項。各項目の「仮定」は、この設計の本文がその仮定で書かれていることを示す。
+## 設計の議論の決定
+2026-10-25 の設計の議論で、全議題を推奨案で確定した。本文はこの決定で書いてある。
 
-1. **CP_ACP で表せない文字の知らせ方**（要件 3.4。AcpEncoding・LegacyRuntime の `dir_lossy()`）— 仮定: 実行時の値の `dir_lossy() -> bool`。ほかの道: `log` crate（依存が増える）・入口にコールバックを足す（API が重くなる）・`eprintln!`（ライブラリが勝手に書く）。推す: 仮定のまま。限り: `load` が失敗すると旗を読めない。
-2. **要求の失敗の表し方**（要件 4.4。LegacyRequestError）— 仮定: 専用の列挙 `LegacyRequestError`。ほかの道: `ShioriStatus` の ABI のエラーを使い回す（NULL・負の長さに合う値が無い）、`SHIORI_E_*` に足す（ABI の規約が変わる）。推す: 仮定のまま。
-3. **ライブラリを開けなかったときのエラーの作り方**（要件 7.1 × 12.1。OpenLibrary）— 仮定: 自前の `LoadLibraryW` が失敗したら、同じエラーモードの中で `libloading::Library::new` にもう一度開かせてエラーを得る（`libloading::Error` は外から作れない）。代償: `DllMain` が失敗の原因なら初期化のコードが 2 回動く。ほかの道: libloading を両方の旗で包むだけ（`LoadLibraryExW` の間は `SEM_FAILCRITICALERRORS` だけになるが、`SEM_NOOPENFILEERRORBOX` は `OpenFile` だけに効くので実害は同じ。コードは最も小さいが、要件 7.1 の字面を改める要がある）。推す: 仮定のまま（承認済みの要件の字面を守り、areka の helper と同じ開き方になる）。
-4. **i686 のテストの DLL の作り方**（要件 9.1。TestDllSupport・CiJob）— 仮定: `test_dll` が x86 の Windows のテストで `--target i686-pc-windows-msvc` を付けて作る。ほかの道: CI で i686 の toolchain をホストとして入れ、コードを変えない（手元の x64 の toolchain から `--target` で試すと落ちたまま。rustup のホストでない toolchain の扱いに左右される）。推す: 仮定のまま。
-5. **テスト用の DLL の形**（要件 8.1。LegacyGhost）— 仮定: 依存なしの新しい cdylib `testdata/legacyghost`。testghost は変えず「`unload`・`request` が無い DLL」の試験に使う。「`loadu` が無い DLL」は許可する口で作る。ほかの道: testghost に本物の口を足す（`shiori_get_api` を持つので許可する口で絞る要があり、`request` が無い DLL の試験に別のモードか別のビルドが要る）。推す: 仮定のまま。
-6. **CP_ACP の変換の作法**（要件 3.3・3.4。AcpEncoding）— 仮定: `WC_NO_BEST_FIT_CHARS` と `lpUsedDefaultChar`。ACP が 65001 なら UTF-8 をそのまま。areka の helper は best-fit を許し、戻して比べて見つける（`é` が `e` になって渡る）。推す: 仮定のまま（似た文字に黙って写すと別のディレクトリの名前になり得る。手元の CP932 で `é` → `e` を確かめた）。
-7. **`InvalidPath` の Display**（要件 7.3 × 1.3。lib.rs の `LoadError`）— 仮定: doc は全環境で広げ、Display の文は x86 の Windows でだけ広げる。ほかの道: 全環境で Display を広げる（ほかの環境の文が変わる）・Display を変えない（x86 の Windows でライブラリのパスのときに文が誤る）。推す: 仮定のまま。
-8. **試験用のホストの細部**（要件 10.3・10.4。TesthostLegacy）— 仮定: `--entry legacy` は x86 の Windows でだけ受け付け、ほかでは今のまま 64。要求の失敗の行は stdout の `request error: <名前>: <説明>`。推す: 仮定のまま（ほかの環境の CI の契約を変えず、`load error:` と同じ形で読める）。
-9. **公開の名前**（要件 2.1・5.1。LegacyRuntime・LegacyRequestError）— 仮定: `LegacyRuntime::from_library(entry, library, dir)`・`request(&[u8]) -> Vec<u8>`（芯）・`request_str(&str) -> String`（便利な層）・`dir_lossy()`・`LegacyRequestError`。ほかの道: `V3Runtime` に揃えて `request(&str)` を文字列にし、芯を `request_bytes` にする。推す: 仮定のまま（裁定 a で芯がバイト列なので、短い名前を芯に付ける）。
+1. **ライブラリの開き方**（要件 7.1・7.3。OpenLibrary）: 今の `libloading::Library::new` のまま開き、x86 の Windows では相対のライブラリのパスを開く前に `InvalidPath` で断るだけを足す。依存の DLL が無いときなどのダイアログを止めるのは `SEM_FAILCRITICALERRORS` で、libloading が開く間に立てている。`SEM_NOOPENFILEERRORBOX` は `OpenFile` 関数にしか効かない（Microsoft の `SetErrorMode` の文書）。自前の `LoadLibraryW` に替えると、失敗のときに `libloading::Error` を外から作れず、もう一度開く（`DllMain` が 2 回動く）要が出る。要件 7.1 の字面をこれに合わせて直した。
+2. **CP_ACP で表せない文字の知らせ方**（要件 3.4。AcpEncoding・LegacyRuntime）: 関連関数 `LegacyRuntime::dir_lossy(ghost_dir) -> Result<bool, LoadError>`。値を作らずに呼べるので、`load` が失敗した後にも確かめられる。依存も `LoadError` の値も足さず、ライブラリは log を書かない。
+3. **要求の失敗の表し方**（要件 4.4）: 専用の列挙 `LegacyRequestError`。NULL・負の長さに合う `SHIORI_E_*` は無く、足すと ABI の規約が変わる。
+4. **i686 のテストの DLL の作り方**（要件 9.1）: `test_dll` が x86 の Windows のテストで `--target i686-pc-windows-msvc` を付けて作る。手元の x64 の toolchain からも `--target` で再現できる。
+5. **テスト用の DLL の形**（要件 8.1）: 依存なしの新しい cdylib `testdata/legacyghost`。testghost は変えず、`unload`・`request` が無い DLL の試験に使う。
+6. **CP_ACP の変換の作法**（要件 3.3）: `WC_NO_BEST_FIT_CHARS` と `lpUsedDefaultChar`。ACP が 65001 なら UTF-8 をそのまま。best-fit で似た文字に写すと、別の（在るかもしれない）ディレクトリの名前になるため。areka の helper（best-fit を許す）とはここが違う。
+7. **`InvalidPath` の Display**（要件 7.3・1.3）: doc は全環境で広げ、Display の文は x86 の Windows でだけ広げる。ほかの環境の文は変えない。
+8. **試験用のホストの細部**（要件 10.3・10.4）: `--entry legacy` は x86 の Windows でだけ受け付ける（ほかでは今のまま 64）。要求の失敗は stdout の `request error: <名前>: <説明>` で終了の状態 2（`abi error:` と同じく stdout）。
+9. **公開の名前**（要件 2.1・5.1）: `LegacyRuntime::from_library(entry, library, dir)`・`request(&[u8]) -> Vec<u8>`（芯）・`request_str(&str) -> String`（便利な層）・`LegacyRuntime::dir_lossy(dir)`・`LegacyRequestError`。裁定 a で芯がバイト列なので、短い名前を芯に付ける。
 
 **Risks**
-- `LoadLibraryW` は絶対パスでも、依存の DLL を DLL のディレクトリからは探さない（今の libloading と同じ）。依存の DLL を同じディレクトリに置く SHIORI は読めないことがある。この spec では変えず、doc に書く。
+- ライブラリは絶対パスで開いても、依存の DLL は DLL のディレクトリからは探さない（今の libloading と同じ）。依存の DLL を同じディレクトリに置く SHIORI は読めないことがある。この spec では変えず、doc に書く。
 - i686 の CI は手元でも `cargo test --target i686-pc-windows-msvc` で再現できるが、初めての job なので PR の CI を見届ける（要件 9.4）。
-- `libloading` の版を上げると `from_raw` の引数の型が変わり得る（Revalidation Triggers）。
+- `libloading` の版を上げて、開く間のエラーモードの扱いが変わると、ダイアログの抑止（要件 7.1）が崩れる（Revalidation Triggers）。
