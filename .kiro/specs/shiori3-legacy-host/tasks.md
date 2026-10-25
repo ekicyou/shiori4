@@ -105,7 +105,7 @@
   - _Depends: 5, 6_
   - _Requirements: 10.6, 11.2, 11.3, 11.4, 11.5, 11.6_
 
-- [ ] 8. 全環境の互換と依存を確かめる
+- [x] 8. 全環境の互換と依存を確かめる
   - x64 の Windows で `cargo test --all`・clippy（`-D warnings`）・`cargo deny check`・`cargo package` が通る
   - i686 で `cargo test --all --target i686-pc-windows-msvc` と clippy（`-D warnings`）が通り、タスク 6 の往復の手順が手元で期待どおりの終了の状態になる
   - `cargo tree` の依存の木（i686 以外）と 3 クレートの版が変わっていない
@@ -117,3 +117,4 @@
 - testdata/legacyghost は kernel32 を直接リンクし cfg(windows) の guard を持たないので、Windows でだけビルドする（2.3 の補助も Windows に限る）。clippy・test はルートの workspace に入らないので manifest を指定して走らせる。
 - test_dll.rs の legacyghost の応答の種類の定数は RESPONSE_ECHO だけ。OK/NULL/NEGATIVE（0/1/2）は使うタスクで足す。LegacyStats は DLL の struct の手写しなので両方を揃えて直す。
 - legacyghost を読むテストは 1 プロセスに 1 モジュールの状態を共有するので、test_dll::lock() で直列にし、前後で legacy_reset する（legacy.rs の with_legacy）。
+- タスク 8 の統合の関門（PR の CI、特に新しい job test-i686-windows が通るのを見届けてから統合する）は PR の段で守る。手元では x64・i686 の test・clippy・fmt・cargo deny・cargo package と CI の往復の段の再生が通り、Cargo.lock と 3 クレートの版は main から変わっていない。
