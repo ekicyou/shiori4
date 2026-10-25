@@ -36,14 +36,39 @@ type RequestFn = unsafe extern "C" fn(h: *mut c_void, len: *mut i32) -> *mut c_v
 type UnloadFn = unsafe extern "C" fn() -> i32;
 
 /// 従来の口（`loadu`・`load`・`request`・`unload`）の DLL を 1 回だけ初期化した実行時の値
+///
+/// `!Send`・`!Sync`。作ったスレッドで使うこと（[`crate::V3Runtime`] と同じ）。
+/// Drop で `unload` を 1 回呼び（戻り値は見ない）、その後でライブラリを解放する。手放した後は DLL の関数を呼ばない。
+///
+/// - 1 つのモジュールに 1 インスタンスだけ。同じファイルを 2 回開くと同じモジュールになり、従来の ABI にはハンドルが無い。
+///   2 体目は別のファイルか別のプロセスで読む。
+/// - 渡すライブラリは、発見の口（`load_ghost`・`load_ghost_with`）が `LoadedGhost::Legacy` で返したものにする。
+///   開いた時点で DLL の初期化のコードが動いているので、信頼できる DLL だけを読むこと。自分で `Library::new` すると
+///   ダイアログの抑止と絶対パスの検査が効かない。
+/// - `ghost_dir` には、発見の口に渡したのと同じ dir を渡す（`LoadedGhost::Legacy` は dir を持たない）。
+/// - ホストに残すもの: プロセスの起こし方・IPC・待ち時間・強制終了・カレントディレクトリ・本文の文字コードの方針。
+///   この型は要求と応答の中身を解釈しない。
+///
+/// 別のスレッドへは送れない:
+///
+/// ```compile_fail,E0277
+/// fn f<T: Send>() {}
+/// f::<shiori4_host::LegacyRuntime>();
+/// ```
 pub struct LegacyRuntime {
     #[allow(dead_code)] // request（task 3.4）が使う
     request: RequestFn,
-    #[allow(dead_code)] // Drop（task 3.3）が使う
     unload: UnloadFn,
     _not_send: PhantomData<*mut ()>,
-    // 最後に落ちる
+    // Drop の本体で unload を呼んだ後、宣言の順に落ちる。ライブラリは最後
     _library: libloading::Library,
+}
+
+impl Drop for LegacyRuntime {
+    fn drop(&mut self) {
+        // SAFETY: 初期化は済んでいて、ライブラリはまだ開いている。以後 DLL の関数は呼ばない
+        unsafe { (self.unload)() };
+    }
 }
 
 impl LegacyRuntime {
@@ -393,7 +418,8 @@ mod tests {
             assert_eq!(entry, EntryKind::Loadu);
             assert!(LegacyRuntime::from_library(entry, library, DIR).is_ok());
             let s = test_dll::legacy_stats(stats);
-            assert_eq!((s.loadu, s.load, s.unload), (1, 0, 0));
+            // 値は is_ok の後すぐ落ちて unload が 1 回
+            assert_eq!((s.loadu, s.load, s.unload), (1, 0, 1));
             assert_eq!(
                 test_dll::legacy_last_input(stats),
                 DIR_NORMALIZED.as_bytes()
@@ -413,7 +439,7 @@ mod tests {
             assert_eq!(entry, EntryKind::Load);
             assert!(LegacyRuntime::from_library(entry, library, DIR).is_ok());
             let s = test_dll::legacy_stats(stats);
-            assert_eq!((s.loadu, s.load, s.unload), (0, 1, 0));
+            assert_eq!((s.loadu, s.load, s.unload), (0, 1, 1));
             let (acp, _) = to_acp(DIR_NORMALIZED).expect("convert");
             assert_eq!(test_dll::legacy_last_input(stats), acp);
         });
@@ -442,7 +468,11 @@ mod tests {
             let r = LegacyRuntime::from_library(EntryKind::Load, open_legacy(), DIR);
             assert!(matches!(r, Err(LoadError::LoadFailed)));
             let s = test_dll::legacy_stats(stats);
-            assert_eq!((s.loadu, s.load, s.unload), (3, 1, 0));
+            assert_eq!(
+                (s.loadu, s.load, s.unload),
+                (3, 1, 3),
+                "失敗した 1 回は unload しない"
+            );
         });
     }
 
@@ -476,6 +506,43 @@ mod tests {
                 test_dll::LegacyStats::default()
             );
         });
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetModuleHandleW(name: *const u16) -> *mut c_void;
+    }
+
+    /// legacyghost がプロセスに読まれているか
+    fn legacy_module_loaded() -> bool {
+        use std::os::windows::ffi::OsStrExt;
+        let wide: Vec<u16> = test_dll::legacy_dll_path()
+            .as_os_str()
+            .encode_wide()
+            .chain([0])
+            .collect();
+        !unsafe { GetModuleHandleW(wide.as_ptr()) }.is_null()
+    }
+
+    #[test]
+    fn drop_calls_unload_once() {
+        with_legacy(|stats| {
+            let rt =
+                LegacyRuntime::from_library(EntryKind::Loadu, open_legacy(), DIR).expect("init");
+            assert_eq!(test_dll::legacy_stats(stats).unload, 0);
+            drop(rt);
+            let s = test_dll::legacy_stats(stats);
+            assert_eq!((s.loadu, s.load, s.unload), (1, 0, 1));
+        });
+    }
+
+    #[test]
+    fn drop_frees_the_library() {
+        let _g = test_dll::lock();
+        let rt = LegacyRuntime::from_library(EntryKind::Loadu, open_legacy(), DIR).expect("init");
+        assert!(legacy_module_loaded());
+        drop(rt);
+        assert!(!legacy_module_loaded());
     }
 
     #[test]
