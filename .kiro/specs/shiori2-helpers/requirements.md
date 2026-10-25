@@ -97,8 +97,8 @@
 2. The shiori2 shall 改行が CRLF でも LF でも同じに読み、終端の空行より後ろを読まない。
 3. The shiori2 shall 理由句を読み分けに使わない（理由句が無いか知らない語でも、ステータスの数だけで読む）。
 4. The shiori2 shall 一次資料に無いステータスの数（例: 一次資料に無い 3 桁の数）も、数のまま返す。
-5. If 応答の開始行が `SHIORI/` で始まらないか、版かステータスの数が読めない, the shiori2 shall 読み分けずに、ホストがそれと分かる失敗を返す。
-6. When 応答の開始行の版が SHIORI/3.0 である, the shiori2 shall その版を SHIORI/3.0 として返し、SHIORI/2.x の応答と取り違えない（SHIORI/2.x の要求に SHIORI/3.0 の開始行で答える SHIORI がある。華和梨 8）。
+5. If 応答の開始行の版が分からない（要件 6.4）か、ステータスの数が読めない, the shiori2 shall 読み分けずに、ホストがそれと分かる失敗を返す。
+6. When 応答の開始行が `SHIORI/3` で始まる, the shiori2 shall その版を SHIORI/3.x として返し、SHIORI/2.x の応答と取り違えない（SHIORI/2.x の要求に SHIORI/3.0 の開始行で答える SHIORI がある。華和梨 8）。
 7. When ステータスが 311（Not Enough）か 312（Advice）である, the shiori2 shall それを `TEACH` の続きを求める応答としてホストが見分けられる形で返す（問い直しの繰り返しは持たない。議題 5）。
 
 ### Requirement 5: 命令ごとの決まったヘッダの取り出し
@@ -122,10 +122,10 @@
 **Objective:** As a ベースウェア実装者, I want 応答の開始行の版を、文字コードを変える前のバイト列からも読めること, so that 本文が Shift_JIS の応答でも、変換する前に SHIORI/3.0 か SHIORI/2.x かを決められる（決定 3・6）
 
 #### Acceptance Criteria
-1. When ホストが応答のバイト列を渡す, the shiori2 shall 文字コードを仮定せずに、開始行の ASCII の部分だけから版（SHIORI/3.0・SHIORI/2.x とその小さい方の番号）を読む。
+1. When ホストが応答のバイト列を渡す, the shiori2 shall 文字コードを仮定せずに、開始行の先頭の ASCII の `SHIORI/2` か `SHIORI/3` だけから版（SHIORI/2.x か SHIORI/3.x）を読む。小さい方の番号は読まない（`SHIORI/2` まで読めば決まるため。設計議題 1）。
 2. When ホストが応答の文字列を渡す, the shiori2 shall バイト列のときと同じ結果を返す。
 3. The shiori2 shall 版の見分けに、開始行より後ろ（ヘッダ・本文）を読まない。
-4. If 開始行が `SHIORI/<大きい方の番号>.<小さい方の番号>` の形でない（空・ASCII でない・番号が読めない）, the shiori2 shall 版が分からないことを返す（失敗を版の推測で埋めない）。
+4. If 開始行が `SHIORI/2` でも `SHIORI/3` でも始まらない（空・ASCII でない・ほかの大きい方の番号）, the shiori2 shall 版が分からないことを返す（失敗を版の推測で埋めない）。
 5. The shiori2 shall 版の見分けを、ステータスの数で行わない（SHIORI/2.x の SHIORI は辞書に無い出来事にも 400 を返すので、400 は版の手がかりにならない）。
 
 ### Requirement 7: 版の切り替えの手順
@@ -133,8 +133,8 @@
 
 #### Acceptance Criteria
 1. The shiori2 shall 版を見分けるために最初に送る要求として、SSP と同じ `GET Version SHIORI/2.6` を組み立てる便利関数を持つ（SSP の実測で確かめた手順。議題 1）。
-2. When ホストが最初の要求への応答（文字列かバイト列）を渡し、開始行の版が SHIORI/3.0 である, the shiori2 shall この後は SHIORI/3.0 で話すと返す。
-3. When ホストが応答を渡し、開始行の版が SHIORI/2.x である, the shiori2 shall この後は SHIORI/2.x で話すと返し、応答の開始行の小さい方の番号（SHIORI が名乗る版）もあわせて返す。
+2. When ホストが最初の要求への応答（文字列かバイト列）を渡し、開始行が `SHIORI/3` で始まる, the shiori2 shall この後は SHIORI/3.0 の形で話すと返す。
+3. When ホストが応答を渡し、開始行が `SHIORI/2` で始まる, the shiori2 shall この後は SHIORI/2.x で話すと返す。
 4. If 応答の版が分からない（要件 6.4）か、ホストが応答を得られなかった（ABI のエラー・空の応答）, the shiori2 shall どちらとも決めずに、版が分からないことを返す。そのゴーストをどう扱うかはホストが決める。
 5. The shiori2 shall 版の切り替えの手順に、ステータスの数を使わない（要件 6.5）。
 6. The shiori2 shall 版の切り替えの手順で、DLL を呼ばず、状態を持たない（要求を送るのも、決まった版を覚えておくのもホスト。便利関数は「何を送るか」と「応答をどう読むか」だけを持つ。関数の詳しい形は設計で決める）。

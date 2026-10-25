@@ -25,7 +25,7 @@
 
 ### This Spec Owns
 - `shiori4_host/src/shiori2.rs`（全環境）: 要求の組み立て（`request` と命令ごとの 9 つの関数）、応答の型 `Response<'a>` とその読み分け・決まったヘッダの取り出し、版の型 `Version` と版の見分け `version_of`、それらのテスト。
-- 開始行の語の検査の決まり（空白・CR・LF・空の語は失敗）と、版の見分けの決まり（開始行の版の語だけを ASCII として読む）。
+- 開始行の語の検査の決まり（空白・CR・LF・空の語は失敗）と、版の見分けの決まり（開始行の先頭が ASCII の `SHIORI/2` か `SHIORI/3` か）。
 - `shiori4_host/src/lib.rs` の 3 か所: `pub mod shiori2;`、ルートの再エクスポートへの `SHIORI_311_NOT_ENOUGH`・`SHIORI_312_ADVICE` の追加、crate doc の「DLL の選び方と読み方」への道案内の 1 項目。
 - 文書: `doc/textbook/migration.md` の「v3 互換モードと旧来の DLL」の箇条への 1 行、`shiori4_host/README.md` の「使い始めの入口」への 1 文。
 
@@ -43,7 +43,7 @@
 
 ### Revalidation Triggers
 - `shiori2` の公開の形（関数の名前・引数・戻り値・`Version` の値・`Response` の欄とメソッド）を変える → areka の spec `shiori2-protocol` の乗り換え、教科書の一言。
-- 版の見分けの決まり（何を `SHIORI/3.0` と読むか・`None` にする範囲）を変える → 版の切り替えをこの関数に任せているホスト。
+- 版の見分けの決まり（何を SHIORI/3.x・SHIORI/2.x と読むか・`None` にする範囲）を変える → 版の切り替えをこの関数に任せているホスト。
 - 命令ごとの関数の開始行の版や決まったヘッダを変える → SSP と同じ形を前提にしている SHIORI/2.x の DLL との往復。
 - `shiori4::protocol::Headers` の読み分けの規則・`HeaderWriter` の CR/LF の除き方が上流（host-protocol）で変わる → `shiori2` の読み分けと組み立てがそのまま引き継ぐので、テストを確かめ直す。
 
@@ -94,7 +94,7 @@ shiori4_host/src/
     ├── //!                    モジュールの doc（持つもの・持たないもの・例 1 つ）
     ├── // ==== 要求の組み立て   request・命令ごとの 9 つ・非公開の開始行の検査
     ├── // ==== 応答の読み分け   Response<'a>（parse と決まったヘッダの取り出し）
-    ├── // ==== 版の見分け       Version・version_of・非公開の版の語の読み分け
+    ├── // ==== 版の見分け       Version・version_of・非公開の開始行の先頭の読み分け
     └── #[cfg(test)] mod tests  2〜7 のテスト
 ```
 
@@ -129,7 +129,7 @@ sequenceDiagram
     end
 ```
 
-- 版は開始行の版の語だけで決め、ステータスは見ない（6.5・7.5）。`SHIORI/3.0 400 Bad Request`（shiori4 の SHIORI の側の答え）も `V3` と読む。
+- 版は開始行の先頭（`SHIORI/2`・`SHIORI/3`）だけで決め、ステータスは見ない（6.5・7.5）。`SHIORI/3.0 400 Bad Request`（shiori4 の SHIORI の側の答え）も `V3` と読む。
 - `LegacyRuntime::request` が `Err` を返したときは、ホストは応答を持たないので版は分からない。ホストは `version_of(b"")`（空の応答と同じ扱いで `None`）か、`Err` をそのまま「分からない」として扱う（7.4）。
 - 決まった版を覚えておくのも、この後どちらで話すかを選ぶのもホスト（7.6）。最初の要求を SHIORI/3.0 の要求にするホストも、同じ `version_of` で見分けられる（7.8）。
 
@@ -161,7 +161,7 @@ sequenceDiagram
 | 4.3 | 理由句を使わない | Response | 版の語とステータスの語だけ読む | — |
 | 4.4 | 知らないステータスも数で | Response | `status: ShioriStatus` | — |
 | 4.5 | 読めない開始行は失敗 | Response | `parse` が `None` | — |
-| 4.6 | SHIORI/3.0 を取り違えない | Response・VersionDetector | `Version::V3` | — |
+| 4.6 | SHIORI/3.x を取り違えない | Response・VersionDetector | `Version::V3` | — |
 | 4.7 | 311・312 を見分けられる | Response・LibWiring | `status` と再エクスポートした定数 | — |
 | 5.1 | 決まったヘッダの取り出し | Response | `sentence`・`word`・`string`・`status_header`・`id`・`craftman`・`version_header` | — |
 | 5.2 | 無ければ値なし | Response | `Option::None` | — |
@@ -172,10 +172,10 @@ sequenceDiagram
 | 6.2 | 文字列でも同じ結果 | VersionDetector | `version_of(impl AsRef<[u8]>)` | 版の見分け |
 | 6.3 | 開始行より後ろを読まない | VersionDetector | 最初の LF より前だけ | — |
 | 6.4 | 形でなければ分からない | VersionDetector | `None` | 版の見分け |
-| 6.5 | ステータスで見分けない | VersionDetector | 版の語だけを読む | 版の見分け |
+| 6.5 | ステータスで見分けない | VersionDetector | 開始行の先頭だけを読む | 版の見分け |
 | 7.1 | 最初の要求 `GET Version SHIORI/2.6` | RequestBuilder | `get_version` | 版の見分け |
-| 7.2 | SHIORI/3.0 なら 3.0 で話す | VersionDetector | `Some(Version::V3)` | 版の見分け |
-| 7.3 | SHIORI/2.x なら 2.x と小さい方の番号 | VersionDetector | `Some(Version::V2(n))` | 版の見分け |
+| 7.2 | `SHIORI/3` なら 3.0 の形で話す | VersionDetector | `Some(Version::V3)` | 版の見分け |
+| 7.3 | `SHIORI/2` なら 2.x で話す | VersionDetector | `Some(Version::V2)` | 版の見分け |
 | 7.4 | 分からない・応答なし | VersionDetector | `None`（空の応答も） | 版の見分け |
 | 7.5 | ステータスを使わない | VersionDetector | 6.5 と同じ | 版の見分け |
 | 7.6 | DLL を呼ばず状態を持たない | RequestBuilder・VersionDetector | 状態の無い関数 2 つ | 版の見分け |
@@ -195,7 +195,7 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|--------------------------|-----------|
 | RequestBuilder | `shiori2.rs` の節「要求の組み立て」 | SHIORI/2.x の要求の全文を作る | 1.5, 2.1–2.6, 3.1–3.6, 7.1, 7.6 | `HeaderWriter`（P0） | Service |
 | Response | `shiori2.rs` の節「応答の読み分け」 | 応答の全文を版・ステータス・ヘッダに分け、決まったヘッダを取り出す | 1.5, 4.1–4.7, 5.1–5.5 | `Headers`（P0）、VersionDetector（P0） | Service |
-| VersionDetector | `shiori2.rs` の節「版の見分け」 | 開始行の版の語から `Version` を読む | 4.6, 6.1–6.5, 7.2–7.8 | なし | Service |
+| VersionDetector | `shiori2.rs` の節「版の見分け」 | 開始行の先頭から `Version` を読む | 4.6, 6.1–6.5, 7.2–7.8 | なし | Service |
 | LibWiring | `lib.rs` | モジュールの公開・定数の再エクスポート・crate doc | 1.1–1.3, 1.6, 4.7, 8.4 | — | — |
 | Docs | `migration.md`・`README.md`・`shiori2.rs` の doc | 道案内と、持たないものの明記 | 8.4–8.6 | — | — |
 | Tests | `shiori2.rs` の `mod tests` | 2〜7 の振る舞いを確かめる | 8.1, 8.2 | 上の 3 つ（P0） | — |
@@ -256,14 +256,14 @@ pub fn translate_sentence(common: &[(&str, &str)], sentence: &str) -> String;   
 | Requirements | 1.5, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 5.3, 5.4, 5.5 |
 
 **Responsibilities & Constraints**
-- 開始行は最初の LF までの 1 行（末尾の CR を除く）。ASCII の空白で区切った 1 つ目の語を VersionDetector の決まりで `Version` に読み、2 つ目の語を ASCII の数字だけの `ShioriStatus` として読む。3 つ目より後ろ（理由句）は読まない（4.3）。
+- 開始行は最初の LF までの 1 行（末尾の CR を除く）。開始行の先頭を VersionDetector の決まりで `Version` に読み、ASCII の空白で区切った 2 つ目の語を ASCII の数字だけの `ShioriStatus` として読む。版の語の小さい方の番号は読まない（版が決まった後に中身が読めないのは、版の見分けとは別の失敗。設計議題 1）。3 つ目より後ろ（理由句）は読まない（4.3）。
 - 版が `Version` に読めないか、ステータスの語が無いか数でないなら `None`（4.5）。知らない数（例: 299・999）は数のまま返す（4.4）。
 - ヘッダは開始行の次の行から、最初の空行（`\n` か `\r\n` だけの行）の手前までを切り出して `Headers::parse` に渡す（4.1・4.2）。空行が無ければ末尾まで。
 - 決まったヘッダの取り出しは `status` を見ない（5.4）。値は `Headers::get` の借用をそのまま返す（5.5）。
 
 **Dependencies**
 - Inbound: ホストのコード — 文字コードを変えた後の応答を読む（P0）
-- Outbound: VersionDetector — 開始行の版の語を読む（P0）
+- Outbound: VersionDetector — 開始行の先頭から版を読む（P0）
 - External: `shiori4::protocol::Headers` — ヘッダの読み分けの規則（P0）
 
 **Contracts**: Service [x]
@@ -312,13 +312,12 @@ impl<'a> Response<'a> {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 開始行の版の語だけを ASCII として読み、SHIORI/3.0 か SHIORI/2.x かを返す |
+| Intent | 開始行の先頭の ASCII の `SHIORI/2`・`SHIORI/3` だけを読み、SHIORI/2.x か SHIORI/3.x かを返す |
 | Requirements | 4.6, 6.1, 6.2, 6.3, 6.4, 6.5, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8 |
 
 **Responsibilities & Constraints**
-- 最初の LF より前だけを見る（6.3）。末尾の CR を除き、最初の ASCII の空白（無ければ行の終わり）までを版の語とする。ステータスより後ろは見ない（6.5・7.5）。
-- 版の語が `SHIORI/` ＋ ASCII の数字 1 つ以上 ＋ `.` ＋ ASCII の数字 1 つ以上の形のときだけ数を読む。そうでなければ（空・ASCII でない・数字が無い）`None`（6.4）。
-- 大きい方が 3 で小さい方が 0 なら `V3`、大きい方が 2 なら `V2(小さい方)`。それ以外の形の合う版（`SHIORI/1.0`・`SHIORI/3.1`・`SHIORI/4.0` など）と、小さい方が `u8` に入らない数は `None`（仮定 A2）。
+- 応答の先頭の 8 バイトだけを見る（6.3。最初の行より後ろに届かない）。ステータスより後ろは見ない（6.5・7.5）。
+- 先頭が `SHIORI/2` なら `V2`、`SHIORI/3` なら `V3`。それ以外（空・8 バイトに足りない・ASCII でない・`SHIORI/1`・`SHIORI/4` など）は `None`（6.4）。`.` より後ろの小さい方の番号は読まない（`SHIORI/2` まで読めば決まる。設計議題 1）。
 - 文字コードを仮定しない。`&str` は `as_bytes()` と同じに読むので、文字列とバイト列で同じ結果（6.2）。`Charset` を読まない（7.7）。
 
 **Dependencies**
@@ -330,23 +329,23 @@ impl<'a> Response<'a> {
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Version {
-    /// SHIORI/3.0。この後は SHIORI/3.0 で話す
+    /// SHIORI/3.x（開始行が `SHIORI/3` で始まる）。この後は SHIORI/3.0 の形で話す
     V3,
-    /// SHIORI/2.x。値は開始行の小さい方の番号（SHIORI/2.6 なら 6）。この後は SHIORI/2.x で話す
-    V2(u8),
+    /// SHIORI/2.x（開始行が `SHIORI/2` で始まる）。この後は SHIORI/2.x で話す
+    V2,
 }
 
 /// 応答の開始行の版。分からなければ None（空の応答も None）
 pub fn version_of(response: impl AsRef<[u8]>) -> Option<Version>;
 ```
 - Preconditions: なし。
-- Postconditions: 戻り値は応答の最初の行の版の語だけで決まる（どの要求への応答でも同じに読む。7.8）。
+- Postconditions: 戻り値は応答の先頭の 8 バイトだけで決まる（どの要求への応答でも同じに読む。7.8）。
 - Invariants: 同じ応答の `Response::parse(text).map(|r| r.version)` が `Some` なら、`version_of(text)` と一致する（どちらも同じ非公開の読み分けを通る）。
 
 **Implementation Notes**
 - Integration: 版の切り替えの手順は `get_version`（7.1）と `version_of`（7.2〜7.4）の 2 つの関数で、手順の型・状態は持たない（7.6）。ホストは `LegacyRuntime::request` が `Err` を返したら「分からない」として扱う（7.4）。
 - Validation: `#[non_exhaustive]` を付けない（設計議題 4）。
-- Risks: 版の語の後ろに空白が無く理由句が続く壊れた開始行（`SHIORI/2.6200 OK`）は小さい方を 6200 と読みかけるが、`u8` に入らないので `None`。
+- Risks: `SHIORI/2.6200 OK` のような壊れた開始行も `V2` と読む。版の見分けはここまでで、その後の中身が読めないかどうかは `Response::parse`（ステータスの語）が別に返す。
 
 ### lib.rs と文書
 
@@ -360,14 +359,14 @@ pub fn version_of(response: impl AsRef<[u8]>) -> Option<Version>;
 ### Data Contracts & Integration
 - 要求（組み立ての出力）: `<method>[ <command>] SHIORI/<version>\r\n(<Name>: <Value>\r\n)*\r\n`。文字は UTF-8 の `String`。送る前の文字コードの変換はホスト。
 - 応答（読み分けの入力）: `SHIORI/<major>.<minor> <status>[ <reason>]` の開始行、CRLF か LF の行、空行で終わる。`Response::parse` は UTF-8 の `&str`、`version_of` は任意のバイト列。
-- `Version` の値の集合: `V3`（`SHIORI/3.0` だけ）、`V2(n)`（`SHIORI/2.n`、`n` は 0〜255）。
+- `Version` の値の集合: `V3`（先頭が `SHIORI/3`）、`V2`（先頭が `SHIORI/2`）。
 
 ## Error Handling
 
 ### Error Strategy
 - 失敗は `Option::None` の 1 種類で返し、失敗の型（enum）は持たない（設計議題 4）。`protocol` の `HostComplete::parse` と同じ形。
   - `request`: 開始行の語が壊れている（作りの誤り）→ `None`。ホストは定数を渡すので、`expect` で落としてよい。
-  - `Response::parse`: 開始行が読めない（`SHIORI/` で始まらない・版かステータスが読めない・版が `V3`／`V2` に入らない）→ `None`。
+  - `Response::parse`: 開始行が読めない（`SHIORI/` で始まらない・先頭が `SHIORI/2`・`SHIORI/3` でない・ステータスが読めない）→ `None`。
   - `version_of`: 版が分からない（空の応答を含む）→ `None`。ホストはそのゴーストの扱いを決める（7.4）。
 - 決まったヘッダが無いのは失敗ではなく `None`（5.2）。
 - パニックしない（添字の範囲外・数の溢れは `None` にする）。
@@ -387,16 +386,16 @@ pub fn version_of(response: impl AsRef<[u8]>) -> Option<Version>;
 - 命令ごとの関数の結果が、同じ引数で作った `request(..).unwrap()` と一致する（9 つすべて。3.5）。出来事の名前と `Reference` が変わらずに書かれる（3.6）。
 
 ### Unit Tests: 応答の読み分けと決まったヘッダ
-- 華和梨の `SHIORI/2.6 200 OK\r\nCharset: Shift_JIS\r\nCraftman: KawariDevelopmentTeam\r\nID: KAWARI.kdt\r\nVersion: 7.4.0\r\n\r\n` が `V2(6)`・200・ヘッダ 4 つに読め、`id`・`craftman`・`version_header` が値を返す（4.1・5.1）。
+- 華和梨の `SHIORI/2.6 200 OK\r\nCharset: Shift_JIS\r\nCraftman: KawariDevelopmentTeam\r\nID: KAWARI.kdt\r\nVersion: 7.4.0\r\n\r\n` が `V2`・200・ヘッダ 4 つに読め、`id`・`craftman`・`version_header` が値を返す（4.1・5.1）。
 - LF だけの応答も同じに読む。空行の後ろの `Sentence: x` を読まない（4.2）。`SHIORI/2.6 200` と `SHIORI/2.6 200 Whatever` が同じ（4.3）。`SHIORI/2.6 299 X` が 299（4.4）。
-- `HTTP/1.0 200 OK`・`SHIORI/2.6 OK`・`SHIORI/x.y 200 OK`・空の文字列が `None`（4.5）。`SHIORI/3.0 200 OK` が `V3`（4.6）。311・312 の `status` が `SHIORI_311_NOT_ENOUGH`・`SHIORI_312_ADVICE` と等しく、`sentence()` も読める（4.7・5.4）。
+- `HTTP/1.0 200 OK`・`SHIORI/2.6 OK`・`SHIORI/x.y 200 OK`・空の文字列が `None`（4.5）。`SHIORI/3.0 200 OK`・`SHIORI/3.1 200 OK` が `V3`（4.6）。311・312 の `status` が `SHIORI_311_NOT_ENOUGH`・`SHIORI_312_ADVICE` と等しく、`sentence()` も読める（4.7・5.4）。
 - `Sentence` が無く `Value` があれば `sentence()` が `Value` を返し、両方あれば `Sentence`。どちらも無ければ `None`（5.2・5.3）。`word`・`string`・`status_header`・`version_header` も同じ。`id`・`craftman` は `Value` に代えない。
 - `Status: neuron,neuronm` が分けずに原文のまま、`Sentence` の `\h\s[0]` がエスケープの解釈なしで返る（5.5）。
 
 ### Unit Tests: 版の見分け
-- Shift_JIS の本文を持つバイト列 `b"SHIORI/2.6 200 OK\r\nSentence: \x82\xa0\r\n\r\n"` が `Some(V2(6))`（6.1）。同じ内容の ASCII の `&str` と `&[u8]` が同じ結果（6.2）。
-- 開始行の後ろに壊れたバイト列や `SHIORI/3.0` の行があっても、最初の行だけで決まる（6.3）。空・`SHIORI/2`・`SHIORI/2.`・`SHIORI/２.６`（全角）・非 ASCII の版の語が `None`（6.4）。
-- `SHIORI/2.6 400 Bad Request` が `V2(6)`、shiori4 の SHIORI の側の答え `SHIORI/3.0 400 Bad Request` が `V3`（6.5・7.2・7.3・7.5）。`SHIORI/1.0`・`SHIORI/3.1`・`SHIORI/2.300` が `None`（7.4・仮定 A2）。
+- Shift_JIS の本文を持つバイト列 `b"SHIORI/2.6 200 OK\r\nSentence: \x82\xa0\r\n\r\n"` が `Some(V2)`（6.1）。同じ内容の ASCII の `&str` と `&[u8]` が同じ結果（6.2）。
+- 開始行の後ろに壊れたバイト列や `SHIORI/3.0` の行があっても、最初の行だけで決まる（6.3）。空・`SHIORI/`・`SHIORI/２.６`（全角）・`shiori/2.6`・非 ASCII の先頭が `None`。`SHIORI/2`・`SHIORI/2.`・`SHIORI/2.300` は `V2`（6.4）。
+- `SHIORI/2.6 400 Bad Request` が `V2`、shiori4 の SHIORI の側の答え `SHIORI/3.0 400 Bad Request` が `V3`（6.5・7.2・7.3・7.5）。`SHIORI/1.0`・`SHIORI/4.0` が `None`（7.4）。
 - `version_of` と `Response::parse(..).map(|r| r.version)` が同じ例の集まりで一致する（Invariant）。
 
 ### 既存の環境
@@ -422,6 +421,4 @@ pub fn version_of(response: impl AsRef<[u8]>) -> Option<Version>;
   - `README.md` に 1 文足す。
   - `common` を常に先に書く。
   - ABI のエラーはホストが「分からない」として扱い、関数の doc に書く。
-
-## Open Questions / Risks（設計ディスカッションで決める）
-- **A2 `Version` の範囲**（設計議題 1。議論中）: 下書きは `SHIORI/3.0` だけを `V3`、`SHIORI/2.n`（`n` は `u8`）を `V2(n)` とし、`SHIORI/3.1`・`SHIORI/1.x`・`SHIORI/4.0` は `None` にしている。
+- **設計議題 1（版の見分けの範囲）**: 開始行の先頭が `SHIORI/2` なら `V2`、`SHIORI/3` なら `V3`、それ以外は `None`。小さい方の番号は読まず、`Version` も持たない（`SHIORI/3.x` は普通にあり、`SHIORI/2` まで読めば決まるため）。版が決まった後に中身が読めないのは別の失敗で、`Response::parse` のステータスの読み分けが返す。要件 4.5・4.6・6.1・6.4・7.2・7.3 をこれに合わせて直した（7.3 の「小さい方の番号もあわせて返す」は外した）。
