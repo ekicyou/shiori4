@@ -3,7 +3,7 @@ resolver = "3"
 members = ["shiori4_abi", "shiori4", "shiori4_host"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Dot-Station Master <dot.station@gmail.com>"]
@@ -13,5 +13,5 @@ homepage = "https://github.com/ekicyou/shiori4"
 keywords = ["shiori", "ghost", "ukagaka"]
 
 [workspace.dependencies]
-shiori4_abi = { path = "shiori4_abi", version = "0.1.0" }
-shiori4 = { path = "shiori4", version = "0.1.0" }
+shiori4_abi = { path = "shiori4_abi", version = "0.1.1" }
+shiori4 = { path = "shiori4", version = "0.1.1" }
