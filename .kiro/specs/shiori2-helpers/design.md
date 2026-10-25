@@ -37,7 +37,7 @@
 - steering（`tech.md`・`structure.md`）の同期は kiro-complete の段で行う（この spec の実装のタスクに入れない）。
 
 ### Allowed Dependencies
-- `shiori2.rs` が使ってよいのは std と、`shiori4::protocol::{Headers, HeaderWriter}`、`shiori4::shiori4_abi` の `ShioriStatus`（`crate::ShioriStatus` の再エクスポート経由でよい）だけ。
+- `shiori2.rs` が使ってよいのは std と、`shiori4::protocol::{Headers, HeaderWriter}` とヘッダの名前の定数 `shiori4::protocol::HEADER_*`、`shiori4::shiori4_abi` の `ShioriStatus`（`crate::ShioriStatus` の再エクスポート経由でよい）だけ。
 - `shiori2.rs` は crate の中のほかのモジュール（`v3`・`discover`・`dist`・`legacy`・`lib.rs` の芯の型）を使わない。逆に、芯のどのファイルも `shiori2` を使わない（向きは「ホストのコード → `shiori2` → `shiori4::protocol`」だけ）。
 - 外部の crate を足さない（`libloading` も使わない）。
 
