@@ -300,6 +300,7 @@ graph TB
 
 **Responsibilities & Constraints**
 - 初期化の入口はこの 1 つだけ。パスから読む入口は作らない（議題 1）。
+- `ghost_dir` には、発見の口に渡したのと同じ dir を渡す（`LoadedGhost::Legacy` は dir を持たないため）。型の doc に書く。
 - `entry` が `Loadu` なら `loadu`、`Load` なら `load` を呼ぶ。それ以外（`V4`・`V3`）は `NotShiori4`。発見の口がすでに `loadu` を先に見て、許可された口で解決している（要件 2.1・2.6）。
 - `entry` の口・`unload`・`request` の 3 つが揃わなければ、何も呼ばずに `NotShiori4`（要件 2.3）。
 - 初期化の BOOL は `i32` で受け、`!= 0` を成功とする。下位 1 バイトで読む守りは持たない（要件 2.4・裁定 d）。
